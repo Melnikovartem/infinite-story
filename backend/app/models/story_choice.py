@@ -6,12 +6,11 @@ class ChoiceFlags(BaseModel):
     nsfw: bool = False
     violent: bool = False
 
-class Choice(StoryBase):
+class StoryChoice(StoryBase):
     """A choice in a story.
     
     This represents a choice that leads from one story segment to another.
     """
-    story_id: str
     from_segment_id: str
     to_segment_id: str
     text: str

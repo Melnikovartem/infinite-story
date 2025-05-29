@@ -22,6 +22,8 @@ class StoryRunner:
             
         # Load the start segment
         self.current_segment = self._load_segment(self.story.start_segment_id)
+        # Add start segment to visited segments
+        self.visited_segments.add(self.story.start_segment_id)
         self._update_active_entities()
         
     def _load_segment(self, segment_id: str) -> StorySegment:
@@ -31,6 +33,7 @@ class StoryRunner:
         return StorySegment(
             id=segment_id,
             story_id=self.story.story_id,
+            from_choice_id=None,  # Start segment has no previous choice
             text_blocks=[],
             characters=[],
             locations=[]

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Union, Dict
 from pydantic import Field
 from .story_base import StoryBase
 
@@ -20,3 +20,12 @@ class Story(StoryBase):
         For the Story class, the story_id is the same as the object's id.
         """
         return self.id
+
+class StoryContext(StoryBase):
+    """Context for a story.
+    
+    This represents the fundamental truths and worldbuilding elements
+    that provide context for the story.
+    """
+    fundamental_truths: List[str]
+    worldbuilding: Union[str, Dict]

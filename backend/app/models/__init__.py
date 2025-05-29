@@ -1,10 +1,9 @@
 from .user import User
-from .story import Story
-from .segment import StorySegment, CharacterStatus, LocationStatus
-from .choice import Choice, ChoiceFlags
-from .context import StoryContext
-from .character import Character
-from .location import Location
+from .story import Story, StoryContext
+from .story_segment import StorySegment, CharacterStatus, LocationStatus
+from .story_choice import StoryChoice, ChoiceFlags
+from .story_character import StoryCharacter
+from .story_location import StoryLocation
 from .types import TextType, TextBlock
 
 __all__ = [
@@ -16,7 +15,7 @@ __all__ = [
     'Choice',
     'ChoiceFlags',
     'StoryContext',
-    'Character',
+    'StoryCharacter',
     'Location',
     'TextType',
     'TextBlock',

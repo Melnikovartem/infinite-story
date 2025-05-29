@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Dict, Any, Optional, TypeVar, Generic, Type
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -18,8 +18,8 @@ class StoryBase(BaseModel):
     """
     
     id: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     
     @property
     def story_id(self) -> str:
@@ -104,7 +104,7 @@ class StoryBase(BaseModel):
             IOError: If the file cannot be written
         """
         # Update the updated_at timestamp
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(UTC)
         
         # Ensure all necessary directories exist
         storage_dir = self.get_storage_dir(self.story_id)

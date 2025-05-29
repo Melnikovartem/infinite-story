@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .story_base import StoryBase
 from .types import TextBlock
 
@@ -19,8 +19,7 @@ class StorySegment(StoryBase):
     This represents a single segment of a story, containing text blocks,
     character statuses, and location statuses.
     """
-    story_id: str
-    from_choice_id: Optional[str]
-    text_blocks: List[TextBlock]
-    characters: List[CharacterStatus]
-    locations: List[LocationStatus]
+    from_choice_id: Optional[str] = None  # None for start segment
+    text_blocks: List[TextBlock] = Field(default_factory=list)
+    characters: List[CharacterStatus] = Field(default_factory=list)
+    locations: List[LocationStatus] = Field(default_factory=list)
