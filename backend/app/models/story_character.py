@@ -1,10 +1,12 @@
-from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from .story_base import StoryBase
 
-class Character(BaseModel):
-    id: str
+class Character(StoryBase):
+    """A character in a story.
+    
+    This represents a character with their name, description, and background.
+    """
     story_id: str
     name: str
     description: str
     background: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)

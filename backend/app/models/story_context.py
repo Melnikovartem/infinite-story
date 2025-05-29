@@ -1,10 +1,13 @@
-from datetime import datetime
 from typing import List, Dict, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from .story_base import StoryBase
 
-class StoryContext(BaseModel):
-    id: str
+class StoryContext(StoryBase):
+    """Context for a story.
+    
+    This represents the fundamental truths and worldbuilding elements
+    that provide context for the story.
+    """
     story_id: str
     fundamental_truths: List[str]
     worldbuilding: Union[str, Dict]
-    created_at: datetime = Field(default_factory=datetime.utcnow)
