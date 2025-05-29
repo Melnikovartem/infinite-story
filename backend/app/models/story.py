@@ -1,4 +1,4 @@
-from typing import Optional, List, Union, Dict
+from typing import Optional, List, Union, Dict, TYPE_CHECKING
 from pydantic import Field, PrivateAttr, model_validator
 from .story_base import StoryBase
 from datetime import datetime, UTC
@@ -6,6 +6,7 @@ from .story_character import StoryCharacter
 from .story_location import StoryLocation
 from .story_segment import StorySegment
 from .story_choice import StoryChoice
+from .story_context import StoryContext
 
 class Story(StoryBase):
     """A story in the system.
@@ -23,6 +24,7 @@ class Story(StoryBase):
     _locations: Dict[str, StoryLocation] = PrivateAttr(default_factory=dict)
     _segments: Dict[str, StorySegment] = PrivateAttr(default_factory=dict)
     _choices: Dict[str, StoryChoice] = PrivateAttr(default_factory=dict)
+    _context: Optional[StoryContext] = PrivateAttr(default=None)
     
     def __init__(self, **data):
         """Initialize a Story instance.
@@ -38,6 +40,17 @@ class Story(StoryBase):
         """Set the story_id to be the same as id for Story instances."""
         self.story_id = self.id
         return self
+    
+    def add_context(self, context: StoryContext) -> None:
+        """Add context to the story.
+        
+        Args:
+            context: The context to add
+        """
+        if context.story_id != self.id:
+            raise ValueError(f"Context belongs to story {context.story_id}, not {self.id}")
+        self._context = context
+        context.story = self
     
     def add_character(self, character: StoryCharacter) -> None:
         """Add a character to the story.
@@ -205,12 +218,3 @@ class Story(StoryBase):
         For the Story class, the story ID is the same as the object's ID.
         """
         return self.id
-
-class StoryContext(StoryBase):
-    """Context for a story.
-    
-    This represents the fundamental truths and worldbuilding elements
-    that provide context for the story.
-    """
-    fundamental_truths: List[str]
-    worldbuilding: Union[str, Dict]

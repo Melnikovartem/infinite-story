@@ -1,84 +1,115 @@
 from typing import TypeVar, Generic, Type, Optional, Dict, Any
-from pydantic import BaseModel
-from ..models.types import GeneratorResponse
+from pydantic import BaseModel, ValidationError
+import json
+import re
+from ..models.types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
 
-T = TypeVar('T', bound=GeneratorResponse)
-
-class Generator(Generic[T]):
-    """Base class for AI generators.
+class TextGenerator:
+    """Class for generating text content using AI models.
     
-    This class provides common functionality for generating content using AI models.
-    It handles response parsing and error handling.
+    This class handles text generation with different response types based on context.
+    It automatically determines the appropriate response type and generates content accordingly.
     """
     
-    def __init__(self, response_type: Type[T]):
-        """Initialize the generator.
+    def __init__(
+        self,
+        temperature: float = 0.7,
+        max_tokens: int = 1000
+    ):
+        """Initialize the text generator.
         
         Args:
-            response_type: The Pydantic model class to parse responses into
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum tokens to generate
         """
-        self.response_type = response_type
+        self.response_types = {
+            "world": WorldTextGeneratorResponse,
+            "character": CharacterTextGeneratorResponse,
+            "location": LocationTextGeneratorResponse,
+            "scene": SceneTextGeneratorResponse
+        }
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         
-    def generate(
+    async def generate(
         self,
         system_prompt: str,
         user_prompt: str,
-        context: Optional[BaseModel] = None
-    ) -> T:
-        """Generate content based on prompts and context.
+        context_type: str
+    ) -> TextGeneratorResponse:
+        """Generate content based on prompts and context type.
         
         Args:
             system_prompt: The system prompt that sets the behavior of the AI
             user_prompt: The user prompt that specifies what to generate
-            context: Optional Pydantic model that provides context and validates the generated response
+            context_type: The type of content to generate ("world", "character", "location", "scene")
             
         Returns:
-            A parsed response of type T
+            A parsed response of the appropriate TextGeneratorResponse type
             
         Raises:
-            ValueError: If the response cannot be parsed or validated against context
+            ValueError: If the context_type is invalid or response cannot be parsed
         """
+        if context_type not in self.response_types:
+            raise ValueError(f"Invalid context_type: {context_type}. Must be one of {list(self.response_types.keys())}")
+            
+        response_type = self.response_types[context_type]
+        
         try:
-            # In the future, this will call the AI model with both prompts
-            raw_response = "{}"  # Empty JSON for now
+            # Get the schema description for the response type
+            schema = response_type.get_schema_description()
             
-            # Parse the response into the specified type
-            response = self.response_type(
-                raw_response=raw_response,
-                parsed_data={},
-                error=None
-            )
+            # Combine system prompt with schema
+            full_system_prompt = f"{system_prompt}\n\nResponse Schema:\n{schema}"
             
-            # If context is provided, validate the response against it
-            if context is not None:
-                # TODO: Implement context validation
-                # This will depend on the specific context model and response type
-                pass
-                
+            # Generate content using the internal method
+            raw_response = await self._generate_content(full_system_prompt, user_prompt)
+            
+            # Extract JSON using regex first
+            json_pattern = r'\{[^{}]*\}'
+            matches = re.finditer(json_pattern, raw_response)
+            json_str = None
+            
+            # Try each potential JSON match
+            for match in matches:
+                try:
+                    json_str = match.group(0)
+                    # Validate that it's actually JSON
+                    json.loads(json_str)
+                    break
+                except json.JSONDecodeError:
+                    continue
+            
+            if not json_str:
+                return response_type(
+                    raw_response=raw_response,
+                    error="No valid JSON found in the response"
+                )
+            
+            response = response_type.model_validate_json(json_str)
+            response.raw_response = raw_response
             return response
             
         except Exception as e:
             # If parsing fails, return a response with the error
-            return self.response_type(
+            return TextGeneratorResponse(
                 raw_response="",
-                parsed_data={},
                 error=str(e)
             )
             
-    def _parse_response(self, response: str) -> Dict[str, Any]:
-        """Parse the raw response from the AI model.
+    def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        """Internal method to generate content using the AI model.
         
-        This method should be implemented by subclasses to handle their specific
-        response format.
+        This method should be implemented to handle the actual AI model interaction.
         
         Args:
-            response: The raw response from the AI model
+            system_prompt: The system prompt that includes the schema
+            user_prompt: The user prompt that specifies what to generate
             
         Returns:
-            A dictionary of parsed data
+            A JSON string containing the generated content
             
         Raises:
-            ValueError: If the response cannot be parsed
+            NotImplementedError: This method must be implemented by subclasses
         """
-        # TODO: Implement actual response parsing
-        return {}
+        raise NotImplementedError("_generate_content method must be implemented")

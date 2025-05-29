@@ -36,8 +36,9 @@ class TestStoryRunner(unittest.TestCase):
         
         # Create a character
         character = StoryCharacter(
+            story=story,
             id="char_1",
-            story_id=story.story_id,
+            story_id=story.id,  # Set the story_id explicitly
             name="Test Character",
             description="A test character",
             background="Test background"
@@ -45,16 +46,18 @@ class TestStoryRunner(unittest.TestCase):
         
         # Create a location
         location = StoryLocation(
+            story=story,
             id="loc_1",
-            story_id=story.story_id,
+            story_id=story.id,  # Set the story_id explicitly
             name="Test Location",
             description="A test location"
         )
         
         # Create the start segment
         start_segment = StorySegment(
+            story=story,
             id="start_segment_1",
-            story_id=story.story_id,
+            story_id=story.id,  # Set the story_id explicitly
             from_choice_id=None,  # Start segment has no previous choice
             short_description="The beginning of the story",
             text_blocks=[
@@ -79,8 +82,9 @@ class TestStoryRunner(unittest.TestCase):
         
         # Create a choice
         choice = StoryChoice(
+            story=story,
             id="choice_1",
-            story_id=story.story_id,
+            story_id=story.id,  # Set the story_id explicitly
             from_segment_id=start_segment.id,
             to_segment_id="next_segment_1",
             text="Continue the story"
@@ -88,8 +92,9 @@ class TestStoryRunner(unittest.TestCase):
         
         # Create the next segment
         next_segment = StorySegment(
+            story=story,
             id="next_segment_1",
-            story_id=story.story_id,
+            story_id=story.id,  # Set the story_id explicitly
             from_choice_id=choice.id,
             short_description="The continuation of the story",
             text_blocks=[

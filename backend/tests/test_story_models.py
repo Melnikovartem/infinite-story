@@ -3,44 +3,57 @@ import os
 import shutil
 from datetime import datetime, UTC
 from pathlib import Path
+import pytest
 
 from app.models.story import Story
 from app.models.story_segment import StorySegment, CharacterStatus, LocationStatus
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_choice import StoryChoice
-from app.models.types import TextBlock, TextType, SceneGenerationResponse, ChoiceGenerationResponse
-from app.engine.generator import Generator
+from app.models.types import TextBlock, TextType, SceneTextGeneratorResponse
+from app.engine.generator import TextGenerator
 
-class MockGenerator(Generator):
+class MockGenerator(TextGenerator):
     """Mock generator for testing that provides predefined responses."""
     
     def __init__(self, response_type):
-        super().__init__(response_type)
+        super().__init__()
         self.response_type = response_type
         
-    def generate(self, prompt: str):
-        if self.response_type == SceneGenerationResponse:
-            return SceneGenerationResponse(
-                raw_response="{}",
-                parsed_data={},
-                error=None,
-                scene_text="The mysterious room reveals its secrets as you explore further.",
-                scene_summary="Exploring the mysterious room reveals new clues.",
-                character_states={},
-                location_states={},
-                suggested_choices=[]
-            )
-        elif self.response_type == ChoiceGenerationResponse:
-            return ChoiceGenerationResponse(
-                raw_response="{}",
-                parsed_data={},
-                error=None,
-                choice_text="Continue exploring the room",
-                choice_context="The room seems to hold more secrets worth investigating.",
-                expected_outcomes=[]
-            )
-        return super().generate(prompt)
+    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        """Return a predefined response based on the context type."""
+        if self.response_type == SceneTextGeneratorResponse:
+            return '''{
+                "short_description": "A mysterious room reveals its secrets",
+                "text_blocks": [
+                    {
+                        "type": "narrator_describing",
+                        "content": "The room is dimly lit by flickering torches on the walls. Ancient symbols are carved into the stone floor, forming an intricate pattern that seems to pulse with a faint blue light.",
+                        "emotion": "mysterious"
+                    },
+                    {
+                        "type": "character_speech",
+                        "content": "These symbols... they look familiar.",
+                        "character": "Test Character",
+                        "emotion": "curious"
+                    },
+                    {
+                        "type": "sfx",
+                        "content": "A low hum begins to emanate from the symbols",
+                        "sound_asset": "mystical_hum"
+                    }
+                ],
+                "location_change": null,
+                "character_status_change": {"Test Character": "investigating"},
+                "choice_1": "Examine the symbols more closely",
+                "choice_2": "Search for an exit",
+                "atmosphere": "mysterious",
+                "time_of_day": "night",
+                "weather": "indoor",
+                "key_items": ["ancient symbols", "torches", "stone floor"]
+            }'''
+        else:
+            raise ValueError(f"Unsupported response type: {self.response_type}")
 
 class TestStoryModels(unittest.TestCase):
     def setUp(self):
@@ -66,8 +79,9 @@ class TestStoryModels(unittest.TestCase):
         
         # Create test character
         self.character = StoryCharacter(
+            story=self.story,
             id="char_1",
-            story_id=self.test_story_id,
+            story_id=self.story.id,
             name="Test Character",
             description="A test character",
             background="Test background"
@@ -75,16 +89,18 @@ class TestStoryModels(unittest.TestCase):
         
         # Create test location
         self.location = StoryLocation(
+            story=self.story,
             id="loc_1",
-            story_id=self.test_story_id,
+            story_id=self.story.id,
             name="Test Location",
             description="A test location"
         )
         
         # Create test segment
         self.segment = StorySegment(
+            story=self.story,
             id="start_segment_1",
-            story_id=self.test_story_id,
+            story_id=self.story.id,
             from_choice_id=None,
             short_description="The story begins in a mysterious location",
             text_blocks=[
@@ -109,16 +125,15 @@ class TestStoryModels(unittest.TestCase):
         
         # Create test choice
         self.choice = StoryChoice(
+            story=self.story,
             id="choice_1",
-            story_id=self.test_story_id,
+            story_id=self.story.id,
             from_segment_id=self.segment.id,
             to_segment_id="next_segment_1",
             text="Continue the story"
         )
         
-        # Create generators
-        self.scene_generator = MockGenerator(SceneGenerationResponse)
-        self.choice_generator = MockGenerator(ChoiceGenerationResponse)
+        self.generator = MockGenerator(SceneTextGeneratorResponse)
         
     def tearDown(self):
         """Clean up test data after each test."""
@@ -226,13 +241,13 @@ class TestStoryModels(unittest.TestCase):
         loaded_story = Story.load(self.test_story_id, self.story.id)
         self.assertIsNotNone(loaded_story)
         
-    def test_generate_next_scene(self):
+    @pytest.mark.asyncio
+    async def test_generate_next_scene(self):
         """Test generating a new scene from a choice."""
         # Generate a new scene and choice
-        new_scene, new_choice = self.segment.generate_next_scene(
+        new_scene, new_choice = await self.segment.generate_next_scene(
             "Explore the mysterious room",
-            self.scene_generator,
-            self.choice_generator
+            self.generator
         )
         
         # Verify the new scene has the expected structure

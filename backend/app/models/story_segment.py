@@ -1,9 +1,11 @@
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from pydantic import BaseModel, Field
 from .story_base import StoryBase
-from .types import TextBlock, SceneGenerationResponse, ChoiceGenerationResponse
+from .types import TextBlock, SceneTextGeneratorResponse
 from .story_choice import StoryChoice
-from ..engine.generator import Generator
+
+if TYPE_CHECKING:
+    from .story import Story
 
 class CharacterStatus(BaseModel):
     """Status of a character in a story segment."""
@@ -31,6 +33,17 @@ class StorySegment(StoryBase):
     incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict)  # Choices that lead to this segment
     outgoing_choices: Dict[str, StoryChoice] = Field(default_factory=dict)  # Choices that lead from this segment
     
+    def __init__(self, story: Optional['Story'] = None, **data):
+        """Initialize a StorySegment instance.
+        
+        Args:
+            story: Optional Story instance to add this segment to
+            **data: Segment data fields
+        """
+        super().__init__(**data)
+        if story is not None:
+            story.add_segment(self)
+    
     def add_incoming_choice(self, choice: StoryChoice) -> None:
         """Add a choice that leads to this segment."""
         self.incoming_choices[choice.id] = choice
@@ -39,25 +52,22 @@ class StorySegment(StoryBase):
         """Add a choice that leads from this segment."""
         self.outgoing_choices[choice.id] = choice
         
-    def generate_next_scene(
+    async def generate_next_scene(
         self,
         choice_text: str,
-        scene_generator: Generator[SceneGenerationResponse],
-        choice_generator: Generator[ChoiceGenerationResponse]
+        generator: 'TextGenerator',
     ) -> Tuple['StorySegment', StoryChoice]:
         """Generate a new scene based on the current scene and the player's choice.
         
-        This is a stub implementation that will be replaced with actual AI generation.
-        In the future, this will:
-        1. Get the story context and background
-        2. Get summaries of previous scenes
-        3. Get current character and location states
-        4. Generate a new scene based on the choice and context
+        This method:
+        1. Gets the story context and background
+        2. Gets summaries of previous scenes
+        3. Gets current character and location states
+        4. Generates a new scene based on the choice and context
         
         Args:
             choice_text: The text of the choice that led to this new scene
-            scene_generator: The generator to use for scene generation
-            choice_generator: The generator to use for choice generation
+            generator: The text generator to use for scene generation
             
         Returns:
             A tuple containing:
@@ -66,23 +76,19 @@ class StorySegment(StoryBase):
         """
         
         # Generate the new scene
-        scene_response = scene_generator.generate("")  # Empty prompt for now
-        
-        # Generate the choice
-        choice_response = choice_generator.generate("")  # Empty prompt for now
+        scene_response = await generator.generate(
+            system_prompt="You are a creative writing expert. Generate a scene that follows from the player's choice.",
+            user_prompt=f"Previous scene: {self.short_description}\nPlayer's choice: {choice_text}",
+            context_type="scene"
+        )
         
         # Create new segment
         new_segment = StorySegment(
             id=f"segment_{int(self.id.split('_')[-1]) + 1}",  # Increment segment number
             story_id=self.story_id,
             from_choice_id=None,  # This will be set when we create the choice
-            short_description=scene_response.scene_summary,
-            text_blocks=[
-                TextBlock(
-                    type="narrator_describing",
-                    content=scene_response.scene_text
-                )
-            ],
+            short_description=scene_response.short_description,
+            text_blocks=scene_response.text_blocks,
             characters=self.characters,  # Keep the same characters for now
             locations=self.locations  # Keep the same locations for now
         )
@@ -93,7 +99,7 @@ class StorySegment(StoryBase):
             story_id=self.story_id,
             from_segment_id=self.id,
             to_segment_id=new_segment.id,
-            text=choice_response.choice_text
+            text=choice_text
         )
         
         # Set up the choice pointers
