@@ -1,6 +1,11 @@
 from typing import Optional, List, Union, Dict
-from pydantic import Field
+from pydantic import Field, PrivateAttr, model_validator
 from .story_base import StoryBase
+from datetime import datetime, UTC
+from .story_character import StoryCharacter
+from .story_location import StoryLocation
+from .story_segment import StorySegment
+from .story_choice import StoryChoice
 
 class Story(StoryBase):
     """A story in the system.
@@ -13,11 +18,191 @@ class Story(StoryBase):
     user_id: Optional[str] = None
     start_segment_id: Optional[str] = None  # Reference to the first segment of the story
     
-    @property
-    def story_id(self) -> str:
-        """Get the story ID.
+    # Private component caches
+    _characters: Dict[str, StoryCharacter] = PrivateAttr(default_factory=dict)
+    _locations: Dict[str, StoryLocation] = PrivateAttr(default_factory=dict)
+    _segments: Dict[str, StorySegment] = PrivateAttr(default_factory=dict)
+    _choices: Dict[str, StoryChoice] = PrivateAttr(default_factory=dict)
+    
+    def __init__(self, **data):
+        """Initialize a Story instance.
         
-        For the Story class, the story_id is the same as the object's id.
+        For Story instances, the story_id is always the same as the id.
+        """
+        if 'id' in data and 'story_id' not in data:
+            data['story_id'] = data['id']
+        super().__init__(**data)
+    
+    @model_validator(mode='after')
+    def set_story_id(self) -> 'Story':
+        """Set the story_id to be the same as id for Story instances."""
+        self.story_id = self.id
+        return self
+    
+    def add_character(self, character: StoryCharacter) -> None:
+        """Add a character to the story.
+        
+        Args:
+            character: The character to add
+        """
+        if character.story_id != self.id:
+            raise ValueError(f"Character {character.id} belongs to story {character.story_id}, not {self.id}")
+        self._characters[character.id] = character
+        character.story = self
+        
+    def add_location(self, location: StoryLocation) -> None:
+        """Add a location to the story.
+        
+        Args:
+            location: The location to add
+        """
+        if location.story_id != self.id:
+            raise ValueError(f"Location {location.id} belongs to story {location.story_id}, not {self.id}")
+        self._locations[location.id] = location
+        location.story = self
+        
+    def add_segment(self, segment: StorySegment) -> None:
+        """Add a segment to the story.
+        
+        Args:
+            segment: The segment to add
+        """
+        if segment.story_id != self.id:
+            raise ValueError(f"Segment {segment.id} belongs to story {segment.story_id}, not {self.id}")
+        self._segments[segment.id] = segment
+        segment.story = self
+        
+    def add_choice(self, choice: StoryChoice) -> None:
+        """Add a choice to the story.
+        
+        Args:
+            choice: The choice to add
+        """
+        if choice.story_id != self.id:
+            raise ValueError(f"Choice {choice.id} belongs to story {choice.story_id}, not {self.id}")
+        self._choices[choice.id] = choice
+        choice.story = self
+        
+    def get_character(self, character_id: str) -> Optional[StoryCharacter]:
+        """Get a character by ID.
+        
+        Args:
+            character_id: The ID of the character to get
+            
+        Returns:
+            The character, or None if not found
+        """
+        if character_id not in self._characters:
+            character = StoryCharacter.load(self.id, character_id)
+            if character:
+                self.add_character(character)
+        return self._characters.get(character_id)
+        
+    def get_location(self, location_id: str) -> Optional[StoryLocation]:
+        """Get a location by ID.
+        
+        Args:
+            location_id: The ID of the location to get
+            
+        Returns:
+            The location, or None if not found
+        """
+        if location_id not in self._locations:
+            location = StoryLocation.load(self.id, location_id)
+            if location:
+                self.add_location(location)
+        return self._locations.get(location_id)
+        
+    def get_segment(self, segment_id: str) -> Optional[StorySegment]:
+        """Get a segment by ID.
+        
+        Args:
+            segment_id: The ID of the segment to get
+            
+        Returns:
+            The segment, or None if not found
+        """
+        if segment_id not in self._segments:
+            segment = StorySegment.load(self.id, segment_id)
+            if segment:
+                self.add_segment(segment)
+        return self._segments.get(segment_id)
+        
+    def get_choice(self, choice_id: str) -> Optional[StoryChoice]:
+        """Get a choice by ID.
+        
+        Args:
+            choice_id: The ID of the choice to get
+            
+        Returns:
+            The choice, or None if not found
+        """
+        if choice_id not in self._choices:
+            choice = StoryChoice.load(self.id, choice_id)
+            if choice:
+                self.add_choice(choice)
+        return self._choices.get(choice_id)
+        
+    def get_all_characters(self) -> List[StoryCharacter]:
+        """Get all characters in the story.
+        
+        Returns:
+            A list of all characters
+        """
+        # Load any characters that aren't in the cache
+        for character_id in StoryCharacter.list_all(self.id):
+            if character_id not in self._characters:
+                character = StoryCharacter.load(self.id, character_id)
+                if character:
+                    self.add_character(character)
+        return list(self._characters.values())
+        
+    def get_all_locations(self) -> List[StoryLocation]:
+        """Get all locations in the story.
+        
+        Returns:
+            A list of all locations
+        """
+        # Load any locations that aren't in the cache
+        for location_id in StoryLocation.list_all(self.id):
+            if location_id not in self._locations:
+                location = StoryLocation.load(self.id, location_id)
+                if location:
+                    self.add_location(location)
+        return list(self._locations.values())
+        
+    def get_all_segments(self) -> List[StorySegment]:
+        """Get all segments in the story.
+        
+        Returns:
+            A list of all segments
+        """
+        # Load any segments that aren't in the cache
+        for segment_id in StorySegment.list_all(self.id):
+            if segment_id not in self._segments:
+                segment = StorySegment.load(self.id, segment_id)
+                if segment:
+                    self.add_segment(segment)
+        return list(self._segments.values())
+        
+    def get_all_choices(self) -> List[StoryChoice]:
+        """Get all choices in the story.
+        
+        Returns:
+            A list of all choices
+        """
+        # Load any choices that aren't in the cache
+        for choice_id in StoryChoice.list_all(self.id):
+            if choice_id not in self._choices:
+                choice = StoryChoice.load(self.id, choice_id)
+                if choice:
+                    self.add_choice(choice)
+        return list(self._choices.values())
+
+    def get_story_id(self) -> str:
+        """Get the story ID for this object.
+        
+        For the Story class, the story ID is the same as the object's ID.
         """
         return self.id
 

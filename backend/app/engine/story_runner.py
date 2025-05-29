@@ -36,7 +36,8 @@ class StoryRunner:
             from_choice_id=None,  # Start segment has no previous choice
             text_blocks=[],
             characters=[],
-            locations=[]
+            locations=[],
+            short_description="Loaded segment"
         )
         
     def _update_active_entities(self) -> None:

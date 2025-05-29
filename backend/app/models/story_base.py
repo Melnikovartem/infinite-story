@@ -1,35 +1,62 @@
 import json
 import os
 from datetime import datetime, UTC
-from typing import Dict, Any, Optional, TypeVar, Generic, Type
-from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, TypeVar, Generic, Type, Union
+from pydantic import BaseModel, Field, model_validator, PrivateAttr
 from pathlib import Path
 
 T = TypeVar('T', bound='StoryBase')
 
 class StoryBase(BaseModel):
-    """Base class for all story-related models with save functionality.
+    """Base class for all story components.
     
-    This class provides common functionality for saving and loading story objects
-    to/from JSON files in a structured directory.
-    
-    Storage structure:
-    /data/<story_id>/<object_type>/<object_id>.json
+    This class provides common functionality for all story components,
+    including saving, loading, and listing.
     """
-    
     id: str
+    story_id: str  # Required field for all story components
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     
+    # Private attributes
+    _story: Optional['Story'] = PrivateAttr(default=None)
+    
+    @model_validator(mode='after')
+    def validate_story(self) -> 'StoryBase':
+        """Validate that if story is provided, its ID matches story_id."""
+        if self._story:
+            # If this is a Story instance, use self as the story reference
+            if self.__class__.__name__ == 'Story':
+                self._story = self
+            # For other components, ensure story_id matches the story's id
+            elif self.story_id != self._story.id:
+                raise ValueError(f"story_id {self.story_id} does not match story.id {self._story.id}")
+            
+        return self
+    
     @property
-    def story_id(self) -> str:
+    def story(self) -> Optional['Story']:
+        """Get the story instance this component belongs to."""
+        if self._story is None and self.story_id is not None:
+            from .story import Story
+            self._story = Story.load(self.story_id, self.story_id)
+        return self._story
+    
+    @story.setter
+    def story(self, value: 'Story') -> None:
+        """Set the story instance this component belongs to."""
+        self._story = value
+        self.story_id = value.id if value else None
+    
+    def get_story_id(self) -> str:
         """Get the story ID for this object.
         
         This should be overridden by classes that don't have a direct story_id field.
         """
-        if hasattr(self, 'story_id'):
-            return self.story_id
-        raise NotImplementedError(f"{self.__class__.__name__} must implement story_id property")
+        # Check if the class has a story_id field in its model fields
+        if 'story_id' in self.__class__.model_fields:
+            return getattr(self, 'story_id')
+        raise NotImplementedError(f"{self.__class__.__name__} must implement get_story_id method")
     
     @classmethod
     def ensure_directory_exists(cls, path: Path) -> None:
@@ -95,80 +122,73 @@ class StoryBase(BaseModel):
         return cls.get_storage_dir(story_id) / f"{object_id}.json"
     
     def save(self) -> None:
-        """Save the object to a JSON file.
+        """Save the component to disk."""
+        # Get the data directory for this story
+        data_dir = Path("data") / self.story_id
+        data_dir.mkdir(parents=True, exist_ok=True)
         
-        The file will be saved in a directory structure based on the story ID and object type:
-        /data/<story_id>/<object_type>/<object_id>.json
+        # Get the component type directory
+        component_type = self.__class__.__name__.lower()
+        component_dir = data_dir / component_type
+        component_dir.mkdir(exist_ok=True)
         
-        Raises:
-            IOError: If the file cannot be written
-        """
-        # Update the updated_at timestamp
-        self.updated_at = datetime.now(UTC)
-        
-        # Ensure all necessary directories exist
-        storage_dir = self.get_storage_dir(self.story_id)
-        
-        # Get the file path
-        file_path = self.get_file_path(self.story_id, self.id)
-        
-        # Convert to dict and save as JSON
-        data = self.model_dump()
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, default=str)
-    
+        # Save the component
+        file_path = component_dir / f"{self.id}.json"
+        with open(file_path, "w") as f:
+            json.dump(self.model_dump(), f, default=str)
+            
     @classmethod
-    def load(cls: Type[T], story_id: str, object_id: str) -> Optional[T]:
-        """Load an object from a JSON file.
+    def load(cls, story_id: str, component_id: str) -> Optional['StoryBase']:
+        """Load a component from disk.
         
         Args:
-            story_id: The ID of the story this object belongs to
-            object_id: The ID of the object to load
+            story_id: The ID of the story
+            component_id: The ID of the component to load
             
         Returns:
-            The loaded object, or None if the file doesn't exist
-            
-        Raises:
-            ValueError: If the file exists but contains invalid data
+            The loaded component, or None if it doesn't exist
         """
-        file_path = cls.get_file_path(story_id, object_id)
+        # Get the component type directory
+        component_type = cls.__name__.lower()
+        file_path = Path("data") / story_id / component_type / f"{component_id}.json"
         
         if not file_path.exists():
             return None
+            
+        # Load the component
+        with open(file_path, "r") as f:
+            data = json.load(f)
+            
+        # Create the component
+        component = cls(**data)
+        component.story_id = story_id
+        return component
         
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return cls.model_validate(data)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in file {file_path}: {e}")
-        except Exception as e:
-            raise ValueError(f"Error loading {cls.__name__} from {file_path}: {e}")
-    
     @classmethod
     def list_all(cls, story_id: str) -> list[str]:
-        """List all object IDs of this type for a specific story.
+        """List all components of this type for a story.
         
         Args:
-            story_id: The ID of the story to list objects for
+            story_id: The ID of the story
             
         Returns:
-            List of object IDs
+            A list of component IDs
         """
-        storage_dir = cls.get_storage_dir(story_id)
-        if not storage_dir.exists():
+        # Get the component type directory
+        component_type = cls.__name__.lower()
+        component_dir = Path("data") / story_id / component_type
+        
+        if not component_dir.exists():
             return []
+            
+        # List all components
+        return [f.stem for f in component_dir.glob("*.json")]
         
-        return [
-            f.stem for f in storage_dir.glob("*.json")
-        ]
-    
     def delete(self) -> None:
-        """Delete the object's JSON file.
+        """Delete the component from disk."""
+        # Get the component type directory
+        component_type = self.__class__.__name__.lower()
+        file_path = Path("data") / self.story_id / component_type / f"{self.id}.json"
         
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-        """
-        file_path = self.get_file_path(self.story_id, self.id)
         if file_path.exists():
             file_path.unlink() 

@@ -9,8 +9,10 @@ class ChoiceFlags(BaseModel):
 class StoryChoice(StoryBase):
     """A choice in a story.
     
-    This represents a choice that leads from one story segment to another.
+    This represents a choice that the player can make, with text and references
+    to the segments it connects.
     """
+    story_id: str = Field(alias="story_id")
     from_segment_id: str
     to_segment_id: str
     text: str

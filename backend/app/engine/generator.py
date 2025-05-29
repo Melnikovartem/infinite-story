@@ -1,35 +1,84 @@
-from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Optional, Dict, Any
+from typing import TypeVar, Generic, Type, Optional, Dict, Any
 from pydantic import BaseModel
+from ..models.types import GeneratorResponse
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar('T', bound=GeneratorResponse)
 
-class Generator(Generic[T], ABC):
-    """Abstract base class for story generators.
+class Generator(Generic[T]):
+    """Base class for AI generators.
     
-    This class defines the interface for all story generators in the system.
-    Each concrete implementation must provide a way to generate content based on prompts
-    and return a validated Pydantic model.
+    This class provides common functionality for generating content using AI models.
+    It handles response parsing and error handling.
     """
     
-    @abstractmethod
-    async def generate(
+    def __init__(self, response_type: Type[T]):
+        """Initialize the generator.
+        
+        Args:
+            response_type: The Pydantic model class to parse responses into
+        """
+        self.response_type = response_type
+        
+    def generate(
         self,
         system_prompt: str,
         user_prompt: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[BaseModel] = None
     ) -> T:
-        """Generate content based on the given prompts.
+        """Generate content based on prompts and context.
         
         Args:
-            system_prompt: The system-level prompt that defines the behavior and constraints
-            user_prompt: The user-level prompt that specifies what to generate
-            context: Optional additional context for the generation
+            system_prompt: The system prompt that sets the behavior of the AI
+            user_prompt: The user prompt that specifies what to generate
+            context: Optional Pydantic model that provides context and validates the generated response
             
         Returns:
-            A validated Pydantic model instance of type T
+            A parsed response of type T
             
         Raises:
-            NotImplementedError: If the concrete class doesn't implement this method
+            ValueError: If the response cannot be parsed or validated against context
         """
-        raise NotImplementedError("Concrete generator must implement generate method")
+        try:
+            # In the future, this will call the AI model with both prompts
+            raw_response = "{}"  # Empty JSON for now
+            
+            # Parse the response into the specified type
+            response = self.response_type(
+                raw_response=raw_response,
+                parsed_data={},
+                error=None
+            )
+            
+            # If context is provided, validate the response against it
+            if context is not None:
+                # TODO: Implement context validation
+                # This will depend on the specific context model and response type
+                pass
+                
+            return response
+            
+        except Exception as e:
+            # If parsing fails, return a response with the error
+            return self.response_type(
+                raw_response="",
+                parsed_data={},
+                error=str(e)
+            )
+            
+    def _parse_response(self, response: str) -> Dict[str, Any]:
+        """Parse the raw response from the AI model.
+        
+        This method should be implemented by subclasses to handle their specific
+        response format.
+        
+        Args:
+            response: The raw response from the AI model
+            
+        Returns:
+            A dictionary of parsed data
+            
+        Raises:
+            ValueError: If the response cannot be parsed
+        """
+        # TODO: Implement actual response parsing
+        return {}

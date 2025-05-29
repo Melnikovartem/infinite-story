@@ -56,6 +56,7 @@ class TestStoryRunner(unittest.TestCase):
             id="start_segment_1",
             story_id=story.story_id,
             from_choice_id=None,  # Start segment has no previous choice
+            short_description="The beginning of the story",
             text_blocks=[
                 TextBlock(
                     type=TextType.NARRATOR_DESCRIBING,
@@ -90,6 +91,7 @@ class TestStoryRunner(unittest.TestCase):
             id="next_segment_1",
             story_id=story.story_id,
             from_choice_id=choice.id,
+            short_description="The continuation of the story",
             text_blocks=[
                 TextBlock(
                     type=TextType.NARRATOR_DESCRIBING,
