@@ -1,9 +1,8 @@
-import unittest
+import pytest
 import os
 import shutil
 from datetime import datetime, UTC
 from pathlib import Path
-import pytest
 
 from app.models.story import Story
 from app.models.story_segment import StorySegment, CharacterStatus, LocationStatus
@@ -55,216 +54,258 @@ class MockGenerator(TextGenerator):
         else:
             raise ValueError(f"Unsupported response type: {self.response_type}")
 
-class TestStoryModels(unittest.TestCase):
-    def setUp(self):
-        """Set up test data and clean up any existing test data."""
-        self.test_story_id = "test_story_1"
-        self.test_data_dir = Path("data") / self.test_story_id
+@pytest.fixture
+def test_data():
+    """Fixture to set up and tear down test data."""
+    test_story_id = "test_story_1"
+    test_data_dir = Path("data") / test_story_id
+    
+    # Clean up any existing test data
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
         
-        # Clean up any existing test data
-        if self.test_data_dir.exists():
-            shutil.rmtree(self.test_data_dir)
-            
-        # Create test story
-        self.story = Story(
-            id=self.test_story_id,
-            title="Test Story",
-            description="A test story for model testing",
-            genre="Test",
-            user_id="test_user_1",
-            start_segment_id="start_segment_1",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC)
-        )
-        
-        # Create test character
-        self.character = StoryCharacter(
-            story=self.story,
-            id="char_1",
-            story_id=self.story.id,
-            name="Test Character",
-            description="A test character",
-            background="Test background"
-        )
-        
-        # Create test location
-        self.location = StoryLocation(
-            story=self.story,
-            id="loc_1",
-            story_id=self.story.id,
-            name="Test Location",
-            description="A test location"
-        )
-        
-        # Create test segment
-        self.segment = StorySegment(
-            story=self.story,
-            id="start_segment_1",
-            story_id=self.story.id,
-            from_choice_id=None,
-            short_description="The story begins in a mysterious location",
-            text_blocks=[
-                TextBlock(
-                    type=TextType.NARRATOR_DESCRIBING,
-                    content="The story begins..."
-                )
-            ],
-            characters=[
-                CharacterStatus(
-                    character_id=self.character.id,
-                    ai_status="active"
-                )
-            ],
-            locations=[
-                LocationStatus(
-                    location_id=self.location.id,
-                    ai_status="active"
-                )
-            ]
-        )
-        
-        # Create test choice
-        self.choice = StoryChoice(
-            story=self.story,
-            id="choice_1",
-            story_id=self.story.id,
-            from_segment_id=self.segment.id,
-            to_segment_id="next_segment_1",
-            text="Continue the story"
-        )
-        
-        self.generator = MockGenerator(SceneTextGeneratorResponse)
-        
-    def tearDown(self):
-        """Clean up test data after each test."""
-        if self.test_data_dir.exists():
-            shutil.rmtree(self.test_data_dir)
-            
-    def test_story_save_load(self):
-        """Test saving and loading a story."""
-        # Save the story
-        self.story.save()
-        
-        # Load the story
-        loaded_story = Story.load(self.test_story_id, self.story.id)
-        
-        # Verify the loaded story matches the original
-        self.assertIsNotNone(loaded_story)
-        self.assertEqual(loaded_story.id, self.story.id)
-        self.assertEqual(loaded_story.title, self.story.title)
-        self.assertEqual(loaded_story.description, self.story.description)
-        
-    def test_character_save_load(self):
-        """Test saving and loading a character."""
-        # Save the character
-        self.character.save()
-        
-        # Load the character
-        loaded_character = StoryCharacter.load(self.test_story_id, self.character.id)
-        
-        # Verify the loaded character matches the original
-        self.assertIsNotNone(loaded_character)
-        self.assertEqual(loaded_character.id, self.character.id)
-        self.assertEqual(loaded_character.name, self.character.name)
-        self.assertEqual(loaded_character.description, self.character.description)
-        
-    def test_segment_save_load(self):
-        """Test saving and loading a segment."""
-        # Save the segment
-        self.segment.save()
-        
-        # Load the segment
-        loaded_segment = StorySegment.load(self.test_story_id, self.segment.id)
-        
-        # Verify the loaded segment matches the original
-        self.assertIsNotNone(loaded_segment)
-        self.assertEqual(loaded_segment.id, self.segment.id)
-        self.assertEqual(loaded_segment.short_description, self.segment.short_description)
-        self.assertEqual(len(loaded_segment.text_blocks), len(self.segment.text_blocks))
-        self.assertEqual(loaded_segment.text_blocks[0].content, self.segment.text_blocks[0].content)
-        self.assertEqual(len(loaded_segment.characters), len(self.segment.characters))
-        self.assertEqual(len(loaded_segment.locations), len(self.segment.locations))
-        
-    def test_choice_save_load(self):
-        """Test saving and loading a choice."""
-        # Save the choice
-        self.choice.save()
-        
-        # Load the choice
-        loaded_choice = StoryChoice.load(self.test_story_id, self.choice.id)
-        
-        # Verify the loaded choice matches the original
-        self.assertIsNotNone(loaded_choice)
-        self.assertEqual(loaded_choice.id, self.choice.id)
-        self.assertEqual(loaded_choice.text, self.choice.text)
-        self.assertEqual(loaded_choice.from_segment_id, self.choice.from_segment_id)
-        self.assertEqual(loaded_choice.to_segment_id, self.choice.to_segment_id)
-        
-    def test_list_all(self):
-        """Test listing all objects of a type."""
-        # Save all objects
-        self.story.save()
-        self.character.save()
-        self.segment.save()
-        self.choice.save()
-        
-        # List all stories
-        story_ids = Story.list_all(self.test_story_id)
-        self.assertIn(self.story.id, story_ids)
-        
-        # List all characters
-        character_ids = StoryCharacter.list_all(self.test_story_id)
-        self.assertIn(self.character.id, character_ids)
-        
-        # List all segments
-        segment_ids = StorySegment.list_all(self.test_story_id)
-        self.assertIn(self.segment.id, segment_ids)
-        
-        # List all choices
-        choice_ids = StoryChoice.list_all(self.test_story_id)
-        self.assertIn(self.choice.id, choice_ids)
-        
-    def test_delete(self):
-        """Test deleting objects."""
-        # Save all objects
-        self.story.save()
-        self.character.save()
-        
-        # Delete the character
-        self.character.delete()
-        
-        # Verify the character is deleted
-        loaded_character = StoryCharacter.load(self.test_story_id, self.character.id)
-        self.assertIsNone(loaded_character)
-        
-        # Verify the story still exists
-        loaded_story = Story.load(self.test_story_id, self.story.id)
-        self.assertIsNotNone(loaded_story)
-        
-    @pytest.mark.asyncio
-    async def test_generate_next_scene(self):
-        """Test generating a new scene from a choice."""
-        # Generate a new scene and choice
-        new_scene, new_choice = await self.segment.generate_next_scene(
-            "Explore the mysterious room",
-            self.generator
-        )
-        
-        # Verify the new scene has the expected structure
-        self.assertIsNotNone(new_scene)
-        self.assertEqual(new_scene.story_id, self.test_story_id)
-        self.assertEqual(len(new_scene.text_blocks), 1)
-        self.assertEqual(len(new_scene.characters), len(self.segment.characters))
-        self.assertEqual(len(new_scene.locations), len(self.segment.locations))
-        
-        # Verify the choice pointers
-        self.assertEqual(new_scene.from_choice_id, new_choice.id)
-        self.assertIn(new_choice.id, new_scene.incoming_choices)
-        self.assertIn(new_choice.id, self.segment.outgoing_choices)
-        
-        # Verify the choice connects the segments correctly
-        self.assertEqual(new_choice.from_segment_id, self.segment.id)
-        self.assertEqual(new_choice.to_segment_id, new_scene.id)
+    # Create test story
+    story = Story(
+        id=test_story_id,
+        title="Test Story",
+        description="A test story for model testing",
+        genre="Test",
+        user_id="test_user_1",
+        start_segment_id="start_segment_1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC)
+    )
+    
+    # Create test character
+    character = StoryCharacter(
+        story=story,
+        id="char_1",
+        story_id=story.id,
+        name="Test Character",
+        description="A test character",
+        background="Test background"
+    )
+    
+    # Create test location
+    location = StoryLocation(
+        story=story,
+        id="loc_1",
+        story_id=story.id,
+        name="Test Location",
+        description="A test location"
+    )
+    
+    # Create test segment
+    segment = StorySegment(
+        story=story,
+        id="start_segment_1",
+        story_id=story.id,
+        from_choice_id=None,
+        short_description="The story begins in a mysterious location",
+        text_blocks=[
+            TextBlock(
+                type=TextType.NARRATOR_DESCRIBING,
+                content="The story begins..."
+            )
+        ],
+        characters=[
+            CharacterStatus(
+                character_id=character.id,
+                ai_status="active"
+            )
+        ],
+        locations=[
+            LocationStatus(
+                location_id=location.id,
+                ai_status="active"
+            )
+        ]
+    )
+    
+    # Create test choice
+    choice = StoryChoice(
+        story=story,
+        id="choice_1",
+        story_id=story.id,
+        from_segment_id=segment.id,
+        to_segment_id="next_segment_1",
+        text="Continue the story"
+    )
+    
+    generator = MockGenerator(SceneTextGeneratorResponse)
+    
+    yield {
+        "story": story,
+        "character": character,
+        "location": location,
+        "segment": segment,
+        "choice": choice,
+        "generator": generator,
+        "test_story_id": test_story_id,
+        "test_data_dir": test_data_dir
+    }
+    
+    # Clean up after tests
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
 
-if __name__ == '__main__':
-    unittest.main() 
+@pytest.mark.asyncio
+async def test_story_save_load(test_data):
+    """Test saving and loading a story."""
+    story = test_data["story"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save the story
+    story.save()
+    
+    # Load the story
+    loaded_story = Story.load(test_story_id, story.id)
+    
+    # Verify the loaded story matches the original
+    assert loaded_story is not None
+    assert loaded_story.id == story.id
+    assert loaded_story.title == story.title
+    assert loaded_story.description == story.description
+
+@pytest.mark.asyncio
+async def test_character_save_load(test_data):
+    """Test saving and loading a character."""
+    character = test_data["character"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save the character
+    character.save()
+    
+    # Load the character
+    loaded_character = StoryCharacter.load(test_story_id, character.id)
+    
+    # Verify the loaded character matches the original
+    assert loaded_character is not None
+    assert loaded_character.id == character.id
+    assert loaded_character.name == character.name
+    assert loaded_character.description == character.description
+
+@pytest.mark.asyncio
+async def test_segment_save_load(test_data):
+    """Test saving and loading a segment."""
+    segment = test_data["segment"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save the segment
+    segment.save()
+    
+    # Load the segment
+    loaded_segment = StorySegment.load(test_story_id, segment.id)
+    
+    # Verify the loaded segment matches the original
+    assert loaded_segment is not None
+    assert loaded_segment.id == segment.id
+    assert loaded_segment.short_description == segment.short_description
+    assert len(loaded_segment.text_blocks) == len(segment.text_blocks)
+    assert loaded_segment.text_blocks[0].content == segment.text_blocks[0].content
+    assert len(loaded_segment.characters) == len(segment.characters)
+    assert len(loaded_segment.locations) == len(segment.locations)
+
+@pytest.mark.asyncio
+async def test_choice_save_load(test_data):
+    """Test saving and loading a choice."""
+    choice = test_data["choice"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save the choice
+    choice.save()
+    
+    # Load the choice
+    loaded_choice = StoryChoice.load(test_story_id, choice.id)
+    
+    # Verify the loaded choice matches the original
+    assert loaded_choice is not None
+    assert loaded_choice.id == choice.id
+    assert loaded_choice.text == choice.text
+    assert loaded_choice.from_segment_id == choice.from_segment_id
+    assert loaded_choice.to_segment_id == choice.to_segment_id
+
+@pytest.mark.asyncio
+async def test_list_all(test_data):
+    """Test listing all objects of a type."""
+    story = test_data["story"]
+    character = test_data["character"]
+    segment = test_data["segment"]
+    choice = test_data["choice"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save all objects
+    story.save()
+    character.save()
+    segment.save()
+    choice.save()
+    
+    # List all stories
+    story_ids = Story.list_all(test_story_id)
+    assert story.id in story_ids
+    
+    # List all characters
+    character_ids = StoryCharacter.list_all(test_story_id)
+    assert character.id in character_ids
+    
+    # List all segments
+    segment_ids = StorySegment.list_all(test_story_id)
+    assert segment.id in segment_ids
+    
+    # List all choices
+    choice_ids = StoryChoice.list_all(test_story_id)
+    assert choice.id in choice_ids
+
+@pytest.mark.asyncio
+async def test_delete(test_data):
+    """Test deleting objects."""
+    story = test_data["story"]
+    character = test_data["character"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Save all objects
+    story.save()
+    character.save()
+    
+    # Delete the character
+    character.delete()
+    
+    # Verify the character is deleted
+    loaded_character = StoryCharacter.load(test_story_id, character.id)
+    assert loaded_character is None
+    
+    # Verify the story still exists
+    loaded_story = Story.load(test_story_id, story.id)
+    assert loaded_story is not None
+
+@pytest.mark.asyncio
+async def test_generate_next_scene(test_data):
+    """Test generating a new scene from a choice."""
+    segment = test_data["segment"]
+    generator = test_data["generator"]
+    test_story_id = test_data["test_story_id"]
+    
+    # Generate a new scene and choice
+    new_scene, new_choice = await segment.generate_next_scene(
+        "Explore the mysterious room",
+        generator
+    )
+    
+    # Verify the new scene has the expected structure
+    assert new_scene is not None
+    assert new_scene.story_id == test_story_id
+    assert len(new_scene.text_blocks) == 3  # Mock generator returns 3 text blocks
+    assert new_scene.text_blocks[0].type == TextType.NARRATOR_DESCRIBING
+    assert new_scene.text_blocks[1].type == TextType.CHARACTER_SPEECH
+    assert new_scene.text_blocks[2].type == TextType.SFX
+    assert len(new_scene.characters) == len(segment.characters)
+    assert len(new_scene.locations) == len(segment.locations)
+    
+    # Verify the choice pointers
+    assert new_scene.from_choice_id == new_choice.id
+    assert new_choice.id in new_scene.incoming_choices
+    assert new_choice.id in segment.outgoing_choices
+    
+    # Verify the choice connects the segments correctly
+    assert new_choice.from_segment_id == segment.id
+    assert new_choice.to_segment_id == new_scene.id

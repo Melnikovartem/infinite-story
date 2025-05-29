@@ -49,9 +49,29 @@ class TextGeneratorResponse(BaseModel):
                 continue
                 
             description = field.description or ""
-            field_type = field.annotation.__name__ if hasattr(field.annotation, "__name__") else str(field.annotation)
+            
+            # Get custom type description based on field annotation
+            if field.annotation == Optional[str]:
+                type_desc = "string (optional)"
+            elif field.annotation == str:
+                type_desc = "string"
+            elif field.annotation == int:
+                type_desc = "integer"
+            elif field.annotation == List[str]:
+                type_desc = "array of strings"
+            elif field.annotation == List[Dict[str, str]]:
+                type_desc = "array of objects with string key-value pairs"
+            elif field.annotation == Dict[str, str]:
+                type_desc = "object with string key-value pairs"
+            elif field.annotation == Dict[str, Any]:
+                type_desc = "object with mixed value types"
+            elif field.annotation == List[TextBlock]:
+                type_desc = "array of text blocks"
+            else:
+                type_desc = "mixed"
+                
             schema.append(f'  "{field_name}": {{')
-            schema.append(f'    "type": "{field_type.lower()}",')
+            schema.append(f'    "type": "{type_desc}",')
             schema.append(f'    "description": "{description}"')
             schema.append('  },')
         if len(schema) > 1:
@@ -65,7 +85,7 @@ class WorldTextGeneratorResponse(TextGeneratorResponse):
     backstory: str = Field(description="The historical background and creation story of the world")
     major_events: List[str] = Field(default_factory=list, description="List of significant historical events that shaped the world")
     cultures: List[Dict[str, str]] = Field(default_factory=list, description="List of cultures with their key characteristics")
-    magic_system: Optional[Dict[str, Any]] = Field(None, description="Description of the world's magic system if applicable")
+    magic_system: Optional[str] = Field(None, description="Description of the world's magic system if applicable")
     technology_level: str = Field(description="The technological advancement level of the world")
     political_system: str = Field(description="The governing system and power structures")
     religions: List[Dict[str, str]] = Field(default_factory=list, description="List of religions and their key beliefs")

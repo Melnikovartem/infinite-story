@@ -142,3 +142,81 @@ async def test_scene_generation_invalid_json():
     # Verify error response
     assert isinstance(response, TextGeneratorResponse)
     assert response.error is not None
+
+class MockGenerator(TextGenerator):
+    """Mock generator that records prompts for testing."""
+    def __init__(self):
+        super().__init__()
+        self.last_system_prompt = None
+        self.last_user_prompt = None
+        
+    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
+        return '{"raw_response": "test response"}'
+
+@pytest.mark.asyncio
+async def test_prompt_handling():
+    """Test that prompts are correctly passed between generate and _generate_content."""
+    generator = MockGenerator()
+    
+    system_prompt = "You are a creative writing expert"
+    user_prompt = "Create a tense scene in a tavern"
+    context_type = "scene"
+    
+    expected_system_prompt = '''You are a creative writing expert
+
+Response Schema:
+{
+  "short_description": {
+    "type": "string",
+    "description": "Brief summary of the scene"
+  },
+  "text_blocks": {
+    "type": "array of text blocks",
+    "description": "Sequence of text blocks that make up the scene"
+  },
+  "location_change": {
+    "type": "string (optional)",
+    "description": "New location if the scene changes location"
+  },
+  "character_status_change": {
+    "type": "object with string key-value pairs",
+    "description": "Changes in character states during the scene"
+  },
+  "choice_1": {
+    "type": "string",
+    "description": "First choice presented to the player"
+  },
+  "choice_2": {
+    "type": "string",
+    "description": "Second choice presented to the player"
+  },
+  "atmosphere": {
+    "type": "string",
+    "description": "The overall mood and atmosphere of the scene"
+  },
+  "time_of_day": {
+    "type": "string (optional)",
+    "description": "When the scene takes place"
+  },
+  "weather": {
+    "type": "string (optional)",
+    "description": "Weather conditions during the scene"
+  },
+  "key_items": {
+    "type": "array of strings",
+    "description": "Important items present or mentioned in the scene"
+  }
+}'''
+    
+    # Generate content
+    await generator.generate(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context_type=context_type
+    )
+    
+    # Verify prompts were passed correctly
+    assert generator.last_system_prompt == expected_system_prompt
+    assert generator.last_user_prompt == user_prompt

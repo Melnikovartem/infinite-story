@@ -66,7 +66,7 @@ class TextGenerator:
             raw_response = await self._generate_content(full_system_prompt, user_prompt)
             
             # Extract JSON using regex first
-            json_pattern = r'\{[^{}]*\}'
+            json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
             matches = re.finditer(json_pattern, raw_response)
             json_str = None
             
