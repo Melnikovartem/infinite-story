@@ -33,8 +33,8 @@
 * `story_id` - Backlink to the parent story
 * `from_choice_id` - Reference to the choice that led to this segment (null for start segment)
 * `text_blocks`: `[{ type: "narration" | "dialogue", content: string }]`
-* `characters`: `[{ character_id, ai_status: string }]`
-* `locations`: `[{ location_id, ai_status: string }]`
+* `characters`: `[{ character_id, current_status: string }]`
+* `locations`: `[{ location_id, current_status: string }]`
 * `created_at`
 
 ---

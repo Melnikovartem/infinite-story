@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 from app.engine.generator import TextGenerator
 from app.engine.openai_generator import OpenAIGenerator
 from app.models.text_types import TextType
-from app.engine.generator_types import SceneTextGeneratorResponse, TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse
+from app.models.text_types import SceneTextGeneratorResponse, TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse
 from datetime import datetime, UTC
 
 class MockGenerator(TextGenerator):

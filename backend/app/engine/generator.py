@@ -2,7 +2,7 @@ from typing import TypeVar, Generic, Type, Optional, Dict, Any
 from pydantic import BaseModel, ValidationError
 import json
 import re
-from .generator_types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
+from ..models.text_types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
 
 class TextGenerator:
     """Class for generating text content using AI models.
@@ -10,6 +10,23 @@ class TextGenerator:
     This class handles text generation with different response types based on context.
     It automatically determines the appropriate response type and generates content accordingly.
     """
+    
+    DEFAULT_SYSTEM_PROMPT = """You are an expert storyteller and creative writing assistant. Your role is to help create engaging, immersive, and coherent narrative content for an interactive storytelling system.
+
+Key responsibilities:
+1. Maintain narrative consistency with the established world and characters
+2. Create vivid, descriptive scenes that engage the reader
+3. Ensure character voices and personalities remain consistent
+4. Build upon existing story elements while introducing new possibilities
+5. Generate content that fits the specified context type (world, character, location, or scene)
+6. Push the story forward with each response, creating a sense of progression and engagement
+
+Remember to:
+- Keep responses focused and concise
+- Maintain the established tone and style
+- Consider the impact on the overall story arc
+- Create opportunities for meaningful player choices
+- Ensure all generated content is appropriate for a general audience"""
     
     def __init__(
         self,
@@ -40,7 +57,7 @@ class TextGenerator:
         """Generate content based on prompts and context type.
         
         Args:
-            system_prompt: The system prompt that sets the behavior of the AI
+            system_prompt: The system prompt that sets the behavior of the AI. If empty, uses default prompt.
             user_prompt: The user prompt that specifies what to generate
             context_type: The type of content to generate ("world", "character", "location", "scene")
             
@@ -59,8 +76,11 @@ class TextGenerator:
             # Get the schema description for the response type
             schema = response_type.get_schema_description()
             
+            # Use default prompt if system_prompt is empty
+            effective_system_prompt = system_prompt.strip() if system_prompt.strip() else self.DEFAULT_SYSTEM_PROMPT
+            
             # Combine system prompt with schema
-            full_system_prompt = f"{system_prompt}\n\nResponse Schema:\n{schema}"
+            full_system_prompt = f"{effective_system_prompt}\n\nResponse Schema:\n{schema}"
             
             # Generate content using the internal method
             raw_response = await self._generate_content(full_system_prompt, user_prompt)

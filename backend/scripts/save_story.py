@@ -160,25 +160,25 @@ def create_story():
         characters=[
             CharacterStatus(
                 character_id="eira",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="thorne",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="nyx",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="brother_cellen",
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id="thornreach_grove",
-                ai_status="active"
+                current_status="active"
             )
         ]
     )
@@ -218,17 +218,17 @@ def create_story():
         characters=[
             CharacterStatus(
                 character_id="eira",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="brother_cellen",
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id="thornreach_grove",
-                ai_status="active"
+                current_status="active"
             )
         ]
     )
@@ -265,17 +265,17 @@ def create_story():
         characters=[
             CharacterStatus(
                 character_id="thorne",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="nyx",
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id="the_veil",
-                ai_status="active"
+                current_status="active"
             )
         ]
     )
@@ -312,17 +312,17 @@ def create_story():
         characters=[
             CharacterStatus(
                 character_id="thorne",
-                ai_status="active"
+                current_status="active"
             ),
             CharacterStatus(
                 character_id="eira",
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id="withered_court",
-                ai_status="active"
+                current_status="active"
             )
         ]
     )

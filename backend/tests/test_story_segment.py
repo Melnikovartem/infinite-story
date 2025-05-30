@@ -83,13 +83,13 @@ def story_segment(story, character, location):
         characters=[
             CharacterStatus(
                 character_id=character.id,
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id=location.id,
-                ai_status="active"
+                current_status="active"
             )
         ]
     )

@@ -62,13 +62,13 @@ def test_story():
         characters=[
             CharacterStatus(
                 character_id=character.id,
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id=location.id,
-                ai_status="active"
+                current_status="active"
             )
         ]
     )
@@ -97,13 +97,13 @@ def test_story():
         characters=[
             CharacterStatus(
                 character_id=character.id,
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id=location.id,
-                ai_status="active"
+                current_status="active"
             )
         ]
     )

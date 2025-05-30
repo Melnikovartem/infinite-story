@@ -10,8 +10,7 @@ from app.models.story_segment import StorySegment, CharacterStatus, LocationStat
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_choice import StoryChoice
-from app.models.text_types import TextBlock, TextType
-from app.engine.generator_types import SceneTextGeneratorResponse
+from app.models.text_types import TextBlock, TextType, SceneTextGeneratorResponse
 from app.engine.generator import TextGenerator
 from tests.test_generator import MockGenerator
 
@@ -72,13 +71,13 @@ def test_data():
         characters=[
             CharacterStatus(
                 character_id=character.id,
-                ai_status="active"
+                current_status="active"
             )
         ],
         locations=[
             LocationStatus(
                 location_id=location.id,
-                ai_status="active"
+                current_status="active"
             )
         ]
     )

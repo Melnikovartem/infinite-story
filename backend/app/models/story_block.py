@@ -31,6 +31,28 @@ class StoryBlock(StoryBase):
             raise ValueError(f"story_id {self.story_id} does not match story.id {self.story.id}")
         return self
 
+    def get_short_overview(self) -> str:
+        """Get a short descriptor of this story block.
+        
+        This should be overridden by subclasses to provide a brief description
+        of the block's content and purpose.
+        
+        Returns:
+            A string describing the block
+        """
+        raise NotImplementedError("Subclasses must implement get_short_overview")
+
+    def get_full_overview(self) -> str:
+        """Get detailed information about this story block.
+        
+        This should be overridden by subclasses to provide comprehensive
+        information about the block's content, relationships, and state.
+        
+        Returns:
+            A string containing detailed information about the block
+        """
+        raise NotImplementedError("Subclasses must implement get_full_overview")
+
     @classmethod
     def load(cls, story_id: str, component_id: str, story: 'Story', **other_data: Any) -> Optional['StoryBlock']:
         """Load a component from disk.
