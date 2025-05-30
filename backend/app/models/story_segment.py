@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
-from app.models.types import TextType
+from app.models.text_types import TextType
 from .story_block import StoryBlock
 from .text_types import TextBlock
 from .story_choice import StoryChoice
@@ -29,7 +29,7 @@ class StorySegment(StoryBlock):
 
     # Core Scene Information
     short_description: str = Field(description="Brief summary of the scene")
-    atmosphere: str = Field(description="The overall mood and atmosphere of the scene")
+    atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")
     weather: Optional[str] = Field(None, description="Weather conditions during the scene")
     key_items: List[str] = Field(default_factory=list, description="Important items present or mentioned in the scene")

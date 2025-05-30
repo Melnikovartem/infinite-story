@@ -28,7 +28,9 @@ class TextType(str, Enum):
 class TextBlock(BaseModel):
     """A block of text in a story segment."""
     type: TextType = Field(description="The type of text block (narrative, dialogue, etc.)")
-    text: str = Field(description="The actual text content of the block")
+    content: str = Field(description="The actual text content of the block")
+    emotion: Optional[str] = Field(None, description="The emotion of the text block")
+    character: Optional[str] = Field(None, description="The character speaking the text block")
 
     @classmethod
     def get_schema_description(cls) -> str:
@@ -168,7 +170,7 @@ class SceneTextGeneratorResponse(TextGeneratorResponse):
     """Response from the scene generation model."""
     # Core Scene Information
     short_description: str = Field(description="Brief summary of the scene")
-    atmosphere: str = Field(description="The overall mood and atmosphere of the scene")
+    atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")
     weather: Optional[str] = Field(None, description="Weather conditions during the scene")
     key_items: List[str] = Field(default_factory=list, description="Important items present or mentioned in the scene")

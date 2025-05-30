@@ -10,7 +10,7 @@ from app.models.story_segment import StorySegment, CharacterStatus, LocationStat
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_context import StoryContext
-from app.models.types import TextType, TextBlock
+from app.models.text_types import TextType, TextBlock
 
 def create_story():
     """Create the story components."""
@@ -24,95 +24,164 @@ def create_story():
         start_segment_id="opening_scene"
     )
     
-    # Create the story context
+    # Create the story context with expanded worldbuilding
     context_obj = StoryContext(
         id="veil_context_1",
-        story_id=story_obj.id,
+        story=story_obj,
         fundamental_truths=[
             "The Veil is a living entity that erases memories and reshapes reality",
             "Thornreach Grove is the last sanctuary of the old gods, protected by fading wards",
             "Memory is a resource that can be traded for power or survival",
             "The Withered Court, a lost royal bloodline, rules from inside The Veil",
-            "Mystic relics scattered throughout the realm reveal fragments of the world's lost past"
+            "Mystic relics scattered throughout the realm reveal fragments of the world's lost past",
+            "The old gods' power is tied to the natural cycles of the forest",
+            "The Veil's corruption spreads faster during the waning moon",
+            "Ancient prophecies speak of a 'Memory Weaver' who can control The Veil",
+            "The forest's heart beats in rhythm with the protective wards",
+            "Time flows differently within The Veil's embrace"
         ],
         worldbuilding={
             "setting": "A mystical forest realm on the brink of being consumed by The Veil",
-            "magic_system": "A blend of druidic magic, fae enchantments, and forbidden arts tied to The Veil",
-            "political_system": "A fractured society with the Withered Court ruling from within The Veil and scattered settlements clinging to Thornreach",
+            "magic_system": {
+                "druidic_magic": "Nature-based magic that draws power from the forest's life force",
+                "fae_enchantments": "Ancient magic of the fae, tied to the realm's natural cycles",
+                "veil_magic": "Forbidden arts that manipulate The Veil's power",
+                "memory_magic": "Rare ability to manipulate and preserve memories",
+                "ward_magic": "Protective magic passed down from the old gods"
+            },
+            "political_system": {
+                "withered_court": "Corrupted rulers who maintain their power through The Veil",
+                "druid_circle": "Guardians of Thornreach Grove's ancient traditions",
+                "memory_keepers": "Secret society preserving the realm's history",
+                "fae_courts": "Ancient powers maintaining neutrality in the conflict",
+                "refugee_camps": "Scattered settlements of those who escaped The Veil"
+            },
             "major_locations": {
                 "thornreach_grove": "The last untouched sanctuary, protected by ancient wards",
                 "the_veil": "A sentient fog that consumes and transforms everything it touches",
                 "withered_court": "The corrupted seat of power within The Veil",
-                "mystic_ruins": "Scattered remnants of the old world containing powerful relics"
+                "mystic_ruins": "Scattered remnants of the old world containing powerful relics",
+                "memory_pools": "Sacred springs where memories crystallize into physical form",
+                "fae_crossroads": "Ancient meeting place of the fae courts",
+                "warden's_watch": "High vantage point where the druids monitor The Veil's spread",
+                "forgotten_archive": "Library of preserved memories and ancient knowledge",
+                "heartwood_sanctuary": "The oldest tree in Thornreach, source of the wards' power",
+                "twilight_market": "Trading post where memories are bartered for supplies"
             }
         }
     )
     
-    # Create the characters
+    # Create expanded character list
     characters = [
         StoryCharacter(
             id="eira",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Eira",
             description="A novice druid with forbidden magic, bound to the forest's spirit. Her connection to nature gives her unique insights into The Veil's corruption.",
             background="Born in Thornreach Grove, Eira showed an early affinity for druidic magic. However, her curiosity led her to experiment with forbidden arts, creating a dangerous bond between her and the forest's spirit."
         ),
         StoryCharacter(
             id="thorne",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Thorne",
             description="A cursed knight exiled from the Veil-corrupted kingdom. His armor bears the scars of The Veil's touch, but also grants him resistance to its effects.",
             background="Once a loyal knight of the Withered Court, Thorne was cursed when he discovered the truth about The Veil's origin. His exile has made him both bitter and determined to find a way to end the corruption."
         ),
         StoryCharacter(
             id="nyx",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Nyx",
             description="A trickster fae whose motives are as mysterious as The Veil itself. They seem to know more than they let on about the realm's fate.",
             background="Nyx has existed in the realm since before The Veil's appearance. Their true nature and allegiance remain unclear, but their knowledge of ancient magic and the old ways makes them a valuable, if untrustworthy, ally."
         ),
         StoryCharacter(
             id="brother_cellen",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Brother Cellen",
             description="A blind monk who can 'see' truth in the fog through song. His unique perception makes him immune to The Veil's memory-erasing effects.",
             background="Once a scholar of the old ways, Brother Cellen lost his sight in a ritual to understand The Veil's nature. His blindness became a gift, allowing him to perceive the true nature of things through song and sound."
+        ),
+        StoryCharacter(
+            id="elder_marrow",
+            story=story_obj,
+            name="Elder Marrow",
+            description="The ancient guardian of the Heartwood Sanctuary, a massive tree that serves as the source of Thornreach's protective wards.",
+            background="Having lived for centuries, Elder Marrow has witnessed the gradual spread of The Veil. Their bark-like skin and leaf-veined eyes speak of their deep connection to the forest's heart."
+        ),
+        StoryCharacter(
+            id="memory_weaver",
+            story=story_obj,
+            name="The Memory Weaver",
+            description="A mysterious figure who can manipulate and preserve memories, said to be the key to understanding The Veil's true nature.",
+            background="Their true identity is unknown, but they are said to have been the first to discover how to extract and preserve memories from The Veil's grasp."
+        ),
+        StoryCharacter(
+            id="veil_whisperer",
+            story=story_obj,
+            name="The Veil Whisperer",
+            description="A shadowy figure who claims to communicate with The Veil itself, offering insights into its desires and intentions.",
+            background="Some believe they are a prophet, others a charlatan. Their true connection to The Veil remains a mystery, but their predictions have proven eerily accurate."
         )
     ]
     
-    # Create the locations
+    # Create expanded locations list
     locations = [
         StoryLocation(
             id="thornreach_grove",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Thornreach Grove",
             description="The last untouched sanctuary in the realm, protected by ancient wards. Ancient trees tower overhead, their leaves glowing with protective magic. The air is thick with the scent of herbs and the sound of running water."
         ),
         StoryLocation(
             id="the_veil",
-            story_id=story_obj.id,
+            story=story_obj,
             name="The Veil",
             description="A sentient fog that consumes and transforms everything it touches. Its shifting forms create illusions of familiar places, while erasing memories and reshaping reality. The air is thick with whispers of forgotten things."
         ),
         StoryLocation(
             id="withered_court",
-            story_id=story_obj.id,
+            story=story_obj,
             name="The Withered Court",
             description="The corrupted seat of power within The Veil. Once a magnificent palace, now a twisted reflection of its former glory. The architecture seems to shift and change, as if the building itself is alive and corrupted."
         ),
         StoryLocation(
             id="mystic_ruins",
-            story_id=story_obj.id,
+            story=story_obj,
             name="Mystic Ruins",
             description="Scattered remnants of the old world containing powerful relics. The ruins are partially protected from The Veil's influence, making them safe havens for those seeking knowledge and power."
+        ),
+        StoryLocation(
+            id="memory_pools",
+            story=story_obj,
+            name="Memory Pools",
+            description="Sacred springs where memories crystallize into physical form. The water shimmers with the colors of forgotten moments, and those who drink from it may glimpse fragments of lost memories."
+        ),
+        StoryLocation(
+            id="fae_crossroads",
+            story=story_obj,
+            name="Fae Crossroads",
+            description="An ancient meeting place of the fae courts, marked by a circle of standing stones. The air here is thick with magic, and time flows differently than in the rest of the realm."
+        ),
+        StoryLocation(
+            id="warden_watch",
+            story=story_obj,
+            name="Warden's Watch",
+            description="A high vantage point where the druids monitor The Veil's spread. The view offers a clear sight of the boundary between Thornreach and The Veil's domain."
+        ),
+        StoryLocation(
+            id="heartwood_sanctuary",
+            story=story_obj,
+            name="Heartwood Sanctuary",
+            description="The oldest tree in Thornreach, source of the wards' power. Its massive trunk pulses with ancient magic, and its roots extend deep into the realm's memory."
         )
     ]
     
-    # Create the story segment
+    # Create the story segment (keeping only the opening scene)
     segment_obj = StorySegment(
         id="opening_scene",
-        story_id=story_obj.id,
+        story=story_obj,
         short_description="The Gathering at Thornreach Grove",
+        atmosphere="tense and foreboding",
         text_blocks=[
             TextBlock(
                 type=TextType.SCENE_TITLE,
@@ -183,247 +252,37 @@ def create_story():
         ]
     )
     
-    # Create additional segments and choices
-    segments = [segment_obj]
-    choices = []
-
-    # Segment 2: Investigate the Wards
-    investigate_wards = StorySegment(
-        id="investigate_wards",
-        story_id=story_obj.id,
-        short_description="Investigating the Weakening Wards",
-        text_blocks=[
-            TextBlock(
-                type=TextType.SCENE_TITLE,
-                content="The Wards of Thornreach"
-            ),
-            TextBlock(
-                type=TextType.NARRATOR_DESCRIBING,
-                content="Eira leads the group to the edge of the grove, where the protective wards shimmer like a curtain of light. The magic here is ancient, woven by the old gods themselves.",
-                emotion="awe"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="The wards are like a song, but the melody is changing. Becoming... darker.",
-                character="brother_cellen",
-                emotion="concerned"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="I can strengthen them, but it will require a great deal of energy. And there's a risk...",
-                character="eira",
-                emotion="hesitant"
-            )
-        ],
-        characters=[
-            CharacterStatus(
-                character_id="eira",
-                current_status="active"
-            ),
-            CharacterStatus(
-                character_id="brother_cellen",
-                current_status="active"
-            )
-        ],
-        locations=[
-            LocationStatus(
-                location_id="thornreach_grove",
-                current_status="active"
-            )
-        ]
-    )
-    segments.append(investigate_wards)
-
-    # Segment 3: Enter the Veil
-    enter_veil = StorySegment(
-        id="enter_veil",
-        story_id=story_obj.id,
-        short_description="Venturing into The Veil",
-        text_blocks=[
-            TextBlock(
-                type=TextType.SCENE_TITLE,
-                content="Beyond the Wards"
-            ),
-            TextBlock(
-                type=TextType.NARRATOR_DESCRIBING,
-                content="The group steps beyond the protective barrier of Thornreach Grove. The Veil swirls around them, its whispers growing clearer, more distinct.",
-                emotion="tense"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="Stay close. The Veil will try to separate us, to make us forget why we're here.",
-                character="thorne",
-                emotion="warning"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="*laughing* Oh, but isn't it beautiful? Look how it dances!",
-                character="nyx",
-                emotion="delighted"
-            )
-        ],
-        characters=[
-            CharacterStatus(
-                character_id="thorne",
-                current_status="active"
-            ),
-            CharacterStatus(
-                character_id="nyx",
-                current_status="active"
-            )
-        ],
-        locations=[
-            LocationStatus(
-                location_id="the_veil",
-                current_status="active"
-            )
-        ]
-    )
-    segments.append(enter_veil)
-
-    # Segment 4: Seek the Withered Court
-    seek_court = StorySegment(
-        id="seek_court",
-        story_id=story_obj.id,
-        short_description="Journey to the Withered Court",
-        text_blocks=[
-            TextBlock(
-                type=TextType.SCENE_TITLE,
-                content="The Path to Power"
-            ),
-            TextBlock(
-                type=TextType.NARRATOR_DESCRIBING,
-                content="The group decides to seek out the Withered Court, hoping to find answers about The Veil's origin. The path ahead is treacherous, but the promise of knowledge drives them forward.",
-                emotion="determined"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="The Court will be expecting us. They always do.",
-                character="thorne",
-                emotion="grim"
-            ),
-            TextBlock(
-                type=TextType.CHARACTER_SPEECH,
-                content="Then we must be ready for whatever they have planned.",
-                character="eira",
-                emotion="resolute"
-            )
-        ],
-        characters=[
-            CharacterStatus(
-                character_id="thorne",
-                current_status="active"
-            ),
-            CharacterStatus(
-                character_id="eira",
-                current_status="active"
-            )
-        ],
-        locations=[
-            LocationStatus(
-                location_id="withered_court",
-                current_status="active"
-            )
-        ]
-    )
-    segments.append(seek_court)
-
     # Create choices for the opening scene
-    opening_choices = [
+    choices = [
         StoryChoice(
             id="choice_investigate_wards",
-            story_id=story_obj.id,
+            story=story_obj,
             from_segment_id="opening_scene",
-            to_segment_id="investigate_wards",
+            to_segment_id=None,
             text="Investigate the weakening wards with Eira and Brother Cellen"
         ),
         StoryChoice(
             id="choice_enter_veil",
-            story_id=story_obj.id,
+            story=story_obj,
             from_segment_id="opening_scene",
-            to_segment_id="enter_veil",
+            to_segment_id=None,
             text="Venture into The Veil to understand its nature"
         ),
         StoryChoice(
             id="choice_seek_court",
-            story_id=story_obj.id,
+            story=story_obj,
             from_segment_id="opening_scene",
-            to_segment_id="seek_court",
+            to_segment_id=None,
             text="Seek out the Withered Court for answers"
         )
     ]
-    choices.extend(opening_choices)
 
-    # Create choices for the investigate_wards segment
-    investigate_choices = [
-        StoryChoice(
-            id="choice_strengthen_wards",
-            story_id=story_obj.id,
-            from_segment_id="investigate_wards",
-            to_segment_id="opening_scene",
-            text="Attempt to strengthen the wards, despite the risks"
-        ),
-        StoryChoice(
-            id="choice_study_wards",
-            story_id=story_obj.id,
-            from_segment_id="investigate_wards",
-            to_segment_id="opening_scene",
-            text="Study the wards' patterns to understand their weakness"
-        )
-    ]
-    choices.extend(investigate_choices)
+    # Connect choices with segment
+    for choice in choices:
+        segment_obj.add_outgoing_choice(choice)
+        segment_obj.add_incoming_choice(choice)
 
-    # Create choices for the enter_veil segment
-    veil_choices = [
-        StoryChoice(
-            id="choice_deeper_veil",
-            story_id=story_obj.id,
-            from_segment_id="enter_veil",
-            to_segment_id="opening_scene",
-            text="Venture deeper into The Veil"
-        ),
-        StoryChoice(
-            id="choice_return_grove",
-            story_id=story_obj.id,
-            from_segment_id="enter_veil",
-            to_segment_id="opening_scene",
-            text="Return to Thornreach Grove"
-        )
-    ]
-    choices.extend(veil_choices)
-
-    # Create choices for the seek_court segment
-    court_choices = [
-        StoryChoice(
-            id="choice_approach_court",
-            story_id=story_obj.id,
-            from_segment_id="seek_court",
-            to_segment_id="opening_scene",
-            text="Approach the Court directly"
-        ),
-        StoryChoice(
-            id="choice_observe_court",
-            story_id=story_obj.id,
-            from_segment_id="seek_court",
-            to_segment_id="opening_scene",
-            text="Observe the Court from a distance"
-        )
-    ]
-    choices.extend(court_choices)
-
-    # Connect choices with segments
-    for segment in segments:
-        # Add outgoing choices
-        for choice in choices:
-            if choice.from_segment_id == segment.id:
-                segment.add_outgoing_choice(choice)
-        
-        # Add incoming choices
-        for choice in choices:
-            if choice.to_segment_id == segment.id:
-                segment.add_incoming_choice(choice)
-
-    return story_obj, context_obj, characters, locations, segments, choices
+    return story_obj, context_obj, characters, locations, [segment_obj], choices
 
 def save_story_data(story, story_context, characters, locations, story_segments, story_choices):
     """Save all story components to disk."""

@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 from .story_block import StoryBlock
     
@@ -12,8 +13,8 @@ class StoryChoice(StoryBlock):
     This represents a choice that the player can make, with text and references
     to the segments it connects.
     """
-    from_segment_id: str
-    to_segment_id: str
+    from_segment_id: Optional[str] = None
+    to_segment_id: Optional[str] = None
     text: str
     clicks_logged: int = 0
     clicks_anonymous: int = 0
