@@ -1,11 +1,7 @@
-from typing import List, Union, Dict, Optional, TYPE_CHECKING
-from pydantic import BaseModel
-from .story_base import StoryBase
+from typing import List, Union, Dict
+from .story_block import StoryBlock
 
-if TYPE_CHECKING:
-    from .story import Story
-
-class StoryContext(StoryBase):
+class StoryContext(StoryBlock):
     """Context for a story.
     
     This represents the fundamental truths and worldbuilding elements
@@ -14,7 +10,7 @@ class StoryContext(StoryBase):
     fundamental_truths: List[str]
     worldbuilding: Union[str, Dict]
 
-    def __init__(self, story: Optional['Story'] = None, **data):
+    def __init__(self, **data):
         """Initialize a StoryContext instance.
         
         Args:
@@ -22,5 +18,4 @@ class StoryContext(StoryBase):
             **data: Context data fields
         """
         super().__init__(**data)
-        if story is not None:
-            story.add_context(self)
+        self.story.add_context(self)

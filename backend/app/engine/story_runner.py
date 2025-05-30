@@ -19,26 +19,13 @@ class StoryRunner:
         """Start the story from the beginning."""
         if not self.story.start_segment_id:
             raise ValueError("Story has no start segment")
-            
+        
         # Load the start segment
-        self.current_segment = self._load_segment(self.story.start_segment_id)
-        # Add start segment to visited segments
+        self.current_segment = self.story.get_segment(self.story.start_segment_id)
+        
+        # Mark the start segment as visited
         self.visited_segments.add(self.story.start_segment_id)
         self._update_active_entities()
-        
-    def _load_segment(self, segment_id: str) -> StorySegment:
-        """Load a story segment by ID."""
-        # TODO: Implement actual segment loading from storage
-        # For now, return a mock segment
-        return StorySegment(
-            id=segment_id,
-            story_id=self.story.story_id,
-            from_choice_id=None,  # Start segment has no previous choice
-            text_blocks=[],
-            characters=[],
-            locations=[],
-            short_description="Loaded segment"
-        )
         
     def _update_active_entities(self) -> None:
         """Update the active characters and locations based on current segment."""
@@ -48,49 +35,47 @@ class StoryRunner:
         # Update active characters
         for char_data in self.current_segment.characters:
             if char_data.character_id not in self.active_characters:
-                # TODO: Load character from storage
-                self.active_characters[char_data.character_id] = StoryCharacter(
-                    id=char_data.character_id,
-                    story_id=self.story.story_id,
-                    name=f"Character {char_data.character_id}",
-                    description=""
-                )
+                character = StoryCharacter.load(self.story.id, char_data.character_id, self.story)
+                if character:
+                    self.active_characters[char_data.character_id] = character
                 
         # Update active locations
         for loc_data in self.current_segment.locations:
             if loc_data.location_id not in self.active_locations:
-                # TODO: Load location from storage
-                self.active_locations[loc_data.location_id] = StoryLocation(
-                    id=loc_data.location_id,
-                    story_id=self.story.story_id,
-                    name=f"Location {loc_data.location_id}",
-                    description=""
-                )
+                location = StoryLocation.load(self.story.id, loc_data.location_id, self.story)
+                if location:
+                    self.active_locations[loc_data.location_id] = location
+
+        
                 
     def get_available_choices(self) -> List[StoryChoice]:
         """Get the choices available in the current segment."""
         if not self.current_segment:
             return []
             
-        # TODO: Load choices from storage
-        return []
+        # Return the outgoing choices directly from the segment
+        return list(self.current_segment.outgoing_choices.values())
         
     def make_choice(self, choice_id: str) -> None:
         """Make a choice and progress the story."""
         if not self.current_segment:
             raise ValueError("No current segment")
             
-        # TODO: Load choice from storage
-        choice = StoryChoice(
-            id=choice_id,
-            story_id=self.story.story_id,
-            from_segment_id=self.current_segment.id,
-            to_segment_id="",  # TODO: Get from storage
-            text=""
-        )
-        
+        # Load the choice
+        choice = StoryChoice.load(self.story.id, choice_id)
+        if not choice:
+            raise ValueError(f"Choice {choice_id} not found")
+            
+        if choice.from_segment_id != self.current_segment.id:
+            raise ValueError(f"Choice {choice_id} is not available in the current segment")
+            
+        # Load the next segment
+        next_segment = StorySegment.load(self.story.id, choice.to_segment_id)
+        if not next_segment:
+            raise ValueError(f"Next segment {choice.to_segment_id} not found")
+            
         # Move to the next segment
-        self.current_segment = self._load_segment(choice.to_segment_id)
+        self.current_segment = next_segment
         self.visited_segments.add(choice.to_segment_id)
         self._update_active_entities()
         

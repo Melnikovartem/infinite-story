@@ -5,60 +5,21 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 from app.models.story import Story
+from app.models.story_base import LOCAL_DATA_DIR
 from app.models.story_segment import StorySegment, CharacterStatus, LocationStatus
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_choice import StoryChoice
-from app.models.types import TextBlock, TextType, SceneTextGeneratorResponse
+from app.models.text_types import TextBlock, TextType
+from app.engine.generator_types import SceneTextGeneratorResponse
 from app.engine.generator import TextGenerator
-
-class MockGenerator(TextGenerator):
-    """Mock generator for testing that provides predefined responses."""
-    
-    def __init__(self, response_type):
-        super().__init__()
-        self.response_type = response_type
-        
-    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
-        """Return a predefined response based on the context type."""
-        if self.response_type == SceneTextGeneratorResponse:
-            return '''{
-                "short_description": "A mysterious room reveals its secrets",
-                "text_blocks": [
-                    {
-                        "type": "narrator_describing",
-                        "content": "The room is dimly lit by flickering torches on the walls. Ancient symbols are carved into the stone floor, forming an intricate pattern that seems to pulse with a faint blue light.",
-                        "emotion": "mysterious"
-                    },
-                    {
-                        "type": "character_speech",
-                        "content": "These symbols... they look familiar.",
-                        "character": "Test Character",
-                        "emotion": "curious"
-                    },
-                    {
-                        "type": "sfx",
-                        "content": "A low hum begins to emanate from the symbols",
-                        "sound_asset": "mystical_hum"
-                    }
-                ],
-                "location_change": null,
-                "character_status_change": {"Test Character": "investigating"},
-                "choice_1": "Examine the symbols more closely",
-                "choice_2": "Search for an exit",
-                "atmosphere": "mysterious",
-                "time_of_day": "night",
-                "weather": "indoor",
-                "key_items": ["ancient symbols", "torches", "stone floor"]
-            }'''
-        else:
-            raise ValueError(f"Unsupported response type: {self.response_type}")
+from tests.test_generator import MockGenerator
 
 @pytest.fixture
 def test_data():
     """Fixture to set up and tear down test data."""
     test_story_id = "test_story_1"
-    test_data_dir = Path("data") / test_story_id
+    test_data_dir = LOCAL_DATA_DIR / test_story_id
     
     # Clean up any existing test data
     if test_data_dir.exists():
@@ -172,12 +133,13 @@ async def test_character_save_load(test_data):
     """Test saving and loading a character."""
     character = test_data["character"]
     test_story_id = test_data["test_story_id"]
+    story = test_data["story"]
     
     # Save the character
     character.save()
     
     # Load the character
-    loaded_character = StoryCharacter.load(test_story_id, character.id)
+    loaded_character = StoryCharacter.load(test_story_id, character.id, story=story)
     
     # Verify the loaded character matches the original
     assert loaded_character is not None
@@ -190,12 +152,13 @@ async def test_segment_save_load(test_data):
     """Test saving and loading a segment."""
     segment = test_data["segment"]
     test_story_id = test_data["test_story_id"]
+    story = test_data["story"]
     
     # Save the segment
     segment.save()
     
     # Load the segment
-    loaded_segment = StorySegment.load(test_story_id, segment.id)
+    loaded_segment = StorySegment.load(test_story_id, segment.id, story=story)
     
     # Verify the loaded segment matches the original
     assert loaded_segment is not None
@@ -211,12 +174,13 @@ async def test_choice_save_load(test_data):
     """Test saving and loading a choice."""
     choice = test_data["choice"]
     test_story_id = test_data["test_story_id"]
+    story = test_data["story"]
     
     # Save the choice
     choice.save()
     
     # Load the choice
-    loaded_choice = StoryChoice.load(test_story_id, choice.id)
+    loaded_choice = StoryChoice.load(test_story_id, choice.id, story=story)
     
     # Verify the loaded choice matches the original
     assert loaded_choice is not None
@@ -271,7 +235,7 @@ async def test_delete(test_data):
     character.delete()
     
     # Verify the character is deleted
-    loaded_character = StoryCharacter.load(test_story_id, character.id)
+    loaded_character = StoryCharacter.load(test_story_id, character.id, story=story)
     assert loaded_character is None
     
     # Verify the story still exists
@@ -284,6 +248,7 @@ async def test_generate_next_scene(test_data):
     segment = test_data["segment"]
     generator = test_data["generator"]
     test_story_id = test_data["test_story_id"]
+    story = test_data["story"]
     
     # Generate a new scene and choice
     new_scene, new_choice = await segment.generate_next_scene(
@@ -294,6 +259,7 @@ async def test_generate_next_scene(test_data):
     # Verify the new scene has the expected structure
     assert new_scene is not None
     assert new_scene.story_id == test_story_id
+    assert new_scene.story == story  # Verify story object is set
     assert len(new_scene.text_blocks) == 3  # Mock generator returns 3 text blocks
     assert new_scene.text_blocks[0].type == TextType.NARRATOR_DESCRIBING
     assert new_scene.text_blocks[1].type == TextType.CHARACTER_SPEECH

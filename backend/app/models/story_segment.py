@@ -1,11 +1,12 @@
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from pydantic import BaseModel, Field
-from .story_base import StoryBase
-from .types import TextBlock, SceneTextGeneratorResponse
+from .story_block import StoryBlock
+from .text_types import TextBlock
 from .story_choice import StoryChoice
 
 if TYPE_CHECKING:
-    from .story import Story
+    from ..engine.generator import TextGenerator
+    from ..engine.generator_types import SceneTextGeneratorResponse
 
 class CharacterStatus(BaseModel):
     """Status of a character in a story segment."""
@@ -17,12 +18,13 @@ class LocationStatus(BaseModel):
     location_id: str
     ai_status: str
 
-class StorySegment(StoryBase):
+class StorySegment(StoryBlock):
     """A segment in a story.
     
     This represents a segment of the story with text blocks, character statuses,
     and location statuses.
     """
+    
     from_choice_id: Optional[str] = None
     short_description: str  # Brief description of what happens in this segment
     text_blocks: List[TextBlock] = Field(default_factory=list)
@@ -30,10 +32,10 @@ class StorySegment(StoryBase):
     locations: List[LocationStatus] = Field(default_factory=list)
     
     # Pointers to choices
-    incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict)  # Choices that lead to this segment
-    outgoing_choices: Dict[str, StoryChoice] = Field(default_factory=dict)  # Choices that lead from this segment
+    incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead to this segment
+    outgoing_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead from this segment
     
-    def __init__(self, story: Optional['Story'] = None, **data):
+    def __init__(self, **data):
         """Initialize a StorySegment instance.
         
         Args:
@@ -41,8 +43,7 @@ class StorySegment(StoryBase):
             **data: Segment data fields
         """
         super().__init__(**data)
-        if story is not None:
-            story.add_segment(self)
+        self.story.add_segment(self)
     
     def add_incoming_choice(self, choice: StoryChoice) -> None:
         """Add a choice that leads to this segment."""
@@ -74,6 +75,7 @@ class StorySegment(StoryBase):
             - A new StorySegment instance
             - A new StoryChoice instance connecting the current segment to the new one
         """
+        from ..engine.generator_types import SceneTextGeneratorResponse
         
         # Generate the new scene
         scene_response = await generator.generate(
@@ -84,8 +86,8 @@ class StorySegment(StoryBase):
         
         # Create new segment
         new_segment = StorySegment(
+            story=self.story,
             id=f"segment_{int(self.id.split('_')[-1]) + 1}",  # Increment segment number
-            story_id=self.story_id,
             from_choice_id=None,  # This will be set when we create the choice
             short_description=scene_response.short_description,
             text_blocks=scene_response.text_blocks,
@@ -95,8 +97,8 @@ class StorySegment(StoryBase):
         
         # Create new choice connecting current segment to new segment
         new_choice = StoryChoice(
+            story=self.story,
             id=f"choice_{len(self.outgoing_choices) + 1}",
-            story_id=self.story_id,
             from_segment_id=self.id,
             to_segment_id=new_segment.id,
             text=choice_text

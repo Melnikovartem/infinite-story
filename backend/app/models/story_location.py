@@ -1,20 +1,14 @@
-from pydantic import BaseModel, Field
-from typing import Optional, TYPE_CHECKING
-from .story_base import StoryBase
+from .story_block import StoryBlock
 
-if TYPE_CHECKING:
-    from .story import Story
-
-class StoryLocation(StoryBase):
+class StoryLocation(StoryBlock):
     """A location in a story.
     
     This represents a location with its name and description.
     """
-    story_id: str = Field(alias="story_id")
     name: str
     description: str
 
-    def __init__(self, story: Optional['Story'] = None, **data):
+    def __init__(self, **data):
         """Initialize a StoryLocation instance.
         
         Args:
@@ -22,5 +16,4 @@ class StoryLocation(StoryBase):
             **data: Location data fields
         """
         super().__init__(**data)
-        if story is not None:
-            story.add_location(self)
+        self.story.add_location(self)

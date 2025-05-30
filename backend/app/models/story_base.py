@@ -1,11 +1,13 @@
 import json
 import os
 from datetime import datetime, UTC
-from typing import Dict, Any, Optional, TypeVar, Generic, Type, Union
+from typing import Dict, Any, Optional, TypeVar, Generic, Type, Union, TYPE_CHECKING
 from pydantic import BaseModel, Field, model_validator, PrivateAttr
 from pathlib import Path
 
 T = TypeVar('T', bound='StoryBase')
+
+LOCAL_DATA_DIR = Path(".infinite_story_data")
 
 class StoryBase(BaseModel):
     """Base class for all story components.
@@ -17,36 +19,16 @@ class StoryBase(BaseModel):
     story_id: str  # Required field for all story components
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    
-    # Private attributes
-    _story: Optional['Story'] = PrivateAttr(default=None)
-    
-    @model_validator(mode='after')
-    def validate_story(self) -> 'StoryBase':
-        """Validate that if story is provided, its ID matches story_id."""
-        if self._story:
-            # If this is a Story instance, use self as the story reference
-            if self.__class__.__name__ == 'Story':
-                self._story = self
-            # For other components, ensure story_id matches the story's id
-            elif self.story_id != self._story.id:
-                raise ValueError(f"story_id {self.story_id} does not match story.id {self._story.id}")
-            
-        return self
-    
-    @property
-    def story(self) -> Optional['Story']:
-        """Get the story instance this component belongs to."""
-        if self._story is None and self.story_id is not None:
-            from .story import Story
-            self._story = Story.load(self.story_id, self.story_id)
-        return self._story
-    
-    @story.setter
-    def story(self, value: 'Story') -> None:
-        """Set the story instance this component belongs to."""
-        self._story = value
-        self.story_id = value.id if value else None
+
+    def __init__(self, **data: Any):
+        """Initialize a StoryBase instance.
+        
+        Args:
+            **data: Component data fields
+        """
+        if 'story' in data and data['story'] is not None:
+            data['story_id'] = data['story'].id
+        super().__init__(**data)
     
     def get_story_id(self) -> str:
         """Get the story ID for this object.
@@ -124,7 +106,7 @@ class StoryBase(BaseModel):
     def save(self) -> None:
         """Save the component to disk."""
         # Get the data directory for this story
-        data_dir = Path("data") / self.story_id
+        data_dir = LOCAL_DATA_DIR / self.story_id
         data_dir.mkdir(parents=True, exist_ok=True)
         
         # Get the component type directory
@@ -138,7 +120,7 @@ class StoryBase(BaseModel):
             json.dump(self.model_dump(), f, default=str)
             
     @classmethod
-    def load(cls, story_id: str, component_id: str) -> Optional['StoryBase']:
+    def load(cls, story_id: str, component_id: str, **other_data: Any) -> Optional['StoryBase']:
         """Load a component from disk.
         
         Args:
@@ -150,7 +132,7 @@ class StoryBase(BaseModel):
         """
         # Get the component type directory
         component_type = cls.__name__.lower()
-        file_path = Path("data") / story_id / component_type / f"{component_id}.json"
+        file_path = LOCAL_DATA_DIR / story_id / component_type / f"{component_id}.json"
         
         if not file_path.exists():
             return None
@@ -160,7 +142,7 @@ class StoryBase(BaseModel):
             data = json.load(f)
             
         # Create the component
-        component = cls(**data)
+        component = cls(**data, **other_data)
         component.story_id = story_id
         return component
         
@@ -176,19 +158,31 @@ class StoryBase(BaseModel):
         """
         # Get the component type directory
         component_type = cls.__name__.lower()
-        component_dir = Path("data") / story_id / component_type
+        component_dir = LOCAL_DATA_DIR / story_id / component_type
         
         if not component_dir.exists():
             return []
             
         # List all components
         return [f.stem for f in component_dir.glob("*.json")]
+    
+    @classmethod
+    def list_stories(cls) -> list[str]:
+        """List all stories in the data directory.
+        
+        Returns:
+            A list of story IDs
+        """
+        if not LOCAL_DATA_DIR.exists():
+            return []
+            
+        return [f.name for f in LOCAL_DATA_DIR.iterdir() if f.is_dir()]
         
     def delete(self) -> None:
         """Delete the component from disk."""
         # Get the component type directory
         component_type = self.__class__.__name__.lower()
-        file_path = Path("data") / self.story_id / component_type / f"{self.id}.json"
+        file_path = LOCAL_DATA_DIR / self.story_id / component_type / f"{self.id}.json"
         
         if file_path.exists():
-            file_path.unlink() 
+            file_path.unlink()

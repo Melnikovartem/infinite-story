@@ -2,7 +2,97 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from app.engine.generator import TextGenerator
 from app.engine.openai_generator import OpenAIGenerator
-from app.models.types import SceneTextGeneratorResponse, TextGeneratorResponse, TextType, TextBlock
+from app.models.text_types import TextType
+from app.engine.generator_types import SceneTextGeneratorResponse, TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse
+from datetime import datetime, UTC
+
+class MockGenerator(TextGenerator):
+    """Mock generator for testing that provides predefined responses for different context types."""
+    
+    def __init__(self, response_type=None):
+        super().__init__()
+        self.response_type = response_type
+        self.last_system_prompt = None
+        self.last_user_prompt = None
+        
+    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        """Return a predefined response based on the context type."""
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
+        
+        if self.response_type == SceneTextGeneratorResponse:
+            return '''{
+                "short_description": "A mysterious room reveals its secrets",
+                "text_blocks": [
+                    {
+                        "type": "narrator_describing",
+                        "content": "The room is dimly lit by flickering torches on the walls. Ancient symbols are carved into the stone floor, forming an intricate pattern that seems to pulse with a faint blue light.",
+                        "emotion": "mysterious"
+                    },
+                    {
+                        "type": "character_speech",
+                        "content": "These symbols... they look familiar.",
+                        "character": "Test Character",
+                        "emotion": "curious"
+                    },
+                    {
+                        "type": "sfx",
+                        "content": "A low hum begins to emanate from the symbols",
+                        "sound_asset": "mystical_hum"
+                    }
+                ],
+                "location_change": null,
+                "character_status_change": {"Test Character": "investigating"},
+                "choice_1": "Examine the symbols more closely",
+                "choice_2": "Search for an exit",
+                "atmosphere": "mysterious",
+                "time_of_day": "night",
+                "weather": "indoor",
+                "key_items": ["ancient symbols", "torches", "stone floor"]
+            }'''
+        elif self.response_type == WorldTextGeneratorResponse:
+            return '''{
+                "name": "Test World",
+                "backstory": "A world created for testing purposes",
+                "major_events": ["The Great Test", "The Mocking Period"],
+                "cultures": [{"name": "Test Culture", "description": "A culture for testing"}],
+                "magic_system": "Test magic system",
+                "technology_level": "medieval",
+                "political_system": "testocracy",
+                "religions": [{"name": "Test Religion", "beliefs": "Testing is divine"}],
+                "maps": ["test_map_1", "test_map_2"]
+            }'''
+        elif self.response_type == CharacterTextGeneratorResponse:
+            return '''{
+                "displayed_name": "Test Character",
+                "name_parts": ["Test", "Character"],
+                "short_description": "A character created for testing",
+                "background": "Born in a test environment",
+                "age": 25,
+                "gender": "unknown",
+                "personality_traits": ["curious", "methodical"],
+                "physical_description": "Average height, test-like appearance",
+                "goals": ["Complete all tests", "Find bugs"],
+                "fears": ["Failing tests", "Infinite loops"],
+                "relationships": {"Test NPC": "friend"},
+                "backstory": "Created specifically for testing purposes",
+                "motivations": ["Testing", "Debugging"],
+                "skills": ["Testing", "Mocking"],
+                "inventory": ["Test sword", "Debug potion"]
+            }'''
+        elif self.response_type == LocationTextGeneratorResponse:
+            return '''{
+                "displayed_name": "Test Location",
+                "name_parts": ["Test", "Location"],
+                "short_description": "A location for testing",
+                "long_description": "A detailed test location with various test features",
+                "history": "Created for testing purposes",
+                "local_culture": {"name": "Test Culture", "description": "Test-focused culture"},
+                "points_of_interest": ["Test Point 1", "Test Point 2"],
+                "connected_locations": ["Test Location 2", "Test Location 3"]
+            }'''
+        else:
+            raise ValueError(f"Unsupported response type: {self.response_type}")
 
 @pytest.fixture
 def mock_openai_response():
@@ -143,22 +233,10 @@ async def test_scene_generation_invalid_json():
     assert isinstance(response, TextGeneratorResponse)
     assert response.error is not None
 
-class MockGenerator(TextGenerator):
-    """Mock generator that records prompts for testing."""
-    def __init__(self):
-        super().__init__()
-        self.last_system_prompt = None
-        self.last_user_prompt = None
-        
-    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
-        self.last_system_prompt = system_prompt
-        self.last_user_prompt = user_prompt
-        return '{"raw_response": "test response"}'
-
 @pytest.mark.asyncio
 async def test_prompt_handling():
     """Test that prompts are correctly passed between generate and _generate_content."""
-    generator = MockGenerator()
+    generator = MockGenerator(SceneTextGeneratorResponse)
     
     system_prompt = "You are a creative writing expert"
     user_prompt = "Create a tense scene in a tavern"

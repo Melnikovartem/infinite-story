@@ -2,7 +2,7 @@ import json
 from typing import Optional, Dict, Any
 import httpx
 from .generator import TextGenerator
-from ..models.types import TextGeneratorResponse
+from .generator_types import TextGeneratorResponse
 
 class OpenAIGenerator(TextGenerator):
     """OpenAI-style API implementation of the TextGenerator.

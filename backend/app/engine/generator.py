@@ -2,7 +2,7 @@ from typing import TypeVar, Generic, Type, Optional, Dict, Any
 from pydantic import BaseModel, ValidationError
 import json
 import re
-from ..models.types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
+from .generator_types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
 
 class TextGenerator:
     """Class for generating text content using AI models.

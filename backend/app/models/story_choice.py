@@ -1,16 +1,12 @@
 from pydantic import BaseModel, Field
-from typing import Optional, TYPE_CHECKING
-from .story_base import StoryBase
-
-if TYPE_CHECKING:
-    from .story import Story
-
+from .story_block import StoryBlock
+    
 class ChoiceFlags(BaseModel):
     """Flags for content warnings and restrictions."""
     nsfw: bool = False
     violent: bool = False
 
-class StoryChoice(StoryBase):
+class StoryChoice(StoryBlock):
     """A choice in a story.
     
     This represents a choice that the player can make, with text and references
@@ -23,7 +19,7 @@ class StoryChoice(StoryBase):
     clicks_anonymous: int = 0
     flags: ChoiceFlags = Field(default_factory=ChoiceFlags)
 
-    def __init__(self, story: Optional['Story'] = None, **data):
+    def __init__(self, **data):
         """Initialize a StoryChoice instance.
         
         Args:
@@ -31,5 +27,4 @@ class StoryChoice(StoryBase):
             **data: Choice data fields
         """
         super().__init__(**data)
-        if story is not None:
-            story.add_choice(self)
+        self.story.add_choice(self)
