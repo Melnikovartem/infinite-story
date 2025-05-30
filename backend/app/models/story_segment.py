@@ -26,9 +26,6 @@ class StorySegment(StoryBlock):
     This represents a segment of the story with text blocks, character statuses,
     and location statuses.
     """
-    
-    # Stored Information
-    from_choice_id: Optional[str] = None
 
     # Core Scene Information
     short_description: str = Field(description="Brief summary of the scene")
@@ -39,9 +36,12 @@ class StorySegment(StoryBlock):
 
     text_blocks: List[TextBlock] = Field(default_factory=list, description="Sequence of text blocks that make up the scene")
 
+    characters_present: List[str] = Field(default_factory=list, description="List of character ids present in the scene")
+    locations_present: List[str] = Field(default_factory=list, description="List of location ids present in the scene")
+
     # Running Status of the Characters and Locations
-    characters: List[CharacterStatus] = Field(default_factory=list)
-    locations: List[LocationStatus] = Field(default_factory=list)
+    characters_running_status: List[CharacterStatus] = Field(default_factory=list)
+    locations_running_status: List[LocationStatus] = Field(default_factory=list)
     
     # Non-Stored Information
     # Pointers to choices
@@ -181,8 +181,17 @@ class StorySegment(StoryBlock):
         Returns:
             A string containing comprehensive scene information
         """
+         # Get previous segments
+        prev_segments = self.get_story_segments_before(max_depth=10)
+        
         # Get plain text content
-        info = f"{self.get_short_overview()}\n\n"
+        content = self.get_plain_text_script()
+        
+        # Format the overview
+        overview = f"Scene: {self.short_description}\n\n"
+        if prev_segments:
+            overview += f"Previous Scenes:\n{prev_segments}\n\n"
+        overview += f"Scene Script:\n{content}"
         
         # Get character information
         character_info = []
@@ -192,10 +201,19 @@ class StorySegment(StoryBlock):
                 character_info.append(character.get_full_overview())
 
         if character_info:
-            info += f"\n\nCharacters Present:\n{chr(10).join(character_info)}"
+            overview += f"\n\nCharacters Present:\n{'\n'.join(character_info)}"
+
+        location_info = []
+        for loc_status in self.locations_running_status:
+            location = self.story.get_location(loc_status.location_id)
+            if location:
+                location_info.append(location.get_full_overview())
+
+        if location_info:
+            overview += f"\n\nLocations Present:\n{'\n'.join(location_info)}"
         
         
-        return info
+        return overview
 
     def _generate_scene_prompt(self, choice_text: str) -> str:
         """Generate a comprehensive prompt for scene generation.
@@ -208,17 +226,50 @@ class StorySegment(StoryBlock):
         Returns:
             A formatted prompt string containing all relevant context
         """
+        # Get story context
+        story_context = self.story._context
+        story_context_overview = story_context.get_full_overview() if story_context else ""
+        
+        # Get current story state
+        current_story_state = self.get_full_overview()
+        
+        # Get info about characters/locations not in scene
+        other_chars_overview = []
+        other_locs_overview = []
+        
+        # Get characters not present in current scene
+        all_chars = self.story.get_all_characters()
+        for char in all_chars:
+            if char.id not in [c.character_id for c in self.characters]:
+                other_chars_overview.append(char.get_short_overview())
+                
+        # Get locations not present in current scene
+        all_locs = self.story.get_all_locations() 
+        for loc in all_locs:
+            if loc.id not in self.locations_present:
+                other_locs_overview.append(loc.get_short_overview())
 
         # Combine all context into a comprehensive prompt
-        prompt = f"""Generate a new scene that follows from the player's choice."""
+        prompt = "Generate a new scene that follows from the player's choice.\n\n"
+        prompt += f"{story_context_overview}\n"
+        prompt += f"{current_story_state}\n"
+
+        prompt += "Characters Not Present:\n"
+        prompt += f"{chr(10).join(other_chars_overview)}\n"
+
+        prompt += "Locations Not Present:\n"
+        prompt += f"{chr(10).join(other_locs_overview)}\n"
+
+        prompt += "Player's Choice:\n"
+        prompt += f"{choice_text}\n"
 
         return prompt
         
     async def generate_next_scene(
         self,
-        choice_text: str,
+        connecting_choice: 'StoryChoice',
         generator: 'TextGenerator',
-    ) -> Tuple['StorySegment', StoryChoice]:
+    ) -> 'StorySegment':
         """Generate a new scene based on the current scene and the player's choice.
         
         This method:
@@ -228,21 +279,19 @@ class StorySegment(StoryBlock):
         4. Generates a new scene based on the choice and context
         
         Args:
-            choice_text: The text of the choice that led to this new scene
+            connecting_choice: The choice that led to this new scene
             generator: The text generator to use for scene generation
             
         Returns:
             A tuple containing:
             - A new StorySegment instance
-            - A new StoryChoice instance connecting the current segment to the new one
+            - A list of two new StoryChoice instances for the next choices
         """
-        from ..engine.generator_types import SceneTextGeneratorResponse
-        
         # Generate the scene prompt using all available context
-        user_prompt = self._generate_scene_prompt(choice_text)
+        user_prompt = self._generate_scene_prompt(connecting_choice.text)
         
         # Generate the new scene
-        scene_response = await generator.generate(
+        scene_response: SceneTextGeneratorResponse = await generator.generate(
             system_prompt="",  # Use default system prompt
             user_prompt=user_prompt,
             context_type="scene"
@@ -252,29 +301,64 @@ class StorySegment(StoryBlock):
         new_segment = StorySegment(
             story=self.story,
             id=f"segment_{int(self.id.split('_')[-1]) + 1}",  # Increment segment number
-            from_choice_id=None,  # This will be set when we create the choice
             short_description=scene_response.short_description,
+            atmosphere=scene_response.atmosphere,
+            time_of_day=scene_response.time_of_day,
+            weather=scene_response.weather,
+            key_items=scene_response.key_items,
             text_blocks=scene_response.text_blocks,
-            characters=self.characters,  # Keep the same characters for now
-            locations=self.locations  # Keep the same locations for now
+            characters_present=scene_response.characters_present,
+            locations_present=scene_response.locations_present
         )
+
+        # Copy over existing running status from current segment
+        new_segment.characters_running_status.extend(self.characters_running_status)
+        new_segment.locations_running_status.extend(self.locations_running_status)
         
-        # Create new choice connecting current segment to new segment
-        new_choice = StoryChoice(
+        # Update character and location statuses based on changes
+        for char_id, new_status in scene_response.character_status_change.items():
+            # Add new status after existing one
+            new_segment.characters_running_status.append(
+                CharacterStatus(character_id=char_id, current_status=new_status)
+            )
+            
+        for loc_id, new_status in scene_response.location_status_change.items():
+            # Add new status after existing one
+            new_segment.locations_running_status.append(
+                LocationStatus(location_id=loc_id, current_status=new_status)
+            )
+
+        # Set up the choice pointers for connecting choice
+        connecting_choice.to_segment_id = new_segment.id
+        new_segment.from_choice_id = connecting_choice.id
+        new_segment.add_incoming_choice(connecting_choice)
+        self.add_outgoing_choice(connecting_choice)
+
+        # Create the two new choices leading from new segment
+        choice_1 = StoryChoice(
             story=self.story,
-            id=f"choice_{len(self.outgoing_choices) + 1}",
-            from_segment_id=self.id,
-            to_segment_id=new_segment.id,
-            text=choice_text
+            id=f"choice_{len(self.outgoing_choices) + 2}",
+            from_segment_id=new_segment.id,
+            to_segment_id=None,
+            text=scene_response.choice_1
         )
         
-        # Set up the choice pointers
-        new_segment.from_choice_id = new_choice.id
-        new_segment.add_incoming_choice(new_choice)
-        self.add_outgoing_choice(new_choice)
+        choice_2 = StoryChoice(
+            story=self.story,
+            id=f"choice_{len(self.outgoing_choices) + 3}",
+            from_segment_id=new_segment.id,
+            to_segment_id=None,
+            text=scene_response.choice_2
+        )
+
+        # Add outgoing choices to new segment
+        new_segment.add_outgoing_choice(choice_1)
+        new_segment.add_outgoing_choice(choice_2)
         
-        # Save the new segment and choice to link them to the story
+        # Save everything
         new_segment.save()
-        new_choice.save()
+        choice_1.save()
+        choice_2.save()
+        connecting_choice.save()
         
-        return new_segment, new_choice
+        return new_segment

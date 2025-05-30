@@ -175,9 +175,12 @@ class SceneTextGeneratorResponse(TextGeneratorResponse):
 
     text_blocks: List[TextBlock] = Field(default_factory=list, description="Sequence of text blocks that make up the scene")
 
+    characters_present: List[str] = Field(default_factory=list, description="List of character ids present in the scene")
+    locations_present: List[str] = Field(default_factory=list, description="List of location ids present in the scene")
+
     # Updates
     character_status_change: Dict[str, str] = Field(default_factory=dict, description="Changes in character states during the scene")
-    new_location: Optional[str] = Field(None, description="New location where the scene takes place. Give just the id of the location, not the name.")
+    location_status_change: Dict[str, str] = Field(default_factory=dict, description="Changes in location status during the scene")
 
     # Choices
     choice_1: str = Field(description="First choice presented to the player")
