@@ -13,8 +13,6 @@ class StoryRunner:
         self.story = story
         self.current_segment: Optional[StorySegment] = None
         self.visited_segments: Set[str] = set()  # Set of segment IDs we've visited
-        self.active_characters: Dict[str, StoryCharacter] = {}  # Currently active characters
-        self.active_locations: Dict[str, StoryLocation] = {}  # Currently active locations
         
     def start(self) -> None:
         """Start the story from the beginning."""
@@ -60,7 +58,7 @@ class StoryRunner:
             raise ValueError("No current segment")
             
         # Load the choice
-        choice = StoryChoice.load(self.story.id, choice_id)
+        choice = self.story.get_choice(choice_id)
         if not choice:
             raise ValueError(f"Choice {choice_id} not found")
             
@@ -68,21 +66,18 @@ class StoryRunner:
             raise ValueError(f"Choice {choice_id} is not available in the current segment")
             
         # Load the next segment
-        next_segment = StorySegment.load(self.story.id, choice.to_segment_id)
+        next_segment = self.story.get_segment(choice.to_segment_id)
         if not next_segment:
             raise ValueError(f"Next segment {choice.to_segment_id} not found")
             
         # Move to the next segment
         self.current_segment = next_segment
         self.visited_segments.add(choice.to_segment_id)
-        self._update_active_entities()
-        
+
     def get_current_state(self) -> dict:
         """Get the current state of the story."""
         return {
             "current_segment": self.current_segment,
-            "active_characters": list(self.active_characters.values()),
-            "active_locations": list(self.active_locations.values()),
             "visited_segments": list(self.visited_segments)
         }
     

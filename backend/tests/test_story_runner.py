@@ -119,8 +119,6 @@ def test_story_runner_initialization(test_story):
     
     # Verify initial state
     assert runner.current_segment is None
-    assert runner.active_characters == {}
-    assert runner.active_locations == {}
     assert runner.visited_segments == set()
 
 def test_story_runner_start(test_story):
