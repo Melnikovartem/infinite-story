@@ -1,8 +1,5 @@
-from typing import Any, ForwardRef
+from typing import Any
 from .story_block import StoryBlock
-
-
-StoryRef = ForwardRef('Story')
 
 class StoryCharacter(StoryBlock):
     """A character in a story.
@@ -52,6 +49,3 @@ Appearances:
 {chr(10).join(character_segments) if character_segments else "No appearances yet"}"""
 
         return info
-
-# Update forward references
-StoryCharacter.model_rebuild()

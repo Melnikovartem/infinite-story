@@ -51,7 +51,6 @@ def test_story():
     start_segment = StorySegment(
         story=story,
         id="start_segment_1",
-        from_choice_id=None,  # Start segment has no previous choice
         short_description="The beginning of the story",
         text_blocks=[
             TextBlock(
@@ -86,7 +85,6 @@ def test_story():
     next_segment = StorySegment(
         story=story,
         id="next_segment_1",
-        from_choice_id=choice.id,
         short_description="The continuation of the story",
         text_blocks=[
             TextBlock(

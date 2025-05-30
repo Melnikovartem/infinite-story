@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from pydantic import Field, model_validator
 from .story_base import StoryBase
 from .story import Story
@@ -10,7 +10,7 @@ class StoryBlock(StoryBase):
     This class extends StoryBase to provide story object functionality
     and overloads the load method to require a story object.
     """
-    story: Story = Field(default=None, exclude=True)
+    story: 'Story' = Field(default=None, exclude=True)
 
     def __init__(self, **data: Any):
         """Initialize a StoryBlock instance.

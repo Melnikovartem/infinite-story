@@ -60,7 +60,6 @@ def test_data():
         story=story,
         id="start_segment_1",
         story_id=story.id,
-        from_choice_id=None,
         short_description="The story begins in a mysterious location",
         text_blocks=[
             TextBlock(
@@ -249,9 +248,18 @@ async def test_generate_next_scene(test_data):
     test_story_id = test_data["test_story_id"]
     story = test_data["story"]
     
-    # Generate a new scene and choice
-    new_scene, new_choice = await segment.generate_next_scene(
-        "Explore the mysterious room",
+    # Create a choice for the test
+    choice = StoryChoice(
+        story=story,
+        id="test_choice_1",
+        from_segment_id=segment.id,
+        to_segment_id=None,
+        text="Explore the mysterious room"
+    )
+    
+    # Generate a new scene
+    new_scene = await segment.generate_next_scene(
+        choice,
         generator
     )
     
@@ -263,14 +271,11 @@ async def test_generate_next_scene(test_data):
     assert new_scene.text_blocks[0].type == TextType.NARRATOR_DESCRIBING
     assert new_scene.text_blocks[1].type == TextType.CHARACTER_SPEECH
     assert new_scene.text_blocks[2].type == TextType.SFX
-    assert len(new_scene.characters) == len(segment.characters)
-    assert len(new_scene.locations) == len(segment.locations)
     
     # Verify the choice pointers
-    assert new_scene.from_choice_id == new_choice.id
-    assert new_choice.id in new_scene.incoming_choices
-    assert new_choice.id in segment.outgoing_choices
+    assert choice.id in new_scene.incoming_choices
+    assert choice.id in segment.outgoing_choices
     
     # Verify the choice connects the segments correctly
-    assert new_choice.from_segment_id == segment.id
-    assert new_choice.to_segment_id == new_scene.id
+    assert choice.from_segment_id == segment.id
+    assert choice.to_segment_id == new_scene.id

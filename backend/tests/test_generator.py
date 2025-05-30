@@ -250,17 +250,41 @@ Response Schema:
     "type": "string",
     "description": "Brief summary of the scene"
   },
+  "atmosphere": {
+    "type": "Optional[string]",
+    "description": "The overall mood and atmosphere of the scene"
+  },
+  "time_of_day": {
+    "type": "Optional[string]",
+    "description": "When the scene takes place"
+  },
+  "weather": {
+    "type": "Optional[string]",
+    "description": "Weather conditions during the scene"
+  },
+  "key_items": {
+    "type": "List[string]",
+    "description": "Important items present or mentioned in the scene"
+  },
   "text_blocks": {
-    "type": "array of text blocks",
+    "type": "List[{'type': 'object', 'properties': {'type': {'type': 'string', 'enum': ['narrator_describing', 'narrator_commentary', 'flashback', 'dream_sequence', 'character_speech', 'character_thought', 'poem_or_song', 'letter_or_note', 'sfx', 'visual_cue', 'media_overlay', 'scene_title', 'location_label', 'system_message'], 'description': 'The type of text block'}, 'text': {'type': 'string', 'description': 'The actual text content of the block'}}, 'text_type_descriptions': [{'value': 'narrator_describing', 'description': 'Narrative description of scenes, actions, environments'}, {'value': 'narrator_commentary', 'description': "Narrator's commentary or observations"}, {'value': 'flashback', 'description': 'Past events being recalled'}, {'value': 'dream_sequence', 'description': 'Dream or vision sequences'}, {'value': 'character_speech', 'description': 'Direct dialogue from characters'}, {'value': 'character_thought', 'description': 'Internal thoughts/monologue'}, {'value': 'poem_or_song', 'description': 'Poetic or musical content'}, {'value': 'letter_or_note', 'description': 'Written correspondence'}, {'value': 'sfx', 'description': 'Sound effects'}, {'value': 'visual_cue', 'description': 'Visual descriptions or cues'}, {'value': 'media_overlay', 'description': 'Overlaid media elements'}, {'value': 'scene_title', 'description': 'Title of a scene'}, {'value': 'location_label', 'description': 'Location identifiers'}, {'value': 'system_message', 'description': 'System/meta messages'}]}]",
     "description": "Sequence of text blocks that make up the scene"
   },
-  "location_change": {
-    "type": "string (optional)",
-    "description": "New location if the scene changes location"
+  "characters_present": {
+    "type": "List[string]",
+    "description": "List of character ids present in the scene"
+  },
+  "locations_present": {
+    "type": "List[string]",
+    "description": "List of location ids present in the scene"
   },
   "character_status_change": {
-    "type": "object with string key-value pairs",
+    "type": "Dict[string, string]",
     "description": "Changes in character states during the scene"
+  },
+  "location_status_change": {
+    "type": "Dict[string, string]",
+    "description": "Changes in location status during the scene"
   },
   "choice_1": {
     "type": "string",
@@ -269,22 +293,6 @@ Response Schema:
   "choice_2": {
     "type": "string",
     "description": "Second choice presented to the player"
-  },
-  "atmosphere": {
-    "type": "string",
-    "description": "The overall mood and atmosphere of the scene"
-  },
-  "time_of_day": {
-    "type": "string (optional)",
-    "description": "When the scene takes place"
-  },
-  "weather": {
-    "type": "string (optional)",
-    "description": "Weather conditions during the scene"
-  },
-  "key_items": {
-    "type": "array of strings",
-    "description": "Important items present or mentioned in the scene"
   }
 }'''
     

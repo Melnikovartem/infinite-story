@@ -2,6 +2,7 @@ from typing import Optional, List, Dict, TYPE_CHECKING
 from pydantic import PrivateAttr
 from .story_base import StoryBase
 
+
 if TYPE_CHECKING:
     from .story_character import StoryCharacter
     from .story_location import StoryLocation

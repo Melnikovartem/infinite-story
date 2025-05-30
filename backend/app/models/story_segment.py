@@ -40,6 +40,8 @@ class StorySegment(StoryBlock):
     locations_present: List[str] = Field(default_factory=list, description="List of location ids present in the scene")
 
     # Running Status of the Characters and Locations
+    characters: List[CharacterStatus] = Field(default_factory=list, description="List of character statuses in the scene")
+    locations: List[LocationStatus] = Field(default_factory=list, description="List of location statuses in the scene")
     characters_running_status: List[CharacterStatus] = Field(default_factory=list)
     locations_running_status: List[LocationStatus] = Field(default_factory=list)
     
@@ -330,7 +332,6 @@ class StorySegment(StoryBlock):
 
         # Set up the choice pointers for connecting choice
         connecting_choice.to_segment_id = new_segment.id
-        new_segment.from_choice_id = connecting_choice.id
         new_segment.add_incoming_choice(connecting_choice)
         self.add_outgoing_choice(connecting_choice)
 
