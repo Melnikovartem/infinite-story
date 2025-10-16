@@ -299,10 +299,15 @@ class StorySegment(StoryBlock):
             context_type="scene"
         )
         
+        # Generate unique segment ID based on total number of segments
+        import uuid
+        segment_count = len(self.story.get_all_segments())
+        new_segment_id = f"segment_{segment_count + 1}_{uuid.uuid4().hex[:8]}"
+
         # Create new segment
         new_segment = StorySegment(
             story=self.story,
-            id=f"segment_{int(self.id.split('_')[-1]) + 1}",  # Increment segment number
+            id=new_segment_id,
             short_description=scene_response.short_description,
             atmosphere=scene_response.atmosphere,
             time_of_day=scene_response.time_of_day,
@@ -335,18 +340,23 @@ class StorySegment(StoryBlock):
         new_segment.add_incoming_choice(connecting_choice)
         self.add_outgoing_choice(connecting_choice)
 
+        # Generate unique choice IDs based on total number of choices
+        choice_count = len(self.story.get_all_choices())
+        choice_1_id = f"choice_{choice_count + 1}_{uuid.uuid4().hex[:8]}"
+        choice_2_id = f"choice_{choice_count + 2}_{uuid.uuid4().hex[:8]}"
+
         # Create the two new choices leading from new segment
         choice_1 = StoryChoice(
             story=self.story,
-            id=f"choice_{len(self.outgoing_choices) + 2}",
+            id=choice_1_id,
             from_segment_id=new_segment.id,
             to_segment_id=None,
             text=scene_response.choice_1
         )
-        
+
         choice_2 = StoryChoice(
             story=self.story,
-            id=f"choice_{len(self.outgoing_choices) + 3}",
+            id=choice_2_id,
             from_segment_id=new_segment.id,
             to_segment_id=None,
             text=scene_response.choice_2

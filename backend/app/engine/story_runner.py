@@ -1,14 +1,17 @@
 from typing import Dict, List, Optional, Set
+import json
+from pathlib import Path
 from ..models.story import Story
 from ..models.story_segment import StorySegment
 from ..models.story_character import StoryCharacter
 from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
+from ..models.story_base import LOCAL_DATA_DIR
 
 class StoryRunner:
     """Manages the runtime state of a story and handles the game loop."""
-    
+
     def __init__(self, story: Story):
         self.story = story
         self.current_segment: Optional[StorySegment] = None
@@ -141,12 +144,6 @@ class StoryRunner:
                 raise ValueError(f"Failed to load context {context_id}")
             story.add_context(context)
 
-        for segment in story._segments.values():
-            print(segment.id)
-            print(segment.outgoing_choices)
-            print(segment.incoming_choices)
-            print(segment.get_full_overview())
-
     def save_all_components(self, story) -> None:
         """Save all story components (characters, locations, segments, choices, context).
         
@@ -172,3 +169,80 @@ class StoryRunner:
         # Save story context
         if story._context:
             story._context.save()
+
+    def get_state_file_path(self) -> Path:
+        """Get the path to the state file for this story.
+
+        Returns:
+            Path to the runner state JSON file
+        """
+        state_dir = LOCAL_DATA_DIR / self.story.id
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir / "runner_state.json"
+
+    def save_state(self) -> None:
+        """Save the current runner state to disk.
+
+        This saves the current segment ID and visited segments,
+        allowing the session to be resumed later.
+        """
+        state = {
+            "current_segment_id": self.current_segment.id if self.current_segment else None,
+            "visited_segments": list(self.visited_segments)
+        }
+
+        state_file = self.get_state_file_path()
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
+    def load_state(self) -> bool:
+        """Load a previously saved runner state.
+
+        Returns:
+            True if state was loaded successfully, False if no saved state exists
+        """
+        state_file = self.get_state_file_path()
+
+        if not state_file.exists():
+            return False
+
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+
+            # Restore current segment
+            if state.get("current_segment_id"):
+                self.current_segment = self.story.get_segment(state["current_segment_id"])
+
+            # Restore visited segments
+            self.visited_segments = set(state.get("visited_segments", []))
+
+            return True
+        except Exception as e:
+            # If loading fails, return False (will start from beginning)
+            print(f"Warning: Failed to load state: {e}")
+            return False
+
+    def clear_state(self) -> None:
+        """Clear the saved state file."""
+        state_file = self.get_state_file_path()
+        if state_file.exists():
+            state_file.unlink()
+
+    def start_from_segment(self, segment_id: str) -> None:
+        """Start the story from a specific segment.
+
+        Args:
+            segment_id: The ID of the segment to start from
+
+        Raises:
+            ValueError: If the segment doesn't exist
+        """
+        self.load_all_components(self.story)
+
+        segment = self.story.get_segment(segment_id)
+        if not segment:
+            raise ValueError(f"Segment {segment_id} not found")
+
+        self.current_segment = segment
+        self.visited_segments.add(segment_id)
