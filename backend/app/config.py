@@ -3,7 +3,8 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic_settings import BaseSettings
 
 
 class GeneratorConfig(BaseModel):
@@ -110,3 +111,22 @@ class Config(BaseModel):
         cls.setup_logging()
 
         return cls.from_env()
+
+
+class Settings(BaseSettings):
+    """FastAPI application settings using pydantic-settings."""
+    
+    app_name: str = "Infinite Story Engine"
+    debug: bool = True
+    api_base_url: str = "http://localhost:8000"
+    data_dir: str = ".infinite_story_data"
+    log_level: str = "INFO"
+    
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+    )
+        
+
+# Load settings on module import
+settings = Settings()

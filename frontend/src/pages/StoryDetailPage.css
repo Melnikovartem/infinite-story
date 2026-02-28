@@ -1,0 +1,159 @@
+.story-detail-page {
+  background: white;
+  border-radius: 8px;
+  margin-top: 20px;
+  padding: 0;
+}
+
+.back-button {
+  background: none;
+  color: #3498db;
+  font-weight: 600;
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  transition: color 0.2s ease;
+}
+
+.back-button:hover {
+  color: #2980b9;
+}
+
+.story-header {
+  padding: 40px 0;
+  border-bottom: 1px solid #ecf0f1;
+  margin-bottom: 40px;
+}
+
+.story-header h2 {
+  font-size: 36px;
+  margin: 0 0 12px 0;
+  color: #2c3e50;
+}
+
+.story-header .author {
+  color: #7f8c8d;
+  font-size: 14px;
+  margin: 0 0 16px 0;
+}
+
+.story-header .description {
+  color: #555;
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 600px;
+}
+
+.story-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 40px;
+}
+
+@media (max-width: 768px) {
+  .story-info {
+    grid-template-columns: 1fr;
+  }
+}
+
+.info-section h3 {
+  font-size: 18px;
+  margin: 0 0 20px 0;
+  color: #2c3e50;
+}
+
+.characters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.character-item {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.character-info {
+  flex: 1;
+}
+
+.character-name {
+  margin: 0 0 4px 0;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.character-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.location-item {
+  margin-bottom: 24px;
+}
+
+.location-item h4 {
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+}
+
+.location-item p {
+  margin: 0;
+  color: #555;
+  font-size: 14px;
+}
+
+.story-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 40px;
+  border-top: 1px solid #ecf0f1;
+}
+
+.action-button {
+  padding: 12px 32px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 2px solid #3498db;
+  color: #3498db;
+  background: white;
+}
+
+.action-button.primary {
+  background-color: #3498db;
+  color: white;
+}
+
+.action-button:hover {
+  transform: translateY(-2px);
+}
+
+.action-button.primary:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.action-button:hover {
+  border-color: #2980b9;
+  color: #2980b9;
+}
+
+@media (max-width: 480px) {
+  .story-header h2 {
+    font-size: 24px;
+  }
+
+  .story-actions {
+    flex-direction: column;
+  }
+
+  .action-button {
+    width: 100%;
+  }
+}
