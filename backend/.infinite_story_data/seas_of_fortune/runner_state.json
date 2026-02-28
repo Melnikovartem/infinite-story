@@ -1,7 +1,8 @@
 {
-  "current_segment_id": "segment_2_4fbec54b",
+  "current_segment_id": "segment_3_52f3d2bd",
   "visited_segments": [
-    "dock_encounter",
-    "segment_2_4fbec54b"
+    "segment_3_52f3d2bd",
+    "segment_2_4fbec54b",
+    "dock_encounter"
   ]
 }
