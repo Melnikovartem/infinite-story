@@ -15,7 +15,6 @@ interface ReportModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (reason: ReportReason, description: string) => Promise<void>
-  segmentId?: string
 }
 
 const reportReasons: { value: ReportReason; label: string; description: string }[] = [
@@ -50,7 +49,6 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
-  segmentId,
 }) => {
   const [selectedReason, setSelectedReason] = useState<ReportReason | ''>('')
   const [description, setDescription] = useState('')

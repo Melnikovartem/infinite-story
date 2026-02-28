@@ -60,9 +60,8 @@ describe('Textarea', () => {
     expect(screen.getByLabelText('Message')).toBeInTheDocument()
   })
 
-  it('displays character count when enabled', async () => {
-    const user = userEvent.setup()
-    const { rerender } = render(
+  it('displays character count when enabled', () => {
+    render(
       <Textarea
         value="hello"
         maxLength={100}

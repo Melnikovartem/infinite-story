@@ -1,7 +1,7 @@
 import React from 'react'
 import { Card } from './Card'
 import { CharacterAvatar } from './CharacterAvatar'
-import { AvatarShape } from '../types'
+import type { AvatarShape } from '../types'
 
 export interface TextBlock {
   type: 'NARRATOR_DESCRIBING' | 'CHARACTER_SPEECH' | 'CHARACTER_THOUGHT' | 'ACTION'

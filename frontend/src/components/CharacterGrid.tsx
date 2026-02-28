@@ -1,7 +1,7 @@
 import React from 'react'
 import { CharacterAvatar } from './CharacterAvatar'
 import { Card } from './Card'
-import { AvatarShape } from '../types'
+import type { AvatarShape } from '../types'
 
 interface Character {
   id: string

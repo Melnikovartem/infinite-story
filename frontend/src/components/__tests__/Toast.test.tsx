@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Toast, useToast } from '../Toast'
+import { Toast } from '../Toast'
 
 describe('Toast', () => {
   it('renders with message', () => {
@@ -109,7 +109,7 @@ describe('ToastContainer', () => {
       { id: '2', message: 'Toast 2', type: 'error' as const, onClose: () => {} },
     ]
 
-    const { container } = render(
+    render(
       <>
         {toasts.map(toast => (
           <Toast key={toast.id} {...toast} duration={0} />

@@ -1,5 +1,5 @@
 import React from 'react'
-import { AvatarShape } from '../types'
+import type { AvatarShape } from '../types'
 
 interface CharacterAvatarProps {
   shape: AvatarShape
@@ -10,7 +10,7 @@ interface CharacterAvatarProps {
   className?: string
 }
 
-const shapeComponents: Record<AvatarShape, (color: string) => JSX.Element> = {
+const shapeComponents: Record<AvatarShape, (color: string) => React.ReactElement> = {
   square: (color) => (
     <rect x="25%" y="25%" width="50%" height="50%" fill={color} rx="4" />
   ),

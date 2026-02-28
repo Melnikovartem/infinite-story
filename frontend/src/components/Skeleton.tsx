@@ -6,7 +6,6 @@ interface SkeletonProps {
   width?: string | number
   className?: string
   circle?: boolean
-  circle_radius?: string
 }
 
 export const Skeleton: React.FC<SkeletonProps> = ({
@@ -15,7 +14,6 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   width = '100%',
   className = '',
   circle = false,
-  circle_radius = '50%',
 }) => {
   const heightStyle = typeof height === 'number' ? `${height}px` : height
   const widthStyle = typeof width === 'number' ? `${width}px` : width

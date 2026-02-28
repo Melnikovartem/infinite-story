@@ -1,10 +1,8 @@
-import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Alert } from '../Alert'
 import { Button } from '../Button'
 import { Input } from '../Input'
-import { Modal } from '../Modal'
 
 describe('Accessibility - WCAG 2.1 AA Compliance', () => {
   describe('Semantic HTML', () => {
