@@ -31,10 +31,11 @@ async def health_check():
 
 
 # Import and include routers
-from app.routes import sessions, reports
+from app.routes import sessions, reports, progress
 
 app.include_router(sessions.router, prefix="/api", tags=["sessions"])
 app.include_router(reports.router, prefix="/api", tags=["reports"])
+app.include_router(progress.router, prefix="/api", tags=["progress"])
 
 
 @app.get("/")
