@@ -18,8 +18,15 @@ from app.models.story import Story
 from app.models.story_choice import StoryChoice
 from app.engine.story_runner import StoryRunner
 from app.engine.openai_generator import OpenAIGenerator
+from app.engine.openrouter_generator import OpenRouterGenerator
 from app.config import Config
 from app.utils.error_handler import ErrorHandler, ErrorType, handle_api_error
+from app.utils.model_info import (
+    get_models_by_provider,
+    get_recommended_models,
+    format_model_list,
+    get_model_recommendations
+)
 
 app = typer.Typer()
 console = Console()
@@ -90,14 +97,28 @@ async def run_story_async():
         console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
         return
 
-    # Initialize generator
-    generator = OpenAIGenerator(
-        api_base=config.generator.base_url,
-        api_key=config.generator.api_key,
-        model=config.generator.model,
-        temperature=config.generator.temperature,
-        max_tokens=config.generator.max_tokens
-    )
+    # Initialize generator based on provider
+    if config.generator.provider == "openrouter":
+        logger.info(f"Initializing OpenRouter generator with model: {config.generator.model}")
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name
+        )
+        console.print(f"[cyan]Using OpenRouter with model: {config.generator.model}[/cyan]")
+    else:  # openai
+        logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+        console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
 
     logger.info("Listing available stories")
     story_ids = Story.list_stories()
@@ -324,14 +345,26 @@ async def test_generation_async(story_id: str):
         console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
         return
 
-    # Initialize generator
-    generator = OpenAIGenerator(
-        api_base=config.generator.base_url,
-        api_key=config.generator.api_key,
-        model=config.generator.model,
-        temperature=config.generator.temperature,
-        max_tokens=config.generator.max_tokens
-    )
+    # Initialize generator based on provider
+    if config.generator.provider == "openrouter":
+        logger.info(f"Initializing OpenRouter generator with model: {config.generator.model}")
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name
+        )
+    else:  # openai
+        logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
 
     console.print(f"[cyan]Testing scene generation for story: {story_id}[/cyan]")
 
@@ -396,6 +429,51 @@ def test_generation(
 ):
     """Test scene generation with a story."""
     asyncio.run(test_generation_async(story_id))
+
+@app.command()
+def list_models(
+    provider: str = typer.Option(
+        None,
+        help="Provider to list models for (openrouter or openai). Leave empty to see all."
+    ),
+    use_case: str = typer.Option(
+        None,
+        help="Get recommendations for a use case (story, speed, quality, budget)"
+    )
+):
+    """List available AI models and get recommendations."""
+    if use_case:
+        # Show recommendations
+        recommendations = get_model_recommendations(use_case)
+        console.print(f"\n[bold cyan]Recommended models for '{use_case}':[/bold cyan]")
+        for model_name, reason in recommendations:
+            console.print(f"  • [green]{model_name}[/green] - {reason}")
+        return
+    
+    if provider:
+        # Show models for specific provider
+        provider = provider.lower()
+        if provider not in ["openrouter", "openai"]:
+            console.print(f"[red]Invalid provider '{provider}'. Must be 'openrouter' or 'openai'.[/red]")
+            return
+        console.print(format_model_list(provider))
+    else:
+        # Show all models and recommendations
+        console.print("\n[bold cyan]=== Available AI Models ===[/bold cyan]")
+        console.print(format_model_list("openrouter"))
+        console.print(format_model_list("openai"))
+        
+        console.print("\n[bold cyan]=== Recommended Models by Use Case ===[/bold cyan]")
+        for use_case in ["story", "speed", "quality", "budget"]:
+            recommendations = get_model_recommendations(use_case)
+            console.print(f"\n[yellow]{use_case.upper()}:[/yellow]")
+            for model_name, reason in recommendations:
+                console.print(f"  • {model_name} - {reason}")
+        
+        console.print("\n[bold cyan]=== Configuration ===[/bold cyan]")
+        console.print("Set your preferred model in .env file:")
+        console.print("  AI_PROVIDER=openrouter")
+        console.print("  AI_MODEL=deepseek-v3  # Or any other model")
 
 if __name__ == "__main__":
     app()
