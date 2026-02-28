@@ -1,0 +1,38 @@
+.progress-counter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #7f8c8d;
+  flex-shrink: 0;
+}
+
+.counter-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.counter-item .label {
+  font-weight: 600;
+  color: #95a5a6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.counter-item .value {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.separator {
+  color: #bdc3c7;
+}
+
+@media (max-width: 768px) {
+  .progress-counter {
+    font-size: 12px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
