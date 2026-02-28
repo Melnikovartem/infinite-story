@@ -69,7 +69,8 @@ class Config(BaseModel):
                     "Please set it in your .env file or environment. "
                     "Get one at https://openrouter.ai"
                 )
-            model = os.getenv("AI_MODEL", "deepseek-v3")
+            # Use claude-3-haiku as default - it's reliable and works
+            model = os.getenv("AI_MODEL", "claude-3-haiku")
         else:  # openai
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
