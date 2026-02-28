@@ -1,5 +1,6 @@
 import json
 import asyncio
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -18,9 +19,11 @@ from app.models.story_choice import StoryChoice
 from app.engine.story_runner import StoryRunner
 from app.engine.openai_generator import OpenAIGenerator
 from app.config import Config
+from app.utils.error_handler import ErrorHandler, ErrorType, handle_api_error
 
 app = typer.Typer()
 console = Console()
+logger = logging.getLogger("infinite_story.cli")
 
 def display_stories(stories: List[dict]) -> None:
     """Display stories in a rich table."""
@@ -76,9 +79,15 @@ async def run_story_async():
     # Load configuration
     try:
         config = Config.load()
+        logger.info("Configuration loaded successfully")
     except ValueError as e:
-        console.print(f"[red]Configuration Error: {e}[/red]")
-        console.print("\n[yellow]Please create a .env file based on .env.example[/yellow]")
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for story"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
         return
 
     # Initialize generator
@@ -90,9 +99,12 @@ async def run_story_async():
         max_tokens=config.generator.max_tokens
     )
 
+    logger.info("Listing available stories")
     story_ids = Story.list_stories()
+    logger.debug(f"Found {len(story_ids)} story IDs: {story_ids}")
     stories = []
     for story_id in story_ids:
+        logger.debug(f"Loading story: {story_id}")
         story = Story.load(story_id, story_id)
         if story:
             stories.append({
@@ -105,7 +117,9 @@ async def run_story_async():
 
     selected_story = select_story(stories)
     if not selected_story:
+        logger.warning("No story selected")
         return
+    logger.info(f"Selected story: {selected_story['id']}")
 
     console.print(Panel(
         f"[green]Starting story: {selected_story.get('title', 'Untitled')}[/green]",
@@ -114,23 +128,30 @@ async def run_story_async():
     ))
 
     # Initialize story runner with selected story
+    logger.info(f"Loading story data for: {selected_story['id']}")
     story = Story.load(selected_story["id"], selected_story["id"])
     if not story:
         console.print("[red]Failed to load story![/red]")
+        logger.error(f"Failed to load story: {selected_story['id']}")
         return
 
+    logger.info(f"Initializing StoryRunner for: {story.id}")
     runner = StoryRunner(story)
     try:
         # Try to load previous state
         if runner.load_state():
             console.print("[yellow]Resuming from saved state...[/yellow]")
+            logger.info("Loaded previous state, resuming story")
             # Need to load components first
             runner.load_all_components(story)
             console.print(f"[green]Resumed at segment: {runner.current_segment.short_description}[/green]")
+            logger.info(f"Resumed at segment: {runner.current_segment.id}")
         else:
             # Start from beginning
+            logger.info("No previous state found, starting from beginning")
             runner.start()
             console.print("[green]Story started successfully![/green]")
+            logger.info(f"Story started at segment: {runner.current_segment.id}")
 
         # Main story loop
         while True:
@@ -150,10 +171,12 @@ async def run_story_async():
 
             # Get available choices
             choices = runner.get_available_choices()
+            logger.debug(f"Current segment '{runner.current_segment.id}' has {len(choices)} available choices")
 
             # Check if there are any choices
             if not choices:
                 console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
+                logger.info("Story ended - no more choices available")
                 break
 
             # Display options
@@ -261,8 +284,14 @@ async def run_story_async():
                             console.print("[green]Scene generated successfully![/green]")
 
                         except Exception as e:
-                            console.print(f"[red]Error generating scene: {str(e)}[/red]")
-                            console.print("[yellow]Please try a different choice or check your API configuration.[/yellow]")
+                            error_type, technical_msg = handle_api_error(e)
+                            message, suggestion = ErrorHandler.handle_error(
+                                error_type,
+                                e,
+                                "Generating next scene"
+                            )
+                            console.print(f"[red]Error: {message}[/red]")
+                            console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
                             continue
 
     except KeyboardInterrupt:
@@ -276,6 +305,97 @@ async def run_story_async():
 def run_story():
     """Run a story after selection."""
     asyncio.run(run_story_async())
+
+async def test_generation_async(story_id: str):
+    """Test scene generation for debugging."""
+    import os
+
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for generation test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    generator = OpenAIGenerator(
+        api_base=config.generator.base_url,
+        api_key=config.generator.api_key,
+        model=config.generator.model,
+        temperature=config.generator.temperature,
+        max_tokens=config.generator.max_tokens
+    )
+
+    console.print(f"[cyan]Testing scene generation for story: {story_id}[/cyan]")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    # Initialize runner
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+
+    # Get start segment
+    start_segment = story.get_segment(story.start_segment_id)
+    if not start_segment:
+        console.print(f"[red]Start segment not found![/red]")
+        return
+
+    console.print(f"[green]Loaded story: {story.title}[/green]")
+    console.print(f"[green]Start segment: {start_segment.short_description}[/green]")
+
+    # Get first choice
+    choices = list(start_segment.outgoing_choices.values())
+    if not choices:
+        console.print(f"[red]No choices available![/red]")
+        return
+
+    first_choice = choices[0]
+    console.print(f"[yellow]Testing generation with choice: {first_choice.text}[/yellow]\n")
+
+    # Generate new scene
+    with console.status("[bold yellow]Generating next scene...[/bold yellow]", spinner="dots"):
+        try:
+            new_segment = await start_segment.generate_next_scene(
+                first_choice,
+                generator
+            )
+
+            console.print("[green]Scene generated successfully![/green]\n")
+            console.print(f"[bold cyan]New Segment ID:[/bold cyan] {new_segment.id}")
+            console.print(f"[bold cyan]Description:[/bold cyan] {new_segment.short_description}")
+            console.print(f"[bold cyan]Atmosphere:[/bold cyan] {new_segment.atmosphere}")
+            console.print(f"[bold cyan]Text Blocks:[/bold cyan] {len(new_segment.text_blocks)}")
+
+            console.print("\n[bold]Generated Choices:[/bold]")
+            for i, choice in enumerate(new_segment.outgoing_choices.values(), 1):
+                console.print(f"  {i}. {choice.text}")
+
+            console.print("\n[bold]Scene Preview:[/bold]")
+            for block in new_segment.text_blocks[:3]:  # Show first 3 blocks
+                console.print(f"  [{block.type}] {block.content[:100]}...")
+
+        except Exception as e:
+            console.print(f"[red]Error generating scene: {str(e)}[/red]")
+            logger.error(f"Generation error: {e}", exc_info=True)
+
+@app.command()
+def test_generation(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to test with")
+):
+    """Test scene generation with a story."""
+    asyncio.run(test_generation_async(story_id))
 
 if __name__ == "__main__":
     app()

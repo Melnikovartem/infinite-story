@@ -1,14 +1,18 @@
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
+import logging
 from pydantic import BaseModel, Field
 
 from app.models.text_types import TextType
 from .story_block import StoryBlock
 from .text_types import TextBlock
 from .story_choice import StoryChoice
+from app.utils.prompt_builder import ScenePromptBuilder
 
 if TYPE_CHECKING:
     from ..engine.generator import TextGenerator
     from ..models.text_types import SceneTextGeneratorResponse
+
+logger = logging.getLogger("infinite_story.models.story_segment")
 
 class CharacterStatus(BaseModel):
     """Status of a character in a story segment."""
@@ -217,55 +221,7 @@ class StorySegment(StoryBlock):
         
         return overview
 
-    def _generate_scene_prompt(self, choice_text: str) -> str:
-        """Generate a comprehensive prompt for scene generation.
-        
-        This method combines all available context to create a rich prompt for the AI model.
-        
-        Args:
-            choice_text: The text of the choice that led to this new scene
-            
-        Returns:
-            A formatted prompt string containing all relevant context
-        """
-        # Get story context
-        story_context = self.story._context
-        story_context_overview = story_context.get_full_overview() if story_context else ""
-        
-        # Get current story state
-        current_story_state = self.get_full_overview()
-        
-        # Get info about characters/locations not in scene
-        other_chars_overview = []
-        other_locs_overview = []
-        
-        # Get characters not present in current scene
-        all_chars = self.story.get_all_characters()
-        for char in all_chars:
-            if char.id not in [c.character_id for c in self.characters]:
-                other_chars_overview.append(char.get_short_overview())
-                
-        # Get locations not present in current scene
-        all_locs = self.story.get_all_locations() 
-        for loc in all_locs:
-            if loc.id not in self.locations_present:
-                other_locs_overview.append(loc.get_short_overview())
 
-        # Combine all context into a comprehensive prompt
-        prompt = "Generate a new scene that follows from the player's choice.\n\n"
-        prompt += f"{story_context_overview}\n"
-        prompt += f"{current_story_state}\n"
-
-        prompt += "Characters Not Present:\n"
-        prompt += f"{chr(10).join(other_chars_overview)}\n"
-
-        prompt += "Locations Not Present:\n"
-        prompt += f"{chr(10).join(other_locs_overview)}\n"
-
-        prompt += "Player's Choice:\n"
-        prompt += f"{choice_text}\n"
-
-        return prompt
         
     async def generate_next_scene(
         self,
@@ -285,20 +241,23 @@ class StorySegment(StoryBlock):
             generator: The text generator to use for scene generation
             
         Returns:
-            A tuple containing:
-            - A new StorySegment instance
-            - A list of two new StoryChoice instances for the next choices
+            A new StorySegment instance
         """
         # Generate the scene prompt using all available context
-        user_prompt = self._generate_scene_prompt(connecting_choice.text)
-        
+        prompt_builder = ScenePromptBuilder(self)
+        user_prompt = prompt_builder.build_prompt(connecting_choice.text)
+
         # Generate the new scene
         scene_response: SceneTextGeneratorResponse = await generator.generate(
             system_prompt="",  # Use default system prompt
             user_prompt=user_prompt,
             context_type="scene"
         )
-        
+
+        # Check if there was an error during generation
+        if scene_response.error:
+            raise ValueError(f"Scene generation failed: {scene_response.error}")
+
         # Generate unique segment ID based on total number of segments
         import uuid
         segment_count = len(self.story.get_all_segments())
@@ -321,19 +280,23 @@ class StorySegment(StoryBlock):
         # Copy over existing running status from current segment
         new_segment.characters_running_status.extend(self.characters_running_status)
         new_segment.locations_running_status.extend(self.locations_running_status)
-        
+
         # Update character and location statuses based on changes
+        logger.debug(f"Processing {len(scene_response.character_status_change)} character status changes")
         for char_id, new_status in scene_response.character_status_change.items():
             # Add new status after existing one
             new_segment.characters_running_status.append(
                 CharacterStatus(character_id=char_id, current_status=new_status)
             )
-            
+            logger.debug(f"  Character '{char_id}' status: {new_status}")
+
+        logger.debug(f"Processing {len(scene_response.location_status_change)} location status changes")
         for loc_id, new_status in scene_response.location_status_change.items():
             # Add new status after existing one
             new_segment.locations_running_status.append(
                 LocationStatus(location_id=loc_id, current_status=new_status)
             )
+            logger.debug(f"  Location '{loc_id}' status: {new_status}")
 
         # Set up the choice pointers for connecting choice
         connecting_choice.to_segment_id = new_segment.id
