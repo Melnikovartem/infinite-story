@@ -1,0 +1,135 @@
+.segment-display {
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.segment-title {
+  font-size: 28px;
+  color: #2c3e50;
+  margin: 0 0 20px 0;
+  font-weight: 700;
+}
+
+.segment-content {
+  margin-bottom: 30px;
+  color: #333;
+}
+
+.segment-content p {
+  margin: 0;
+}
+
+.characters-present,
+.location-info {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: rgba(52, 152, 219, 0.05);
+  border-radius: 8px;
+  border-left: 3px solid #3498db;
+}
+
+.characters-present h4,
+.location-info h4 {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  margin: 0 0 16px 0;
+}
+
+.characters-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.character-state {
+  flex: 1;
+  min-width: 150px;
+  padding: 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.char-name {
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0 0 4px 0;
+}
+
+.char-emotion {
+  font-size: 13px;
+  color: #7f8c8d;
+  margin: 0 0 4px 0;
+  font-style: italic;
+}
+
+.char-status {
+  font-size: 12px;
+  color: #555;
+  margin: 0;
+}
+
+.status-present {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.status-absent {
+  color: #f39c12;
+  font-weight: 600;
+}
+
+.status-deceased {
+  color: #c0392b;
+  font-weight: 600;
+}
+
+.location-details {
+  padding: 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.location-name {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 16px;
+  margin: 0 0 8px 0;
+}
+
+.location-desc {
+  color: #555;
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.location-atmosphere {
+  font-size: 13px;
+  color: #7f8c8d;
+  margin: 0;
+}
+
+.word-count {
+  margin-top: 20px;
+  text-align: right;
+  font-size: 12px;
+  color: #95a5a6;
+}
+
+@media (max-width: 768px) {
+  .segment-title {
+    font-size: 22px;
+  }
+
+  .characters-list {
+    flex-direction: column;
+  }
+
+  .character-state {
+    min-width: 100%;
+  }
+}

@@ -1,0 +1,57 @@
+.character-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.character-avatar.small {
+  width: 40px;
+  height: 40px;
+}
+
+.character-avatar.medium {
+  width: 60px;
+  height: 60px;
+}
+
+.character-avatar.large {
+  width: 100px;
+  height: 100px;
+}
+
+.shape {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shape.square {
+  border-radius: 8px;
+}
+
+.shape.circle {
+  border-radius: 50%;
+}
+
+.shape.triangle {
+  width: 0;
+  height: 0;
+  border-left: 50% solid transparent;
+  border-right: 50% solid transparent;
+  border-bottom: 100% solid;
+}
+
+.shape.diamond {
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+.shape.star {
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.shape.pentagon {
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}

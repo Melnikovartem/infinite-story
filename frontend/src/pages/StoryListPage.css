@@ -1,0 +1,64 @@
+.story-list-page h2 {
+  font-size: 32px;
+  margin-bottom: 30px;
+  color: #2c3e50;
+}
+
+.stories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.story-card {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.story-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.story-card h3 {
+  font-size: 20px;
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+}
+
+.story-card .author {
+  font-size: 12px;
+  color: #7f8c8d;
+  margin: 0 0 12px 0;
+}
+
+.story-card .description {
+  flex: 1;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+}
+
+.play-button {
+  background-color: #3498db;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+
+.play-button:hover {
+  background-color: #2980b9;
+}
+
+.play-button:active {
+  background-color: #1f618d;
+}
