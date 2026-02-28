@@ -10,8 +10,11 @@ from fastapi.responses import JSONResponse
 from datetime import datetime, timezone, UTC
 import logging
 
-from app.config import settings
+from app.config import Settings
 from app.routes import stories, sessions, progress, reports
+
+# Initialize settings
+settings = Settings()
 
 # Set up logging
 logger = logging.getLogger("infinite_story")
