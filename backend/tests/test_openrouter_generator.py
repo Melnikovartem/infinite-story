@@ -15,7 +15,8 @@ class TestOpenRouterGenerator:
             api_key="sk-or-v1-test-key",
             model="deepseek-v3",
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            auto_fallback=False  # Disable fallback for unit tests
         )
         
         assert generator.api_key == "sk-or-v1-test-key"
@@ -27,19 +28,22 @@ class TestOpenRouterGenerator:
         """Test that short model names are mapped to full paths."""
         generator = OpenRouterGenerator(
             api_key="test-key",
-            model="deepseek-v3"
+            model="deepseek-v3",
+            auto_fallback=False
         )
         assert generator.model == "deepseek/deepseek-v3"
         
         generator2 = OpenRouterGenerator(
             api_key="test-key",
-            model="gpt-4-turbo"
+            model="gpt-4-turbo",
+            auto_fallback=False
         )
         assert generator2.model == "openai/gpt-4-turbo-preview"
         
         generator3 = OpenRouterGenerator(
             api_key="test-key",
-            model="claude-3-opus"
+            model="claude-3-opus",
+            auto_fallback=False
         )
         assert generator3.model == "anthropic/claude-3-opus"
     
@@ -47,7 +51,8 @@ class TestOpenRouterGenerator:
         """Test that full model paths are accepted as-is."""
         generator = OpenRouterGenerator(
             api_key="test-key",
-            model="custom/custom-model"
+            model="custom/custom-model",
+            auto_fallback=False
         )
         assert generator.model == "custom/custom-model"
     
@@ -68,7 +73,8 @@ class TestOpenRouterGenerator:
             api_key="sk-or-v1-test-key",
             model="deepseek-v3",
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            auto_fallback=False
         )
         
         # Just verify the generator is configured correctly
@@ -82,7 +88,8 @@ class TestOpenRouterGenerator:
         """Test handling of API errors."""
         generator = OpenRouterGenerator(
             api_key="sk-or-v1-test-key",
-            model="deepseek-v3"
+            model="deepseek-v3",
+            auto_fallback=False
         )
         
         with patch.object(generator.client, 'post', new_callable=AsyncMock) as mock_post:
@@ -101,7 +108,8 @@ class TestOpenRouterGenerator:
         """Test scene generation setup."""
         generator = OpenRouterGenerator(
             api_key="sk-or-v1-test-key",
-            model="deepseek-v3"
+            model="deepseek-v3",
+            auto_fallback=False
         )
         
         # Verify the generator is properly initialized
@@ -116,7 +124,8 @@ class TestOpenRouterGenerator:
             api_key="test-key",
             model="deepseek-v3",
             site_url="https://example.com",
-            site_name="Test App"
+            site_name="Test App",
+            auto_fallback=False
         )
         
         assert generator.site_url == "https://example.com"
@@ -129,7 +138,8 @@ class TestOpenRouterGenerator:
             api_key="test-key",
             model="deepseek-v3",
             temperature=0.9,
-            max_tokens=3000
+            max_tokens=3000,
+            auto_fallback=False
         )
         
         # Verify the settings are stored
@@ -168,7 +178,8 @@ class TestOpenRouterModels:
         # Verify it maps to correct full path
         generator = OpenRouterGenerator(
             api_key="test-key",
-            model="deepseek-v3"
+            model="deepseek-v3",
+            auto_fallback=False
         )
         assert generator.model == "deepseek/deepseek-v3"
     
@@ -196,7 +207,8 @@ class TestOpenRouterIntegration:
             api_key="sk-or-v1-test-key",
             model="deepseek-v3",
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            auto_fallback=False
         )
         
         assert generator.api_key == "sk-or-v1-test-key"
@@ -211,7 +223,8 @@ class TestOpenRouterIntegration:
         for model_name in models_to_test:
             generator = OpenRouterGenerator(
                 api_key="test-key",
-                model=model_name
+                model=model_name,
+                auto_fallback=False
             )
             
             # Verify model is properly mapped
