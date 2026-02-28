@@ -11,6 +11,7 @@ from datetime import datetime, timezone, UTC
 import logging
 
 from app.config import settings
+from app.routes import stories, sessions, progress, reports
 
 # Set up logging
 logger = logging.getLogger("infinite_story")
@@ -32,6 +33,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(stories.router, prefix="/api")
+app.include_router(sessions.router, prefix="/api")
+app.include_router(progress.router, prefix="/api")
+app.include_router(reports.router, prefix="/api")
 
 
 @app.get("/api/health")
