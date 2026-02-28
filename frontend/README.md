@@ -1,201 +1,73 @@
-# Frontend - Infinite Story Engine
+# React + TypeScript + Vite
 
-React 18 + TypeScript frontend for the Infinite Story Engine.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Project Structure
+Currently, two official plugins are available:
 
-```
-src/
-├── components/           # React components
-│   ├── Layout.tsx       # Main layout wrapper
-│   ├── CharacterAvatar.tsx
-│   ├── ChoiceDisplay.tsx
-│   ├── CustomChoiceInput.tsx
-│   ├── ProgressCounter.tsx
-│   ├── SegmentDisplay.tsx
-│   └── __tests__/       # Component tests
-├── contexts/            # React Context
-│   ├── StoryContext.tsx # Story state management
-│   └── __tests__/
-├── pages/               # Page components
-│   ├── StoryListPage.tsx
-│   ├── StoryDetailPage.tsx
-│   ├── PlayPage.tsx
-│   └── __tests__/
-├── services/            # API integration
-│   ├── api.ts          # Wrapper (mock/real toggle)
-│   ├── mockApi.ts      # Mock API implementation
-├── types/               # TypeScript type definitions
-├── styles/              # Global styles
-├── test/                # Test setup
-├── App.tsx              # Root component
-└── main.tsx             # Entry point
-```
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Setup
+## React Compiler
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-Opens at `http://localhost:3000`
+## Expanding the ESLint configuration
 
-## Build
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-```bash
-npm run build
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
 
-Output in `dist/`
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-## Testing
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-```bash
-npm test
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-
-Run with watch mode:
-```bash
-npm test -- --watch
-```
-
-## API Integration
-
-### Switching between Mock and Real API
-
-The project uses a wrapper service (`src/services/api.ts`) that abstracts API calls.
-
-**To use real API**:
-1. Open `src/services/api.ts`
-2. Change `const USE_MOCK = true` to `const USE_MOCK = false`
-3. Ensure backend is running on `http://localhost:8000`
-
-**To use mock API**:
-- Keep `const USE_MOCK = true` (default)
-- Mock data is in `src/services/mockApi.ts`
-
-## Key Components
-
-### StoryContext
-Global state management for:
-- Current story and segment
-- Session state
-- Character and location info
-- Loading/error states
-- Story navigation
-
-Usage:
-```typescript
-import { useStory } from '../contexts/StoryContext'
-
-export function MyComponent() {
-  const { story, segment, loading, error } = useStory()
-  // Use story state here
-}
-```
-
-### CharacterAvatar
-Renders character avatars as geometric shapes:
-```typescript
-<CharacterAvatar
-  shape="circle"           // square, circle, triangle, diamond, star, pentagon
-  color="#FF6B6B"
-  size="medium"            // small, medium, large
-/>
-```
-
-### ChoiceDisplay
-Shows top 2 choices prominently with expandable list:
-```typescript
-<ChoiceDisplay
-  onSelect={(choiceId) => handleChoice(choiceId)}
-  loading={isLoading}
-/>
-```
-
-## Development Workflow
-
-1. **Create a feature branch**:
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-
-2. **Write tests first** (TDD style):
-   ```typescript
-   // src/components/__tests__/MyComponent.test.tsx
-   describe('MyComponent', () => {
-     it('does something', () => {
-       // Test here
-     })
-   })
-   ```
-
-3. **Implement component**:
-   ```typescript
-   // src/components/MyComponent.tsx
-   export default function MyComponent() {
-     return <div>My component</div>
-   }
-   ```
-
-4. **Run tests and build**:
-   ```bash
-   npm test
-   npm run build
-   ```
-
-5. **Commit with proper message**:
-   ```bash
-   git commit -m "[DEV-4] add my feature"
-   ```
-
-6. **Push and create PR**:
-   ```bash
-   git push origin feature/my-feature
-   ```
-
-## Code Standards
-
-- Use TypeScript interfaces for all component props
-- Write tests for all components
-- Keep components small and focused
-- Use React hooks (no class components)
-- Style with CSS modules or plain CSS
-- Follow PEP 8 naming conventions
-
-## Useful Commands
-
-```bash
-npm run dev          # Start dev server
-npm run build        # Build for production
-npm test             # Run tests
-npm test -- --ui     # Run tests with UI
-npm run preview      # Preview production build
-```
-
-## Troubleshooting
-
-### Port 3000 already in use
-```bash
-PORT=3001 npm run dev
-```
-
-### Clear cache and reinstall
-```bash
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### Type errors
-```bash
-npm run build       # Run TypeScript compiler
-```
-
-## Notes
-
-- Session data stored in localStorage
-- No real backend needed for development (use mocks)
-- All API calls go through `src/services/api.ts`
-- Easy to switch to real API when backend is ready
