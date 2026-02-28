@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import ProgressCounter from '../ProgressCounter'
+import { ProgressCounter } from '../ProgressCounter'
 import { SceneCounter } from '../../types'
 
 describe('ProgressCounter', () => {
