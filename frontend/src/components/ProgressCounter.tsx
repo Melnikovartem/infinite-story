@@ -1,51 +1,83 @@
-import { SceneCounter } from '../types'
-import './ProgressCounter.css'
+import React from 'react'
 
 interface ProgressCounterProps {
-  sceneCounter: SceneCounter
+  sceneNumber: number
+  elapsedTime?: number
+  startDate?: string
+  className?: string
 }
 
-export default function ProgressCounter({ sceneCounter }: ProgressCounterProps) {
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`
-    }
-    return `${minutes}m`
+const formatTime = (seconds: number): string => {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
   }
+  return `${minutes}m`
+}
 
-  const formatDate = (dateString: string): string => {
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      })
-    } catch {
-      return 'Unknown'
-    }
-  }
+const formatDate = (dateString: string): string => {
+  const date = new Date(dateString)
+  return date.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
 
-  const elapsedTime = formatTime(sceneCounter.elapsed_seconds)
-  const startDate = formatDate(sceneCounter.start_time)
-
+export const ProgressCounter: React.FC<ProgressCounterProps> = ({
+  sceneNumber,
+  elapsedTime,
+  startDate,
+  className = '',
+}) => {
   return (
-    <div className="progress-counter">
-      <div className="counter-item">
-        <span className="label">Scene</span>
-        <span className="value">{sceneCounter.scene_number}</span>
-      </div>
-      <span className="separator">•</span>
-      <div className="counter-item">
-        <span className="label">Elapsed</span>
-        <span className="value">{elapsedTime}</span>
-      </div>
-      <span className="separator">•</span>
-      <div className="counter-item">
-        <span className="label">Started</span>
-        <span className="value">{startDate}</span>
+    <div
+      className={`
+        bg-white
+        border
+        border-neutral-300
+        rounded-lg
+        px-lg
+        py-md
+        shadow-md
+        ${className}
+      `.trim()}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-lg flex-wrap">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium text-neutral-600">Scene</span>
+          <span className="text-2xl font-bold text-primary">
+            {sceneNumber}
+          </span>
+        </div>
+
+        {elapsedTime !== undefined && (
+          <>
+            <div className="w-px h-8 bg-neutral-300"></div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-neutral-600">Elapsed</span>
+              <span className="text-lg font-semibold text-neutral-800">
+                {formatTime(elapsedTime)}
+              </span>
+            </div>
+          </>
+        )}
+
+        {startDate && (
+          <>
+            <div className="w-px h-8 bg-neutral-300"></div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-neutral-600">Started</span>
+              <span className="text-sm text-neutral-600">
+                {formatDate(startDate)}
+              </span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

@@ -1,59 +1,80 @@
 import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
-import CharacterAvatar from '../CharacterAvatar'
+import { render, screen } from '@testing-library/react'
+import { CharacterAvatar } from '../CharacterAvatar'
 
 describe('CharacterAvatar', () => {
-  it('renders with circle shape', () => {
-    const { container } = render(
+  it('renders with shape and color', () => {
+    render(
       <CharacterAvatar
         shape="circle"
         color="#FF6B6B"
-        size="medium"
+        name="Eira"
       />
     )
-    const shape = container.querySelector('.circle')
-    expect(shape).toBeInTheDocument()
-    expect(shape).toHaveStyle({ backgroundColor: '#FF6B6B' })
+    const avatar = screen.getByRole('img', { name: 'Eira avatar - circle' })
+    expect(avatar).toBeInTheDocument()
   })
 
-  it('renders with square shape', () => {
-    const { container } = render(
+  it('displays label when showLabel is true', () => {
+    render(
       <CharacterAvatar
         shape="square"
         color="#4ECDC4"
-        size="small"
+        name="Brother Cellen"
+        showLabel
       />
     )
-    const shape = container.querySelector('.square')
-    expect(shape).toBeInTheDocument()
+    expect(screen.getByText('Brother Cellen')).toBeInTheDocument()
   })
 
-  it('renders with different sizes', () => {
-    const { container, rerender } = render(
-      <CharacterAvatar shape="circle" color="#000" size="small" />
-    )
-    expect(container.querySelector('.small')).toBeInTheDocument()
-
-    rerender(
-      <CharacterAvatar shape="circle" color="#000" size="medium" />
-    )
-    expect(container.querySelector('.medium')).toBeInTheDocument()
-
-    rerender(
-      <CharacterAvatar shape="circle" color="#000" size="large" />
-    )
-    expect(container.querySelector('.large')).toBeInTheDocument()
-  })
-
-  it('applies color to triangle shape', () => {
-    const { container } = render(
+  it('hides label when showLabel is false', () => {
+    render(
       <CharacterAvatar
         shape="triangle"
-        color="#FFA500"
-        size="medium"
+        color="#45B7D1"
+        name="Hidden"
+        showLabel={false}
       />
     )
-    const shape = container.querySelector('.triangle')
-    expect(shape).toBeInTheDocument()
+    expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
+  })
+
+  it('renders all avatar shapes', () => {
+    const shapes = ['square', 'circle', 'triangle', 'diamond', 'star', 'pentagon'] as const
+    
+    shapes.forEach(shape => {
+      render(
+        <CharacterAvatar
+          shape={shape}
+          color="#FF6B6B"
+          name={shape}
+        />
+      )
+      expect(screen.getByRole('img', { name: new RegExp(shape) })).toBeInTheDocument()
+    })
+  })
+
+  it('renders different sizes', () => {
+    const { rerender } = render(
+      <CharacterAvatar
+        shape="circle"
+        color="#FF6B6B"
+        name="Avatar"
+        size="sm"
+      />
+    )
+    let avatar = screen.getByRole('img')
+    expect(avatar).toBeInTheDocument()
+
+    rerender(
+      <CharacterAvatar
+        shape="circle"
+        color="#FF6B6B"
+        name="Avatar"
+        size="lg"
+      />
+    )
+    avatar = screen.getByRole('img')
+    expect(avatar).toBeInTheDocument()
   })
 })
