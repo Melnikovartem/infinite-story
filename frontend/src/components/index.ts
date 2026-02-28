@@ -29,3 +29,8 @@ export { CustomChoiceInput } from './CustomChoiceInput'
 
 export { SceneContent } from './SceneContent'
 export type { TextBlock } from './SceneContent'
+
+export { AppHeader } from './AppHeader'
+
+export { ReportModal } from './ReportModal'
+export type { ReportReason } from './ReportModal'

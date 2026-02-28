@@ -1,39 +1,85 @@
-import { useState } from 'react'
-import './ReportModal.css'
+import React, { useState } from 'react'
+import { Modal } from './Modal'
+import { Textarea } from './Input'
+import { Button } from './Button'
+import { Alert } from './Alert'
+
+export type ReportReason = 
+  | 'offensive' 
+  | 'inappropriate' 
+  | 'spam' 
+  | 'error' 
+  | 'other'
 
 interface ReportModalProps {
   isOpen: boolean
   onClose: () => void
-  _storyId: string
-  _segmentId: string
-  onSubmit: (email: string, description: string) => Promise<void>
+  onSubmit: (reason: ReportReason, description: string) => Promise<void>
+  segmentId?: string
 }
 
-export default function ReportModal({
+const reportReasons: { value: ReportReason; label: string; description: string }[] = [
+  {
+    value: 'offensive',
+    label: 'Offensive Content',
+    description: 'Contains hateful, discriminatory, or offensive language',
+  },
+  {
+    value: 'inappropriate',
+    label: 'Inappropriate Content',
+    description: 'Contains sexually explicit or otherwise inappropriate material',
+  },
+  {
+    value: 'spam',
+    label: 'Spam',
+    description: 'Low-quality or repetitive content',
+  },
+  {
+    value: 'error',
+    label: 'Story Error',
+    description: 'Contains plot holes, inconsistencies, or technical errors',
+  },
+  {
+    value: 'other',
+    label: 'Other',
+    description: 'Something else',
+  },
+]
+
+export const ReportModal: React.FC<ReportModalProps> = ({
   isOpen,
   onClose,
-  onSubmit
-}: ReportModalProps) {
-  const [email, setEmail] = useState('')
+  onSubmit,
+  segmentId,
+}) => {
+  const [selectedReason, setSelectedReason] = useState<ReportReason | ''>('')
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email || !description) return
+  const handleSubmit = async () => {
+    if (!selectedReason) {
+      setError('Please select a reason')
+      return
+    }
 
-    setLoading(true)
-    setError(null)
+    if (!description.trim()) {
+      setError('Please provide a description')
+      return
+    }
+
     try {
-      await onSubmit(email, description)
-      setSubmitted(true)
+      setLoading(true)
+      setError('')
+      await onSubmit(selectedReason as ReportReason, description)
+      setSuccess(true)
+
       setTimeout(() => {
-        onClose()
-        setEmail('')
+        setSelectedReason('')
         setDescription('')
-        setSubmitted(false)
+        setSuccess(false)
+        onClose()
       }, 2000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit report')
@@ -42,80 +88,103 @@ export default function ReportModal({
     }
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
-
-        {submitted ? (
-          <div className="modal-success">
-            <div className="success-icon">✓</div>
-            <h3>Report Submitted</h3>
-            <p>Thank you for helping us maintain a safe community.</p>
-          </div>
-        ) : (
-          <>
-            <h2>Report Inappropriate Content</h2>
-            <p className="modal-subtitle">
-              Help us keep the story safe for everyone
-            </p>
-
-            {error && (
-              <div className="modal-error">
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label htmlFor="email">Your Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  disabled={loading}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="description">What's wrong?</label>
-                <textarea
-                  id="description"
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder="Please describe what you found inappropriate..."
-                  rows={5}
-                  disabled={loading}
-                  required
-                />
-              </div>
-
-              <div className="form-actions">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={loading}
-                  className="button secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || !email || !description}
-                  className="button primary"
-                >
-                  {loading ? 'Submitting...' : 'Submit Report'}
-                </button>
-              </div>
-            </form>
-          </>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Report Inappropriate Content"
+      size="md"
+    >
+      <div className="space-y-lg" role="form" aria-labelledby="modal-title">
+        {success && (
+          <Alert
+            variant="success"
+            title="Report Submitted"
+            dismissible
+            onClose={() => setSuccess(false)}
+          >
+            Thank you for helping us improve! We'll review your report shortly.
+          </Alert>
         )}
+
+        {error && (
+          <Alert
+            variant="error"
+            title="Error"
+            dismissible
+            onClose={() => setError('')}
+          >
+            {error}
+          </Alert>
+        )}
+
+        <div className="space-y-md">
+          <fieldset className="space-y-md">
+            <legend className="text-sm font-semibold text-neutral-900">
+              What's the issue?
+            </legend>
+
+            <div className="space-y-sm">
+              {reportReasons.map((reason) => (
+                <label
+                  key={reason.value}
+                  className="flex items-start gap-md p-md border border-neutral-200 rounded-lg hover:border-primary cursor-pointer transition-colors"
+                >
+                  <input
+                    type="radio"
+                    name="report-reason"
+                    value={reason.value}
+                    checked={selectedReason === reason.value}
+                    onChange={(e) => setSelectedReason(e.target.value as ReportReason)}
+                    disabled={loading}
+                    className="mt-sm"
+                    aria-describedby={`reason-${reason.value}`}
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-neutral-900">
+                      {reason.label}
+                    </p>
+                    <p id={`reason-${reason.value}`} className="text-xs text-neutral-600">
+                      {reason.description}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <Textarea
+            label="Additional details"
+            placeholder="Please provide more information about the issue..."
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value)
+              setError('')
+            }}
+            maxLength={500}
+            showCharCount
+            disabled={loading}
+          />
+        </div>
+
+        <div className="flex gap-md justify-end pt-md border-t border-neutral-200">
+          <Button
+            onClick={onClose}
+            variant="ghost"
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            variant="primary"
+            isLoading={loading}
+            disabled={!selectedReason || !description.trim()}
+          >
+            Submit Report
+          </Button>
+        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

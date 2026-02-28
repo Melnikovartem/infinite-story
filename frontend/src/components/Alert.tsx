@@ -50,6 +50,8 @@ export const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
       <div
         ref={ref}
         role={role}
+        aria-live="polite"
+        aria-atomic="true"
         className={`
           ${style.container}
           rounded-lg
