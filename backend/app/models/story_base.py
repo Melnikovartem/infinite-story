@@ -52,11 +52,11 @@ class StoryBase(BaseModel):
     @classmethod
     def get_base_dir(cls) -> Path:
         """Get the base data directory.
-        
+
         Returns:
             Path object pointing to the base data directory
         """
-        base_dir = Path('data')
+        base_dir = LOCAL_DATA_DIR
         cls.ensure_directory_exists(base_dir)
         return base_dir
     
@@ -77,15 +77,15 @@ class StoryBase(BaseModel):
     @classmethod
     def get_storage_dir(cls, story_id: str) -> Path:
         """Get the storage directory for this type of story object.
-        
+
         Args:
             story_id: The ID of the story this object belongs to
-            
+
         Returns:
             Path object pointing to the storage directory
         """
-        # Get the class name without 'Story' prefix and convert to snake_case
-        class_name = cls.__name__.replace('Story', '').lower()
+        # Get the class name and convert to lowercase (keep full name)
+        class_name = cls.__name__.lower()
         storage_dir = cls.get_story_dir(story_id) / class_name
         cls.ensure_directory_exists(storage_dir)
         return storage_dir

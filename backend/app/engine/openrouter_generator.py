@@ -95,17 +95,21 @@ class OpenRouterGenerator(TextGenerator):
         try:
             logger.debug(f"Calling OpenRouter API with model: {self.model}")
             
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
+            
+            logger.debug(f"Request payload: {json.dumps(payload, indent=2)}")
+            
             response = await self.client.post(
                 "/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "temperature": self.temperature,
-                    "max_tokens": self.max_tokens,
-                }
+                json=payload
             )
             
             # Log response status
@@ -133,14 +137,16 @@ class OpenRouterGenerator(TextGenerator):
                 raise ValueError("No choices in API response")
         
         except httpx.HTTPStatusError as e:
-            error_msg = f"OpenRouter API error ({e.status_code})"
+            error_msg = f"OpenRouter API error ({e.response.status_code})"
             
             # Parse error message from response if available
             try:
                 error_data = e.response.json()
+                logger.debug(f"Error response body: {json.dumps(error_data, indent=2)}")
                 if "error" in error_data:
                     error_msg += f": {error_data['error'].get('message', str(error_data['error']))}"
-            except:
+            except Exception as parse_err:
+                logger.debug(f"Could not parse error response: {parse_err}")
                 error_msg += f": {str(e)}"
             
             logger.error(error_msg)

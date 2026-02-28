@@ -1,6 +1,9 @@
 from typing import Optional, List, Dict, TYPE_CHECKING
+import logging
 from pydantic import PrivateAttr
 from .story_base import StoryBase
+
+logger = logging.getLogger("infinite_story.models.story")
 
 
 if TYPE_CHECKING:
@@ -39,56 +42,61 @@ class Story(StoryBase):
     
     def add_context(self, context: 'StoryContext') -> None:
         """Add context to the story.
-        
+
         Args:
             context: The context to add
         """
         if context.story_id != self.id:
             raise ValueError(f"Context belongs to story {context.story_id}, not {self.id}")
+        logger.debug(f"Adding context '{context.id}' to story '{self.id}'")
         self._context = context
         context.story = self
     
     def add_character(self, character: 'StoryCharacter') -> None:
         """Add a character to the story.
-        
+
         Args:
             character: The character to add
         """
         if character.story_id != self.id:
             raise ValueError(f"Character {character.id} belongs to story {character.story_id}, not {self.id}")
+        logger.debug(f"Adding character '{character.id}' ({character.name}) to story '{self.id}'")
         self._characters[character.id] = character
         character.story = self
         
     def add_location(self, location: 'StoryLocation') -> None:
         """Add a location to the story.
-        
+
         Args:
             location: The location to add
         """
         if location.story_id != self.id:
             raise ValueError(f"Location {location.id} belongs to story {location.story_id}, not {self.id}")
+        logger.debug(f"Adding location '{location.id}' ({location.name}) to story '{self.id}'")
         self._locations[location.id] = location
         location.story = self
         
     def add_segment(self, segment: 'StorySegment') -> None:
         """Add a segment to the story.
-        
+
         Args:
             segment: The segment to add
         """
         if segment.story_id != self.id:
             raise ValueError(f"Segment {segment.id} belongs to story {segment.story_id}, not {self.id}")
+        logger.debug(f"Adding segment '{segment.id}' to story '{self.id}'")
         self._segments[segment.id] = segment
         segment.story = self
         
     def add_choice(self, choice: 'StoryChoice') -> None:
         """Add a choice to the story.
-        
+
         Args:
             choice: The choice to add
         """
         if choice.story_id != self.id:
             raise ValueError(f"Choice {choice.id} belongs to story {choice.story_id}, not {self.id}")
+        logger.debug(f"Adding choice '{choice.id}' (from: {choice.from_segment_id}, to: {choice.to_segment_id}) to story '{self.id}'")
         self._choices[choice.id] = choice
         choice.story = self
         

@@ -65,9 +65,9 @@ class OpenAIGenerator(TextGenerator):
                     "response_format": {"type": "json_object"}
                 }
             )
-            await response.raise_for_status()
+            response.raise_for_status()  # This is not async
             return response.json()["choices"][0]["message"]["content"]
-            
+
         except Exception as e:
             raise Exception(f"Failed to generate content: {str(e)}")
             

@@ -497,5 +497,7 @@ async def test_story_runner_component_loading(test_data):
     assert story.get_choice(choice.id) is not None
     
     # Verify choice connections
-    assert choice.id in segment.outgoing_choices
+    # Note: We need to get the segment from the story's cache, not the original object
+    loaded_segment = story.get_segment(segment.id)
+    assert choice.id in loaded_segment.outgoing_choices
     assert choice.id in story.get_segment(choice.to_segment_id).incoming_choices

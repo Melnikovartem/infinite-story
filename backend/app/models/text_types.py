@@ -69,9 +69,17 @@ class TextBlock(BaseModel):
                     "enum": [t["value"] for t in text_types],
                     "description": "The type of text block"
                 },
-                "text": {
+                "content": {
                     "type": "string",
                     "description": "The actual text content of the block"
+                },
+                "emotion": {
+                    "type": "string",
+                    "description": "Optional: The emotion of the text block"
+                },
+                "character": {
+                    "type": "string",
+                    "description": "Optional: The character speaking (for dialogue blocks)"
                 }
             },
             "text_type_descriptions": text_types
@@ -127,41 +135,41 @@ class TextGeneratorResponse(BaseModel):
 
 class WorldTextGeneratorResponse(TextGeneratorResponse):
     """Response for generating world/setting details."""
-    name: str = Field(description="The name of the world/setting")
-    backstory: str = Field(description="The historical background and creation story of the world")
+    name: Optional[str] = Field(None, description="The name of the world/setting")
+    backstory: Optional[str] = Field(None, description="The historical background and creation story of the world")
     major_events: List[str] = Field(default_factory=list, description="List of significant historical events that shaped the world")
     cultures: List[Dict[str, str]] = Field(default_factory=list, description="List of cultures with their key characteristics")
     magic_system: Optional[str] = Field(None, description="Description of the world's magic system if applicable")
-    technology_level: str = Field(description="The technological advancement level of the world")
-    political_system: str = Field(description="The governing system and power structures")
+    technology_level: Optional[str] = Field(None, description="The technological advancement level of the world")
+    political_system: Optional[str] = Field(None, description="The governing system and power structures")
     religions: List[Dict[str, str]] = Field(default_factory=list, description="List of religions and their key beliefs")
     maps: List[str] = Field(default_factory=list, description="List of map references or descriptions")
 
 class LocationTextGeneratorResponse(TextGeneratorResponse):
     """Response for generating location details."""
-    displayed_name: str = Field(description="The name as it should be displayed to users")
+    displayed_name: Optional[str] = Field(None, description="The name as it should be displayed to users")
     name_parts: List[str] = Field(default_factory=list, description="Components that make up the location name")
-    short_description: str = Field(description="Brief overview of the location")
-    long_description: str = Field(description="Detailed description of the location's appearance and atmosphere")
-    history: str = Field(description="Historical background of the location")
+    short_description: Optional[str] = Field(None, description="Brief overview of the location")
+    long_description: Optional[str] = Field(None, description="Detailed description of the location's appearance and atmosphere")
+    history: Optional[str] = Field(None, description="Historical background of the location")
     local_culture: Optional[Dict[str, str]] = Field(None, description="Cultural aspects specific to this location")
     points_of_interest: List[str] = Field(default_factory=list, description="Notable features or landmarks")
     connected_locations: List[str] = Field(default_factory=list, description="Other locations that are directly connected to this one")
 
 class CharacterTextGeneratorResponse(TextGeneratorResponse):
     """Response for generating character details."""
-    displayed_name: str = Field(description="The name as it should be displayed to users")
+    displayed_name: Optional[str] = Field(None, description="The name as it should be displayed to users")
     name_parts: List[str] = Field(default_factory=list, description="Components that make up the character's name")
-    short_description: str = Field(description="Brief overview of the character")
-    background: str = Field(description="Character's background story")
+    short_description: Optional[str] = Field(None, description="Brief overview of the character")
+    background: Optional[str] = Field(None, description="Character's background story")
     age: Optional[int] = Field(None, description="Character's age if known")
     gender: Optional[str] = Field(None, description="Character's gender if specified")
     personality_traits: List[str] = Field(default_factory=list, description="Key personality characteristics")
-    physical_description: str = Field(description="Detailed description of physical appearance")
+    physical_description: Optional[str] = Field(None, description="Detailed description of physical appearance")
     goals: List[str] = Field(default_factory=list, description="Character's objectives and desires")
     fears: List[str] = Field(default_factory=list, description="Character's fears and phobias")
     relationships: Dict[str, str] = Field(default_factory=dict, description="Relationships with other characters")
-    backstory: str = Field(description="Detailed life history and experiences")
+    backstory: Optional[str] = Field(None, description="Detailed life history and experiences")
     motivations: List[str] = Field(default_factory=list, description="What drives the character's actions")
     skills: List[str] = Field(default_factory=list, description="Character's abilities and talents")
     inventory: List[str] = Field(default_factory=list, description="Items the character possesses")
@@ -169,7 +177,7 @@ class CharacterTextGeneratorResponse(TextGeneratorResponse):
 class SceneTextGeneratorResponse(TextGeneratorResponse):
     """Response from the scene generation model."""
     # Core Scene Information
-    short_description: str = Field(description="Brief summary of the scene")
+    short_description: Optional[str] = Field(None, description="Brief summary of the scene")
     atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")
     weather: Optional[str] = Field(None, description="Weather conditions during the scene")
@@ -185,12 +193,12 @@ class SceneTextGeneratorResponse(TextGeneratorResponse):
     location_status_change: Dict[str, str] = Field(default_factory=dict, description="Changes in location status during the scene")
 
     # Choices
-    choice_1: str = Field(description="First choice presented to the player")
-    choice_2: str = Field(description="Second choice presented to the player")
+    choice_1: Optional[str] = Field(None, description="First choice presented to the player")
+    choice_2: Optional[str] = Field(None, description="Second choice presented to the player")
 
 class ChoiceGenerationResponse(TextGeneratorResponse):
     """Response for generating story choices."""
-    choice_text: str = Field(description="The text of the choice presented to the player")
-    next_segment_hint: str = Field(description="A hint about what might happen if this choice is made")
+    choice_text: Optional[str] = Field(None, description="The text of the choice presented to the player")
+    next_segment_hint: Optional[str] = Field(None, description="A hint about what might happen if this choice is made")
     flags: Dict[str, bool] = Field(default_factory=dict, description="Content warning flags for the choice")
     impact: Dict[str, str] = Field(default_factory=dict, description="Expected impact of this choice on characters and story") 

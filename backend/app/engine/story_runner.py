@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Set
 import json
+import logging
 from pathlib import Path
 from ..models.story import Story
 from ..models.story_segment import StorySegment
@@ -8,6 +9,8 @@ from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
+
+logger = logging.getLogger("infinite_story.engine.story_runner")
 
 class StoryRunner:
     """Manages the runtime state of a story and handles the game loop."""
@@ -19,12 +22,16 @@ class StoryRunner:
         
     def start(self) -> None:
         """Start the story from the beginning."""
+        logger.info(f"Starting story '{self.story.id}' from segment '{self.story.start_segment_id}'")
         if not self.story.start_segment_id:
             raise ValueError("Story has no start segment")
         self.load_all_components(self.story)
-        
+
         self.current_segment = self.story.get_segment(self.story.start_segment_id)
-        
+        if not self.current_segment:
+            raise ValueError(f"Start segment '{self.story.start_segment_id}' not found after loading")
+
+        logger.debug(f"Current segment set to '{self.current_segment.id}': {self.current_segment.short_description}")
         # Mark the start segment as visited
         self.visited_segments.add(self.story.start_segment_id)
         
@@ -86,63 +93,97 @@ class StoryRunner:
     
     def load_all_components(self, story) -> None:
         """Load all story components (characters, locations, segments, choices, context).
-        
+
         This method loads all components directly from their storage directories
         and adds them to the story's internal caches.
         """
+        logger.info(f"Loading all components for story '{story.id}'")
+
         # Load all characters
         char_dir = StoryCharacter.get_storage_dir(story.id)
+        logger.debug(f"Loading characters from {char_dir}")
+        char_count = 0
         for char_file in char_dir.glob("*.json"):
             char_id = char_file.stem
+            logger.debug(f"  Loading character: {char_id}")
             character = StoryCharacter.load(story.id, char_id, story)
             if not character:
                 raise ValueError(f"Failed to load character {char_id}")
             story.add_character(character)
-                
+            char_count += 1
+        logger.info(f"Loaded {char_count} characters")
+
         # Load all locations
         loc_dir = StoryLocation.get_storage_dir(story.id)
+        logger.debug(f"Loading locations from {loc_dir}")
+        loc_count = 0
         for loc_file in loc_dir.glob("*.json"):
             loc_id = loc_file.stem
+            logger.debug(f"  Loading location: {loc_id}")
             location = StoryLocation.load(story.id, loc_id, story)
             if not location:
                 raise ValueError(f"Failed to load location {loc_id}")
             story.add_location(location)
+            loc_count += 1
+        logger.info(f"Loaded {loc_count} locations")
 
         # Load all segments
         segment_dir = StorySegment.get_storage_dir(story.id)
+        logger.debug(f"Loading segments from {segment_dir}")
+        seg_count = 0
         for segment_file in segment_dir.glob("*.json"):
             segment_id = segment_file.stem
+            logger.debug(f"  Loading segment: {segment_id}")
             segment = StorySegment.load(story.id, segment_id, story)
             if not segment:
                 raise ValueError(f"Failed to load segment {segment_id}")
             story.add_segment(segment)
+            seg_count += 1
+        logger.info(f"Loaded {seg_count} segments")
 
         # Load all choices
         choice_dir = StoryChoice.get_storage_dir(story.id)
+        logger.debug(f"Loading choices from {choice_dir}")
+        choice_count = 0
         for choice_file in choice_dir.glob("*.json"):
             choice_id = choice_file.stem
+            logger.debug(f"  Loading choice: {choice_id}")
             choice = StoryChoice.load(story.id, choice_id, story)
             if not choice:
                 raise ValueError(f"Failed to load choice {choice_id}")
             story.add_choice(choice)
-        
+            choice_count += 1
+        logger.info(f"Loaded {choice_count} choices")
+
         # Connect choices to segments
+        logger.debug("Connecting choices to segments")
+        connected_count = 0
         for choice in story._choices.values():
             # Add choice to source segment's outgoing choices
             if choice.from_segment_id in story._segments:
                 story._segments[choice.from_segment_id].add_outgoing_choice(choice)
-            
-            # Add choice to destination segment's incoming choices 
+                logger.debug(f"  Connected choice '{choice.id}' as outgoing from segment '{choice.from_segment_id}'")
+                connected_count += 1
+
+            # Add choice to destination segment's incoming choices
             if choice.to_segment_id in story._segments:
                 story._segments[choice.to_segment_id].add_incoming_choice(choice)
+                logger.debug(f"  Connected choice '{choice.id}' as incoming to segment '{choice.to_segment_id}'")
+        logger.info(f"Connected {connected_count} choice-segment relationships")
 
         context_dir = StoryContext.get_storage_dir(story.id)
+        logger.debug(f"Loading context from {context_dir}")
+        ctx_count = 0
         for context_file in context_dir.glob("*.json"):
             context_id = context_file.stem
+            logger.debug(f"  Loading context: {context_id}")
             context = StoryContext.load(story.id, context_id, story)
             if not context:
                 raise ValueError(f"Failed to load context {context_id}")
             story.add_context(context)
+            ctx_count += 1
+        logger.info(f"Loaded {ctx_count} contexts")
+        logger.info(f"Finished loading all components for story '{story.id}'")
 
     def save_all_components(self, story) -> None:
         """Save all story components (characters, locations, segments, choices, context).
