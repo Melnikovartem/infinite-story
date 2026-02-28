@@ -19,8 +19,23 @@
 .play-header h2 {
   flex: 1;
   font-size: 24px;
-  margin: 0 0 0 20px;
+  margin: 0 20px 0 20px;
   color: #2c3e50;
+}
+
+.report-button {
+  background: none;
+  color: #e74c3c;
+  font-size: 20px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.2s ease;
+  border: none;
+}
+
+.report-button:hover {
+  color: #c0392b;
+  transform: scale(1.1);
 }
 
 .play-header .back-button {

@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useStory } from '../contexts/StoryContext'
 import SegmentDisplay from '../components/SegmentDisplay'
 import ChoiceDisplay from '../components/ChoiceDisplay'
 import CustomChoiceInput from '../components/CustomChoiceInput'
 import ProgressCounter from '../components/ProgressCounter'
+import ReportModal from '../components/ReportModal'
+import * as api from '../services/api'
 import './PlayPage.css'
 
 export default function PlayPage() {
@@ -12,6 +14,7 @@ export default function PlayPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const mode = searchParams.get('mode') || 'new'
+  const [showReportModal, setShowReportModal] = useState(false)
 
   const {
     story,
@@ -26,6 +29,11 @@ export default function PlayPage() {
     submitCustomChoice,
     clearError
   } = useStory()
+
+  const handleReportSubmit = async (email: string, description: string) => {
+    if (!story || !segment) return
+    await api.submitReport(story.id, segment.id, 'inappropriate_content', description, email)
+  }
 
   useEffect(() => {
     if (!storyId) {
@@ -73,6 +81,13 @@ export default function PlayPage() {
           {sceneCounter && (
             <ProgressCounter sceneCounter={sceneCounter} />
           )}
+          <button 
+            className="report-button"
+            onClick={() => setShowReportModal(true)}
+            title="Report inappropriate content"
+          >
+            ⚠
+          </button>
         </div>
 
         {error && (
@@ -100,6 +115,14 @@ export default function PlayPage() {
             />
           </div>
         </div>
+
+        <ReportModal
+          isOpen={showReportModal}
+          onClose={() => setShowReportModal(false)}
+          _storyId={story.id}
+          _segmentId={segment.id}
+          onSubmit={handleReportSubmit}
+        />
       </div>
     </div>
   )
