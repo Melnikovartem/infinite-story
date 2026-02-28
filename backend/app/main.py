@@ -10,7 +10,12 @@ from fastapi.responses import JSONResponse
 from datetime import datetime, timezone, UTC
 import logging
 
-from app.config import settings
+from app.config import Settings
+
+settings = Settings()
+from app.routes.sessions import router as sessions_router
+from app.routes.progress import router as progress_router
+from app.routes.reports import router as reports_router
 
 # Set up logging
 logger = logging.getLogger("infinite_story")
@@ -32,6 +37,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(sessions_router, prefix="/api", tags=["sessions"])
+app.include_router(progress_router, prefix="/api", tags=["progress"])
+app.include_router(reports_router, prefix="/api", tags=["reports"])
 
 
 @app.get("/api/health")
