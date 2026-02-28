@@ -1,16 +1,46 @@
 # Developer Setup & Workflow Guide
 
-Welcome to the Infinite Story Engine team! This guide covers everything you need to know about setting up your development environment, writing code, and collaborating with the team.
+Welcome to the Infinite Story Engine team! This guide covers everything you need to know about setting up your development environment, writing code, and collaborating with the team. Updated with real implementation knowledge from the team.
 
 ## Table of Contents
 
-1. [Development Environment Setup](#development-environment-setup)
-2. [Testing Requirements](#testing-requirements)
-3. [Branching & PR Workflow](#branching--pr-workflow)
-4. [Commit Message Format](#commit-message-format)
-5. [Code Standards](#code-standards)
-6. [Daily Development Workflow](#daily-development-workflow)
-7. [Troubleshooting](#troubleshooting)
+1. [Quick Start](#quick-start)
+2. [Development Environment Setup](#development-environment-setup)
+3. [Testing Requirements](#testing-requirements)
+4. [Branching & PR Workflow](#branching--pr-workflow)
+5. [Commit Message Format](#commit-message-format)
+6. [Code Standards](#code-standards)
+7. [Daily Development Workflow](#daily-development-workflow)
+8. [Using GitHub CLI (gh)](#using-github-cli-gh)
+9. [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Start
+
+Get up and running in 5 minutes:
+
+```bash
+# 1. Clone and navigate
+git clone https://github.com/Melnikovartem/infinite-story.git
+cd infinite-story
+
+# 2. Backend setup
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python -m pytest tests/ -v  # Verify setup
+
+# 3. Frontend setup (new terminal/tab)
+cd frontend
+npm install
+npm test  # Verify setup
+
+# 4. Start developing
+# Backend: cd backend && source venv/bin/activate && python -m pytest tests/
+# Frontend: cd frontend && npm test -- --watch
+```
 
 ---
 
@@ -19,16 +49,17 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 ### Backend Setup
 
 #### Prerequisites
-- Python 3.13+
-- Git
+- Python 3.13+ (tested with Python 3.13.7)
+- Git with GitHub CLI (`gh`) installed
 - Virtual environment tool (built-in `venv`)
+- OpenRouter API key (for AI generation features)
 
 #### Steps
 
-1. **Clone the repository** (if you haven't already)
+1. **Clone the repository**
    ```bash
-   git clone <repo-url>
-   cd infinite_story
+   git clone https://github.com/Melnikovartem/infinite-story.git
+   cd infinite-story
    ```
 
 2. **Create and activate virtual environment**
@@ -46,19 +77,28 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 4. **Configure environment variables**
    ```bash
    cp .env.example .env
-   # Edit .env with your API keys and configuration
+   # Edit .env with your API keys:
+   # - OPENROUTER_API_KEY: Your OpenRouter API key for AI generation
+   # - Any other required configuration
    ```
 
 5. **Verify setup by running tests**
    ```bash
-   python -m pytest tests/ -v
+   python -m pytest tests/test_character_*.py -v  # Quick character tests
+   python -m pytest tests/ -v  # All tests
    ```
+
+**Testing specific components:**
+- Character system: `python -m pytest tests/test_character_avatar.py tests/test_character_state_manager.py tests/test_character_context_builder.py -v`
+- Session/progress: `python -m pytest tests/test_api_sessions.py tests/test_api_progress.py -v`
+- Content reports: `python -m pytest tests/test_api_reports.py -v`
 
 ### Frontend Setup
 
 #### Prerequisites
-- Node.js 18+ and npm/yarn
-- Git
+- Node.js 18+ and npm (tested with npm recent versions)
+- Git with GitHub CLI (`gh`) installed
+- Backend running (for API integration)
 
 #### Steps
 
@@ -71,18 +111,30 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 2. **Configure environment variables** (if needed)
    ```bash
    cp .env.example .env
-   # Edit .env if API endpoints or other config is needed
+   # Configure API endpoint to match your backend:
+   # VITE_API_URL=http://localhost:8000/api  (for local development)
+   # VITE_API_URL=http://your-server/api     (for remote backend)
    ```
 
-3. **Verify setup by running tests** (when available)
+3. **Verify setup by running tests**
    ```bash
-   npm test
+   npm test                    # Run all tests
+   npm test -- --coverage      # Run with coverage
+   npm test -- --watch         # Watch mode for development
    ```
 
 4. **Start development server**
    ```bash
-   npm start
+   npm start         # Starts on http://localhost:3000
+   npm run dev       # Alternative (Vite dev server)
    ```
+
+**Component structure:**
+- Components: `src/components/`
+- Pages: `src/pages/`
+- Context/State: `src/contexts/`
+- API services: `src/services/`
+- Tests: `src/components/__tests__/` and `src/pages/__tests__/`
 
 ---
 
@@ -96,12 +148,18 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 
 **Location**: `backend/tests/`
 
-**Test Framework**: pytest
+**Test Framework**: pytest (with fixtures and parametrization)
+
+**Activate venv before testing:**
+```bash
+cd backend
+source venv/bin/activate  # macOS/Linux
+# OR
+venv\Scripts\activate     # Windows
+```
 
 **Running tests:**
 ```bash
-cd backend
-
 # Run all tests
 python -m pytest
 
@@ -111,42 +169,80 @@ python -m pytest -v
 # Run specific test file
 python -m pytest tests/test_story_models.py
 
+# Run specific test class
+python -m pytest tests/test_character_avatar.py::TestAvatarSystem
+
 # Run specific test
-python -m pytest tests/test_story_models.py::test_story_creation -v
+python -m pytest tests/test_character_avatar.py::TestAvatarSystem::test_avatar_shape_enum -v
 
 # Run with coverage
 python -m pytest --cov=app tests/
+
+# Run tests for specific component
+python -m pytest tests/test_character_*.py -v   # Character system tests
+python -m pytest tests/test_api_*.py -v         # API endpoint tests
+python -m pytest tests/test_auto_save.py -v     # Auto-save tests
 ```
 
 **Writing tests:**
 - Test files: `test_*.py` in `tests/` directory
 - Use descriptive test names: `test_<function>_<scenario>`
-- Use pytest fixtures for setup/teardown
+- Use pytest fixtures for setup/teardown (see test data cleanup patterns)
+- Use `@pytest.fixture` with cleanup for database/file operations
 - Test both success and error cases
 - Use mocks for external dependencies (AI API, file I/O, etc.)
 
-**Example:**
+**Example with fixture cleanup:**
 ```python
 import pytest
+import shutil
+from pathlib import Path
 from app.models.story import Story
+from app.models.story_base import LOCAL_DATA_DIR
 
-def test_story_creation():
+@pytest.fixture
+def test_story():
+    """Fixture to create and clean up test story."""
+    test_story_id = "test_story_1"
+    test_data_dir = LOCAL_DATA_DIR / test_story_id
+    
+    # Cleanup before
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
+    
+    # Create test story
+    story = Story(
+        id=test_story_id,
+        title="Test Story",
+        description="A test story",
+        genre="Test",
+        user_id="test_user_1",
+        start_segment_id="start_segment_1"
+    )
+    
+    yield story  # Test runs here
+    
+    # Cleanup after
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
+
+def test_story_creation(test_story):
     """Test that a story can be created with valid data."""
-    story = Story(id="test_story", title="Test Story")
-    assert story.id == "test_story"
-    assert story.title == "Test Story"
-
-def test_story_requires_id():
-    """Test that story creation fails without an ID."""
-    with pytest.raises(ValueError):
-        Story(title="Test Story")  # Missing required 'id'
+    assert test_story.id == "test_story_1"
+    assert test_story.title == "Test Story"
 ```
+
+**Test organization:**
+- Model tests: `test_story_models.py`, `test_character_avatar.py`
+- API tests: `test_api_sessions.py`, `test_api_progress.py`, `test_api_reports.py`
+- Utility tests: `test_character_state_manager.py`, `test_character_context_builder.py`
+- Integration tests: `test_auto_save.py`, `test_generation_pipeline.py`
 
 ### Frontend Testing
 
-**Location**: `frontend/src/__tests__/`
+**Location**: `frontend/src/components/__tests__/` and `frontend/src/pages/__tests__/`
 
-**Test Framework**: Jest/Vitest (when configured)
+**Test Framework**: Vitest with React Testing Library
 
 **Running tests:**
 ```bash
@@ -155,21 +251,70 @@ cd frontend
 # Run all tests
 npm test
 
-# Run tests in watch mode
+# Run tests in watch mode (recommended during development)
 npm test -- --watch
 
 # Run specific test file
-npm test PerformanceCounter.test.tsx
+npm test CharacterAvatar.test.tsx
+
+# Run tests matching a pattern
+npm test -- --grep "character"
 
 # Run with coverage
 npm test -- --coverage
+
+# Run single test and exit
+npm test -- --run
 ```
 
 **Writing tests:**
-- Test files: `*.test.tsx` or `*.test.ts`
+- Test files: `*.test.tsx` or `*.test.ts` in `__tests__` directories
 - Use descriptive test names: `test('<component> <behavior>')`
 - Test component rendering, user interactions, and state
 - Mock API calls and external dependencies
+- Use React Testing Library for user-centric testing
+
+**Example component test:**
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { CharacterAvatar } from '../CharacterAvatar';
+
+describe('CharacterAvatar', () => {
+  it('renders character with correct avatar shape and color', () => {
+    render(
+      <CharacterAvatar
+        name="Eira"
+        shape="circle"
+        color="#FF6B6B"
+      />
+    );
+    
+    const avatar = screen.getByText('Eira');
+    expect(avatar).toBeInTheDocument();
+  });
+
+  it('handles click events', () => {
+    const handleClick = vi.fn();
+    render(
+      <CharacterAvatar
+        name="Hero"
+        shape="square"
+        color="#4ECDC4"
+        onClick={handleClick}
+      />
+    );
+    
+    fireEvent.click(screen.getByRole('button'));
+    expect(handleClick).toHaveBeenCalled();
+  });
+});
+```
+
+**Test locations:**
+- Component tests: `src/components/__tests__/`
+- Page tests: `src/pages/__tests__/`
+- Context tests: `src/contexts/__tests__/`
+- Service tests: `src/services/__tests__/`
 
 ### Merge Requirement
 
@@ -219,22 +364,43 @@ docs/<documentation-change>      # Documentation updates
    git push origin feature/your-feature-name
    ```
 
-5. **Create a Pull Request**
-   - Go to GitHub and create a PR from your branch to `master`
-   - Write a clear PR description (see below)
-   - No review needed—you can merge after CI checks pass
-
-6. **Merge and cleanup**
+5. **Create a Pull Request using `gh`**
    ```bash
-   # After PR is approved/CI passes, merge it
-   # (Can do via GitHub UI)
+   gh pr create --title "Feature: your feature description" \
+     --body "## Description
+   Clear summary of what this PR does.
    
-   # Delete local branch
-   git branch -d feature/your-feature-name
+   ## Changes
+   - Change 1
+   - Change 2
    
-   # Delete remote branch
-   git push origin --delete feature/your-feature-name
+   ## Tests
+   - Test coverage details
+   - All tests passing: ✅"
    ```
+
+6. **Merge using `gh`** (when ready)
+   ```bash
+   gh pr merge <PR_NUMBER> --merge
+   ```
+
+7. **Cleanup**
+   ```bash
+   # After merge, delete local and remote branches
+   git branch -d feature/your-feature-name
+   git push origin --delete feature/your-feature-name
+   
+   # Pull latest master
+   git checkout master
+   git pull origin master
+   ```
+
+**Pro Tip**: Use GitHub CLI for faster workflow:
+```bash
+gh pr create --title "Your title" --body "Your description"  # Create PR
+gh pr view                                                    # View current PR
+gh pr merge                                                   # Merge current PR
+```
 
 ### Pull Request Description Template
 
@@ -337,44 +503,116 @@ git push origin feature/add-story-validation
 
 **Style Guide**: Follow PEP 8 with these conventions:
 
-- **Imports**: Group by standard library, third-party, local
-- **Type Hints**: Always use type hints
+- **Imports**: Group by standard library, third-party, local (with blank lines between groups)
+- **Type Hints**: Always use type hints (100% coverage expected)
 - **Async**: Use `async/await` for I/O operations
-- **Data Models**: Use Pydantic `BaseModel` for data validation
+- **Data Models**: Use Pydantic `BaseModel` for validation and Enums for fixed choices
 - **Error Handling**: Use specific exceptions, don't catch `Exception`
+- **Docstrings**: Use triple quotes for all classes and methods
+- **Field Validation**: Use Pydantic `Field` and `@field_validator` for validation
 
-**Example:**
+**Example with real patterns from codebase:**
 ```python
-from typing import Optional
-from pydantic import BaseModel, Field
-from app.engine.generator import TextGenerator
+from typing import Optional, List, Dict, Any
+from enum import Enum
+from pydantic import BaseModel, Field, field_validator
 
-class StorySegment(BaseModel):
-    """Represents a scene in the story."""
+class AvatarShape(str, Enum):
+    """Available avatar shapes for characters."""
+    SQUARE = "square"
+    CIRCLE = "circle"
+    TRIANGLE = "triangle"
+
+class StoryCharacter(BaseModel):
+    """Represents a character in the story with avatar and state tracking."""
     
-    id: str = Field(..., description="Unique segment identifier")
-    title: str = Field(..., min_length=1)
-    content: str
-    is_generated: bool = False
+    id: str = Field(..., description="Unique character identifier")
+    name: str
+    description: str
+    avatar_shape: AvatarShape = Field(default=AvatarShape.CIRCLE)
+    avatar_color: str = Field(default="#FF6B6B")
+    running_status: List[Dict[str, Any]] = Field(default_factory=list)
     
-    async def generate_next_scene(self, choice_text: str) -> "StorySegment":
-        """Generate the next story scene based on player choice."""
-        generator = TextGenerator()
-        response = await generator.generate(context=self.build_context())
-        return self._create_segment_from_response(response)
+    @field_validator('avatar_color')
+    @classmethod
+    def validate_hex_color(cls, v: str) -> str:
+        """Validate that avatar_color is a valid hex color."""
+        if not isinstance(v, str):
+            raise ValueError("avatar_color must be a string")
+        color = v.lstrip('#')
+        if len(color) not in (3, 6):
+            raise ValueError(f"Invalid hex color: {v}")
+        try:
+            int(color, 16)
+        except ValueError:
+            raise ValueError(f"Invalid hex color: {v}")
+        return f"#{color}"
     
-    def build_context(self) -> str:
-        """Build context for AI generation."""
-        return f"Current segment: {self.title}\n{self.content}"
+    def add_state(self, segment_id: str, emotion: Optional[str] = None,
+                  status: str = "present", notes: str = "") -> None:
+        """Add or update character state at a segment.
+        
+        Args:
+            segment_id: The segment ID where this state applies
+            emotion: The character's emotional state
+            status: Whether character is present, absent, or mentioned
+            notes: Additional notes about the character
+        """
+        state_dict = {
+            "segment_id": segment_id,
+            "emotion": emotion,
+            "status": status,
+            "notes": notes
+        }
+        # Update or append logic
+        for existing_state in self.running_status:
+            if existing_state["segment_id"] == segment_id:
+                existing_state.update(state_dict)
+                return
+        self.running_status.append(state_dict)
+    
+    def get_state_at_segment(self, segment_id: str) -> Optional[Dict[str, Any]]:
+        """Get character's state at a specific segment.
+        
+        Args:
+            segment_id: The segment ID to look up
+            
+        Returns:
+            The character state dict at that segment, or None if not found
+        """
+        for state in self.running_status:
+            if state["segment_id"] == segment_id:
+                return state
+        return None
 ```
 
-**Linting**: Run before committing:
-```bash
-# Check style (if flake8 installed)
-python -m flake8 app/
+**Project structure:**
+```
+backend/
+├── app/
+│   ├── models/               # Data models (Pydantic BaseModel)
+│   ├── utils/                # Utility functions and managers
+│   ├── engine/               # Core business logic (generators, etc.)
+│   ├── routes/               # API endpoints (FastAPI)
+│   ├── services/             # Services (auto-save, etc.)
+│   └── main.py              # FastAPI app initialization
+├── tests/                     # All test files
+├── requirements.txt           # Python dependencies
+└── venv/                      # Virtual environment
+```
 
+**Requirements & Dependencies:**
+- FastAPI: Web framework
+- Pydantic: Data validation
+- pytest: Testing framework
+- OpenRouter: AI generation API client
+
+**Run linting before committing:**
+```bash
 # Type checking
 python -m mypy app/
+
+# Note: flake8 optional, rely on PEP 8 compliance
 ```
 
 ### TypeScript/React (Frontend)
@@ -383,42 +621,147 @@ python -m mypy app/
 
 - **Props**: Use interfaces for component props
 - **State**: Use React hooks (`useState`, `useContext`)
-- **Typing**: Always provide explicit types
+- **Typing**: Always provide explicit types (no `any` unless absolutely necessary)
 - **Components**: Functional components with hooks (no class components)
-- **File Structure**: One component per file, colocate tests
+- **File Structure**: One component per file with colocated tests
+- **Context**: Use React Context for global state (StoryContext pattern)
+- **Styling**: CSS modules or colocated CSS files
 
-**Example:**
+**Example with real patterns:**
 ```typescript
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
+import { StoryContext } from '../contexts/StoryContext';
+import './CharacterAvatar.css';
 
-interface StorySegmentProps {
-  segmentId: string;
-  content: string;
-  onChoiceSelect: (choiceId: string) => void;
+interface CharacterAvatarProps {
+  characterId: string;
+  name: string;
+  avatarShape: 'square' | 'circle' | 'triangle' | 'diamond' | 'star' | 'pentagon';
+  avatarColor: string;
+  emotion?: string;
+  status?: 'present' | 'absent' | 'mentioned';
 }
 
-export const StorySegment: React.FC<StorySegmentProps> = ({
-  segmentId,
-  content,
-  onChoiceSelect,
+export const CharacterAvatar: React.FC<CharacterAvatarProps> = ({
+  characterId,
+  name,
+  avatarShape,
+  avatarColor,
+  emotion,
+  status = 'present',
 }) => {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const { currentSegment } = useContext(StoryContext);
 
-  const handleChoice = async (choiceId: string) => {
-    setIsLoading(true);
-    try {
-      onChoiceSelect(choiceId);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleMouseEnter = () => setIsHovered(true);
+  const handleMouseLeave = () => setIsHovered(false);
+
+  const avatarClassName = `character-avatar avatar-${avatarShape} status-${status}`;
 
   return (
-    <div className="story-segment">
-      <p>{content}</p>
-      {isLoading && <p>Loading...</p>}
+    <div
+      className={avatarClassName}
+      style={{ backgroundColor: avatarColor }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      aria-label={`${name} - ${emotion || 'neutral'}`}
+    >
+      <span className="character-name">{name}</span>
+      {isHovered && emotion && (
+        <span className="emotion-indicator">{emotion}</span>
+      )}
     </div>
   );
+};
+```
+
+**Project structure:**
+```
+frontend/
+├── src/
+│   ├── components/           # Reusable React components
+│   │   ├── CharacterAvatar.tsx
+│   │   ├── CharacterAvatar.css
+│   │   ├── __tests__/       # Component tests
+│   │   └── ...
+│   ├── pages/               # Full page components
+│   │   ├── PlayPage.tsx
+│   │   ├── StoryListPage.tsx
+│   │   ├── __tests__/
+│   │   └── ...
+│   ├── contexts/            # React Context (global state)
+│   │   ├── StoryContext.tsx
+│   │   └── __tests__/
+│   ├── services/            # API and utility services
+│   │   ├── api.ts          # Real API calls
+│   │   ├── mockApi.ts      # Mock API for testing
+│   │   └── __tests__/
+│   ├── types/               # TypeScript interfaces
+│   │   └── index.ts
+│   ├── styles/              # Global styles
+│   └── App.tsx             # Main app component
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── vitest.config.ts
+```
+
+**Context pattern (StoryContext):**
+```typescript
+interface Story {
+  id: string;
+  title: string;
+  description: string;
+  characters: Character[];
+}
+
+interface StoryContextType {
+  currentSegment: Segment | null;
+  currentStory: Story | null;
+  characters: Character[];
+  loadStory: (storyId: string) => Promise<void>;
+  makeChoice: (choiceId: string) => Promise<void>;
+  saveSession: () => Promise<void>;
+}
+
+export const StoryContext = React.createContext<StoryContextType | undefined>(undefined);
+
+export const useStory = () => {
+  const context = useContext(StoryContext);
+  if (!context) {
+    throw new Error('useStory must be used within StoryProvider');
+  }
+  return context;
+};
+```
+
+**API service pattern:**
+```typescript
+// src/services/api.ts
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+export const api = {
+  getStories: async () => {
+    const response = await fetch(`${API_BASE}/stories`);
+    return response.json();
+  },
+  
+  getSegment: async (segmentId: string) => {
+    const response = await fetch(`${API_BASE}/segments/${segmentId}`);
+    return response.json();
+  },
+  
+  generateNextScene: async (segmentId: string, choiceText: string) => {
+    const response = await fetch(
+      `${API_BASE}/segments/${segmentId}/next`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choice_text: choiceText }),
+      }
+    );
+    return response.json();
+  },
 };
 ```
 
@@ -532,13 +875,45 @@ pip install --upgrade -r requirements.txt
 
 # Run full test suite to check for timing issues
 python -m pytest -v --tb=short
+
+# Check for test data cleanup issues
+python -m pytest tests/test_character_avatar.py -v --tb=short
 ```
 
-#### Import Errors
+#### Import Errors / ModuleNotFoundError
 ```bash
+# Make sure venv is activated
+source venv/bin/activate
+
 # Ensure PYTHONPATH is set correctly
 cd backend
 PYTHONPATH=. python -m pytest tests/
+
+# Clear Python cache
+find . -type d -name __pycache__ -exec rm -rf {} +
+find . -type f -name "*.pyc" -delete
+```
+
+#### pytest: Unknown config option: asyncio_default_fixture_loop_scope
+This is a warning, not an error. It occurs with pytest-asyncio plugins. Can be safely ignored.
+
+#### Tests fail due to test data not cleaning up
+```bash
+# The character tests use fixtures with cleanup
+# Make sure fixtures properly remove test data:
+import shutil
+from pathlib import Path
+
+@pytest.fixture
+def test_story():
+    test_data_dir = LOCAL_DATA_DIR / "test_story_id"
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)  # Cleanup before
+    
+    yield story  # Test runs here
+    
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)  # Cleanup after
 ```
 
 ### Frontend Issues
@@ -563,6 +938,48 @@ npm test -- --verbose
 ```bash
 # Default port is 3000, but you can specify a different one:
 PORT=3001 npm start
+
+# Check what's using port 3000
+lsof -i :3000        # macOS/Linux
+netstat -ano | grep :3000  # Windows
+```
+
+#### npm install fails or node_modules is corrupted
+```bash
+# Clear everything and reinstall
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+
+# On Windows:
+rmdir /s /q node_modules
+del package-lock.json
+npm cache clean --force
+npm install
+```
+
+#### API not connecting from frontend
+```bash
+# Check that backend is running
+cd backend && source venv/bin/activate && python -m pytest tests/test_api_basic.py -v
+
+# Check VITE_API_URL environment variable
+# Default: http://localhost:8000/api
+
+# In frontend/.env:
+VITE_API_URL=http://localhost:8000/api
+
+# Or check frontend logs for errors
+npm start  # Look at browser console
+```
+
+#### Character tests fail with serialization errors
+```bash
+# Character state must be serializable to JSON
+# If you add new fields, ensure they're JSON-compatible
+
+# Test character save/load:
+python -m pytest tests/test_character_avatar.py::TestCharacterSerialization -v
 ```
 
 ### Git Issues
@@ -602,6 +1019,91 @@ git rebase origin/master
 
 # OR merge (if rebase causes conflicts)
 git merge origin/master
+```
+
+---
+
+## Using GitHub CLI (gh)
+
+The team uses GitHub CLI for efficient PR management. Install it and authenticate:
+
+```bash
+# Install gh (macOS with Homebrew)
+brew install gh
+
+# Or download from https://github.com/cli/cli#installation
+
+# Authenticate with GitHub
+gh auth login
+```
+
+### Common gh Commands
+
+```bash
+# Create a PR from current branch
+gh pr create --title "Your title" \
+  --body "## Description
+Your description here"
+
+# List open PRs
+gh pr list
+
+# View specific PR
+gh pr view 4
+
+# Merge current PR (auto-detects)
+gh pr merge                    # Interactive selection
+gh pr merge 4 --merge          # Merge specific PR with merge commit
+gh pr merge 4 --squash         # Squash commits before merge
+gh pr merge 4 --rebase         # Rebase before merge
+
+# Close a PR without merging
+gh pr close 4
+
+# Check PR status
+gh pr status
+
+# Checkout a PR branch locally
+gh pr checkout 4
+```
+
+### Workflow with gh
+
+1. **Work on feature branch**
+   ```bash
+   git checkout -b feature/your-feature
+   # ... make changes and commit ...
+   git push origin feature/your-feature
+   ```
+
+2. **Create PR**
+   ```bash
+   gh pr create --title "Feature: description" --body "PR description"
+   ```
+
+3. **Merge PR**
+   ```bash
+   gh pr merge  # Current PR in current branch
+   ```
+
+**Example:**
+```bash
+$ gh pr create --title "DEV-2: Add character avatar system" \
+  --body "## Summary
+Implements avatar system with 6 shapes and color validation.
+
+## Changes
+- Add AvatarShape enum
+- Add hex color validation
+- 51 tests added
+
+## Tests
+All tests passing: ✅ 51/51"
+
+# Returns: Created pull request #4
+
+$ gh pr merge 4 --merge
+# Returns: Pull request #4 merged
 ```
 
 ---
