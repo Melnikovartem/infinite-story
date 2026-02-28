@@ -15,3 +15,17 @@ export { Modal } from './Modal'
 
 export { Alert } from './Alert'
 export type { AlertVariant } from './Alert'
+
+export { Layout, Page, PageSection } from './Layout'
+
+export { StoryCard } from './StoryCard'
+
+export { CharacterGrid } from './CharacterGrid'
+
+export { ChoiceDisplay } from './ChoiceDisplay'
+export type { Choice } from './ChoiceDisplay'
+
+export { CustomChoiceInput } from './CustomChoiceInput'
+
+export { SceneContent } from './SceneContent'
+export type { TextBlock } from './SceneContent'

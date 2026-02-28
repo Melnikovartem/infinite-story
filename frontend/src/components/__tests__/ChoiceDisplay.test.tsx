@@ -1,109 +1,80 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ChoiceDisplay from '../ChoiceDisplay'
-
-// Mock the useStory hook
-vi.mock('../../contexts/StoryContext', async () => {
-  const actual = await vi.importActual('../../contexts/StoryContext')
-  return {
-    ...actual,
-    useStory: () => ({
-      currentChoices: {
-        top_2: [
-          {
-            id: 'choice_1',
-            choice_text: 'Choice 1',
-            popularity_score: 85,
-            is_custom: false
-          },
-          {
-            id: 'choice_2',
-            choice_text: 'Choice 2',
-            popularity_score: 78,
-            is_custom: false
-          }
-        ],
-        all: [
-          {
-            id: 'choice_1',
-            choice_text: 'Choice 1',
-            popularity_score: 85,
-            is_custom: false
-          },
-          {
-            id: 'choice_2',
-            choice_text: 'Choice 2',
-            popularity_score: 78,
-            is_custom: false
-          },
-          {
-            id: 'choice_3',
-            choice_text: 'Choice 3',
-            popularity_score: 62,
-            is_custom: false
-          }
-        ]
-      }
-    })
-  }
-})
+import { ChoiceDisplay } from '../ChoiceDisplay'
 
 describe('ChoiceDisplay', () => {
-  it('displays top 2 choices by default', async () => {
-    const onSelect = vi.fn()
+  const mockChoices = [
+    { id: 'choice-1', text: 'First choice', popularity_score: 85 },
+    { id: 'choice-2', text: 'Second choice', popularity_score: 72 },
+    { id: 'choice-3', text: 'Third choice' },
+  ]
+
+  it('renders top choices', () => {
     render(
-      <ChoiceDisplay onSelect={onSelect} loading={false} />
+      <ChoiceDisplay
+        topChoices={mockChoices.slice(0, 2)}
+        allChoices={mockChoices}
+        onChoiceSelect={() => {}}
+      />
     )
-    
-    expect(screen.getByText('Choice 1')).toBeInTheDocument()
-    expect(screen.getByText('Choice 2')).toBeInTheDocument()
+    expect(screen.getByText('First choice')).toBeInTheDocument()
+    expect(screen.getByText('Second choice')).toBeInTheDocument()
   })
 
-  it('shows expand button when more choices available', () => {
-    const onSelect = vi.fn()
+  it('hides extra choices by default', () => {
     render(
-      <ChoiceDisplay onSelect={onSelect} loading={false} />
+      <ChoiceDisplay
+        topChoices={mockChoices.slice(0, 2)}
+        allChoices={mockChoices}
+        onChoiceSelect={() => {}}
+      />
     )
-    
-    expect(screen.getByText(/View All 3 Choices/)).toBeInTheDocument()
+    expect(screen.queryByText('Third choice')).not.toBeInTheDocument()
   })
 
-  it('expands to show all choices when button clicked', async () => {
+  it('shows all choices when toggled', async () => {
     const user = userEvent.setup()
-    const onSelect = vi.fn()
     render(
-      <ChoiceDisplay onSelect={onSelect} loading={false} />
+      <ChoiceDisplay
+        topChoices={mockChoices.slice(0, 2)}
+        allChoices={mockChoices}
+        onChoiceSelect={() => {}}
+      />
     )
 
-    const expandButton = screen.getByText(/View All 3 Choices/)
-    await user.click(expandButton)
+    const toggleButton = screen.getByText('View all choices →')
+    await user.click(toggleButton)
 
-    expect(screen.getByText('Choice 3')).toBeInTheDocument()
+    expect(screen.getByText('Third choice')).toBeInTheDocument()
   })
 
-  it('calls onSelect when choice clicked', async () => {
+  it('calls onChoiceSelect when choice is clicked', async () => {
+    const onChoiceSelect = vi.fn()
     const user = userEvent.setup()
-    const onSelect = vi.fn()
+
     render(
-      <ChoiceDisplay onSelect={onSelect} loading={false} />
+      <ChoiceDisplay
+        topChoices={mockChoices.slice(0, 1)}
+        allChoices={mockChoices}
+        onChoiceSelect={onChoiceSelect}
+      />
     )
 
-    const choice1 = screen.getByText('Choice 1')
-    await user.click(choice1)
-
-    expect(onSelect).toHaveBeenCalledWith('choice_1')
+    await user.click(screen.getByRole('button', { name: /First choice/ }))
+    expect(onChoiceSelect).toHaveBeenCalledWith('choice-1')
   })
 
-  it('disables choices when loading', () => {
-    const onSelect = vi.fn()
-    const { container } = render(
-      <ChoiceDisplay onSelect={onSelect} loading={true} />
+  it('shows loading state', () => {
+    render(
+      <ChoiceDisplay
+        topChoices={mockChoices.slice(0, 1)}
+        allChoices={mockChoices}
+        onChoiceSelect={() => {}}
+        loading
+      />
     )
 
-    const buttons = container.querySelectorAll('.choice-button')
-    buttons.forEach(button => {
-      expect(button).toBeDisabled()
-    })
+    expect(screen.getByRole('button', { name: /First choice/ })).toBeDisabled()
   })
 })

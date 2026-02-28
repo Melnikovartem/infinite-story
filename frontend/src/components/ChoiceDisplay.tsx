@@ -1,73 +1,69 @@
-import { useState } from 'react'
-import { useStory } from '../contexts/StoryContext'
-import './ChoiceDisplay.css'
+import React, { useState } from 'react'
+import { Button } from './Button'
+import { Card } from './Card'
+
+export interface Choice {
+  id: string
+  text: string
+  popularity_score?: number
+  is_custom?: boolean
+}
 
 interface ChoiceDisplayProps {
-  onSelect: (choiceId: string) => void
+  topChoices: Choice[]
+  allChoices: Choice[]
+  onChoiceSelect: (choiceId: string) => void
   loading?: boolean
 }
 
-export default function ChoiceDisplay({ onSelect, loading }: ChoiceDisplayProps) {
-  const { currentChoices } = useStory()
+export const ChoiceDisplay: React.FC<ChoiceDisplayProps> = ({
+  topChoices,
+  allChoices,
+  onChoiceSelect,
+  loading = false,
+}) => {
   const [showAll, setShowAll] = useState(false)
 
-  if (!currentChoices) {
-    return <div className="choices-placeholder">Loading choices...</div>
-  }
-
-  const { top_2, all } = currentChoices
+  const choicesToShow = showAll ? allChoices : topChoices
 
   return (
-    <div className="choice-display">
-      <div className="top-choices">
-        {top_2.map(choice => (
-          <button
+    <div className="space-y-lg">
+      <h3 className="text-lg font-semibold text-neutral-900">
+        What do you do?
+      </h3>
+
+      {/* Top Choices */}
+      <div className="space-y-md">
+        {choicesToShow.map((choice) => (
+          <Button
             key={choice.id}
-            className="choice-button primary"
-            onClick={() => onSelect(choice.id)}
+            onClick={() => onChoiceSelect(choice.id)}
             disabled={loading}
+            isLoading={loading}
+            className="w-full text-left h-auto py-md px-lg break-words whitespace-normal"
+            variant={choice.is_custom ? 'secondary' : 'primary'}
           >
-            <span className="choice-text">{choice.choice_text}</span>
-            {choice.popularity_score > 0 && (
-              <span className="choice-popularity">
-                {choice.popularity_score}% popular
-              </span>
-            )}
-          </button>
+            <div className="flex justify-between items-start gap-md">
+              <span className="flex-1">{choice.text}</span>
+              {choice.popularity_score && (
+                <span className="text-xs opacity-75 flex-shrink-0">
+                  ⭐ {choice.popularity_score}
+                </span>
+              )}
+            </div>
+          </Button>
         ))}
       </div>
 
-      {all.length > top_2.length && (
-        <div className="all-choices-section">
-          {!showAll && (
-            <button
-              className="expand-button"
-              onClick={() => setShowAll(true)}
-            >
-              View All {all.length} Choices
-            </button>
-          )}
-
-          {showAll && (
-            <div className="all-choices">
-              {all.map(choice => (
-                <button
-                  key={choice.id}
-                  className="choice-button"
-                  onClick={() => onSelect(choice.id)}
-                  disabled={loading}
-                >
-                  <span className="choice-text">{choice.choice_text}</span>
-                  {choice.popularity_score > 0 && (
-                    <span className="choice-popularity">
-                      {choice.popularity_score}% popular
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Toggle Show All */}
+      {allChoices.length > topChoices.length && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
+          aria-expanded={showAll}
+        >
+          {showAll ? '← Show top choices' : 'View all choices →'}
+        </button>
       )}
     </div>
   )

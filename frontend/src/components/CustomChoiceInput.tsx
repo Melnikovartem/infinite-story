@@ -1,74 +1,87 @@
-import { useState } from 'react'
-import './CustomChoiceInput.css'
+import React, { useState } from 'react'
+import { Textarea } from './Input'
+import { Button } from './Button'
+import { Card } from './Card'
 
 interface CustomChoiceInputProps {
   onSubmit: (text: string) => void
   loading?: boolean
+  placeholder?: string
+  maxLength?: number
 }
 
-export default function CustomChoiceInput({ onSubmit, loading }: CustomChoiceInputProps) {
-  const [text, setText] = useState('')
-  const [charCount, setCharCount] = useState(0)
+export const CustomChoiceInput: React.FC<CustomChoiceInputProps> = ({
+  onSubmit,
+  loading = false,
+  placeholder = 'Write your own choice...',
+  maxLength = 500,
+}) => {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
 
-  const minLength = 10
-  const maxLength = 200
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value
-    if (newText.length <= maxLength) {
-      setText(newText)
-      setCharCount(newText.length)
+  const handleSubmit = () => {
+    if (!value.trim()) {
+      setError('Please enter a choice')
+      return
     }
+
+    if (value.length < 5) {
+      setError('Choice must be at least 5 characters')
+      return
+    }
+
+    setError('')
+    onSubmit(value)
+    setValue('')
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (text.trim().length >= minLength) {
-      onSubmit(text.trim())
-      setText('')
-      setCharCount(0)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      handleSubmit()
     }
   }
-
-  const isValid = text.trim().length >= minLength
-  const isEmpty = text.length === 0
 
   return (
-    <form className="custom-choice-input" onSubmit={handleSubmit}>
-      <textarea
-        value={text}
-        onChange={handleChange}
-        placeholder="Describe what you do or say..."
-        rows={3}
+    <Card className="space-y-md">
+      <h3 className="text-lg font-semibold text-neutral-900">
+        Write your own choice
+      </h3>
+
+      <Textarea
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value)
+          setError('')
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        showCharCount
+        error={error}
+        helperText="Press Ctrl+Enter to submit"
         disabled={loading}
-        className="choice-textarea"
       />
 
-      <div className="input-footer">
-        <div className="char-count">
-          {charCount}/{maxLength}
-        </div>
-        <button
-          type="submit"
-          disabled={!isValid || loading}
-          className="submit-button"
+      <div className="flex gap-md">
+        <Button
+          onClick={handleSubmit}
+          disabled={loading || !value.trim()}
+          isLoading={loading}
+          variant="secondary"
         >
-          {loading ? (
-            <>
-              <span className="spinner-mini"></span>
-              Generating...
-            </>
-          ) : (
-            'Submit Custom Choice'
-          )}
-        </button>
+          Submit Choice
+        </Button>
+        <Button
+          onClick={() => {
+            setValue('')
+            setError('')
+          }}
+          variant="ghost"
+          disabled={loading}
+        >
+          Clear
+        </Button>
       </div>
-
-      {!isEmpty && !isValid && (
-        <p className="help-text">
-          Minimum {minLength} characters required
-        </p>
-      )}
-    </form>
+    </Card>
   )
 }
