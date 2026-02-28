@@ -30,7 +30,7 @@ from app.utils.model_info import (
 
 app = typer.Typer()
 # Force console to use proper terminal without buffering
-console = Console(force_terminal=True, force_unicode=True, legacy_windows=False)
+console = Console(force_terminal=True, legacy_windows=False)
 logger = logging.getLogger("infinite_story.cli")
 
 def display_stories(stories: List[dict]) -> None:
