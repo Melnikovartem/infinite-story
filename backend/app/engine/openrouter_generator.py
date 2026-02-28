@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 import httpx
 from .generator import TextGenerator
 from ..models.text_types import TextGeneratorResponse
+from ..utils.model_selector import ModelSelector
 
 logger = logging.getLogger("infinite_story.engine.openrouter_generator")
 
@@ -44,7 +45,8 @@ class OpenRouterGenerator(TextGenerator):
         temperature: float = 0.7,
         max_tokens: int = 2000,
         site_url: Optional[str] = None,
-        site_name: Optional[str] = None
+        site_name: Optional[str] = None,
+        auto_fallback: bool = True
     ):
         """Initialize the OpenRouter generator.
         
@@ -55,14 +57,29 @@ class OpenRouterGenerator(TextGenerator):
             max_tokens: Maximum tokens to generate
             site_url: Your app's URL (helps with API rate limits)
             site_name: Your app's name (helps identify requests)
+            auto_fallback: If True, automatically fallback to cheapest available model if requested model is unavailable
         """
         super().__init__(temperature=temperature, max_tokens=max_tokens)
         self.api_key = api_key
         self.site_url = site_url
         self.site_name = site_name
+        self.auto_fallback = auto_fallback
         
         # Map short model names to full paths if needed
-        self.model = self.AVAILABLE_MODELS.get(model, model)
+        requested_model = self.AVAILABLE_MODELS.get(model, model)
+        
+        # Use model selector for intelligent fallback
+        if auto_fallback:
+            selector = ModelSelector(api_key)
+            try:
+                self.model = selector.validate_and_fallback(requested_model)
+                if self.model != requested_model:
+                    logger.info(f"Model '{requested_model}' not available, using fallback: {self.model}")
+            except ValueError as e:
+                logger.error(f"Model validation failed: {e}")
+                self.model = requested_model
+        else:
+            self.model = requested_model
         
         # Initialize HTTP client with OpenRouter headers
         headers = {

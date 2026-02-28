@@ -106,9 +106,10 @@ async def run_story_async():
             temperature=config.generator.temperature,
             max_tokens=config.generator.max_tokens,
             site_url=config.generator.site_url,
-            site_name=config.generator.site_name
+            site_name=config.generator.site_name,
+            auto_fallback=True
         )
-        console.print(f"[cyan]Using OpenRouter with model: {config.generator.model}[/cyan]")
+        console.print(f"[cyan]Using OpenRouter with model: {generator.model}[/cyan]")
     else:  # openai
         logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
         generator = OpenAIGenerator(
@@ -354,7 +355,8 @@ async def test_generation_async(story_id: str):
             temperature=config.generator.temperature,
             max_tokens=config.generator.max_tokens,
             site_url=config.generator.site_url,
-            site_name=config.generator.site_name
+            site_name=config.generator.site_name,
+            auto_fallback=True
         )
     else:  # openai
         logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
