@@ -160,12 +160,13 @@ async def run_story_async():
     logger.info(f"Initializing StoryRunner for: {story.id}")
     runner = StoryRunner(story)
     try:
-        # Try to load previous state
+        # Load all story components first (required before accessing segments)
+        runner.load_all_components(story)
+        
+        # Then try to load previous state
         if runner.load_state():
             console.print("[yellow]Resuming from saved state...[/yellow]")
             logger.info("Loaded previous state, resuming story")
-            # Need to load components first
-            runner.load_all_components(story)
             console.print(f"[green]Resumed at segment: {runner.current_segment.short_description}[/green]")
             logger.info(f"Resumed at segment: {runner.current_segment.id}")
         else:
