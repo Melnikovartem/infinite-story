@@ -244,15 +244,19 @@ class StorySegment(StoryBlock):
             A new StorySegment instance
         """
         # Generate the scene prompt using all available context
+        logger.debug(f"Building prompt for choice: {connecting_choice.text[:50]}...")
         prompt_builder = ScenePromptBuilder(self)
         user_prompt = prompt_builder.build_prompt(connecting_choice.text)
+        logger.debug(f"Built prompt with {len(user_prompt)} characters")
 
         # Generate the new scene
+        logger.debug("Calling generator.generate()")
         scene_response: SceneTextGeneratorResponse = await generator.generate(
             system_prompt="",  # Use default system prompt
             user_prompt=user_prompt,
             context_type="scene"
         )
+        logger.debug(f"Generator returned response")
 
         # Check if there was an error during generation
         if scene_response.error:

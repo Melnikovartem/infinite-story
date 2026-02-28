@@ -40,14 +40,18 @@ class ScenePromptBuilder:
         Returns:
             Tuple of (relevant_character_ids, relevant_location_ids)
         """
+        logger.debug("Starting _get_relevant_entity_ids")
         relevant_chars = set()
         relevant_locs = set()
 
         # Get all character and location names for matching
+        logger.debug("Fetching all characters and locations")
         all_chars = {char.id: char.name.lower() for char in self.story.get_all_characters()}
         all_locs = {loc.id: loc.name.lower() for loc in self.story.get_all_locations()}
+        logger.debug(f"Found {len(all_chars)} characters and {len(all_locs)} locations")
 
         # Check choice text for mentions
+        logger.debug("Checking choice text for entity mentions")
         choice_lower = choice_text.lower()
         for char_id, char_name in all_chars.items():
             if char_name in choice_lower:
@@ -55,38 +59,51 @@ class ScenePromptBuilder:
         for loc_id, loc_name in all_locs.items():
             if loc_name in choice_lower:
                 relevant_locs.add(loc_id)
+        logger.debug(f"Found {len(relevant_chars)} relevant characters and {len(relevant_locs)} relevant locations in choice")
 
         # Check recent segments for mentions
+        logger.debug(f"Checking {lookback} previous segments for mentions")
         segments_to_check = []
         current_segment = self.segment
-        for _ in range(lookback):
+        for i in range(lookback):
+            logger.debug(f"Lookback iteration {i+1}/{lookback}")
             if not current_segment.incoming_choices:
+                logger.debug("No incoming choices, stopping lookback")
                 break
             first_choice = next(iter(current_segment.incoming_choices.values()))
             if not first_choice.from_segment_id:
+                logger.debug("No from_segment_id, stopping lookback")
                 break
             prev_segment = self.story.get_segment(first_choice.from_segment_id)
             if not prev_segment:
+                logger.debug(f"Could not find segment {first_choice.from_segment_id}, stopping lookback")
                 break
             segments_to_check.append(prev_segment)
             current_segment = prev_segment
+        logger.debug(f"Will check {len(segments_to_check)} previous segments")
 
         # Add characters/locations mentioned in recent segments
-        for segment in segments_to_check:
+        logger.debug("Processing previous segments")
+        for i, segment in enumerate(segments_to_check):
+            logger.debug(f"Processing segment {i+1}/{len(segments_to_check)}: {segment.id}")
             # Add characters present in segment
             relevant_chars.update(segment.characters_present)
             # Add locations present in segment
             relevant_locs.update(segment.locations_present)
 
             # Check segment text for additional mentions
+            logger.debug(f"Getting plain text script for segment {segment.id}")
             segment_text = segment.get_plain_text_script().lower()
+            logger.debug(f"Searching through {len(segment_text)} characters of text")
             for char_id, char_name in all_chars.items():
                 if char_name in segment_text:
                     relevant_chars.add(char_id)
             for loc_id, loc_name in all_locs.items():
                 if loc_name in segment_text:
                     relevant_locs.add(loc_id)
+            logger.debug(f"Finished processing segment {segment.id}")
 
+        logger.debug(f"_get_relevant_entity_ids completed: {len(relevant_chars)} chars, {len(relevant_locs)} locs")
         return relevant_chars, relevant_locs
 
     def build_prompt(self, choice_text: str) -> str:
@@ -101,41 +118,55 @@ class ScenePromptBuilder:
         Returns:
             A formatted prompt string containing all relevant context
         """
+        logger.debug("Starting build_prompt")
         # Get relevant entity IDs based on recent context and choice
+        logger.debug("Getting relevant entity IDs")
         relevant_char_ids, relevant_loc_ids = self._get_relevant_entity_ids(choice_text, lookback=3)
+        logger.debug(f"Got relevant entities")
 
         logger.debug(f"Context analysis: {len(relevant_char_ids)} relevant characters, {len(relevant_loc_ids)} relevant locations")
         logger.debug(f"Relevant character IDs: {relevant_char_ids}")
         logger.debug(f"Relevant location IDs: {relevant_loc_ids}")
 
         # Get story context (condensed)
+        logger.debug("Getting story context")
         story_context = self.story._context
         story_context_overview = story_context.get_short_overview() if story_context else ""
+        logger.debug("Got story context")
 
         # Get current story state (last 5 segments instead of 10)
+        logger.debug("Getting previous segments")
         prev_segments = self.segment.get_story_segments_before(max_depth=5)
+        logger.debug("Getting plain text script")
         content = self.segment.get_plain_text_script()
+        logger.debug("Got plain text script")
 
         # Get character information for those present
+        logger.debug("Getting character info for present characters")
         character_info = []
         for char_status in self.segment.characters:
             character = self.story.get_character(char_status.character_id)
             if character:
                 character_info.append(f"- {character.name}: {character.description} (Status: {char_status.current_status})")
+        logger.debug(f"Got {len(character_info)} character info entries")
 
         # Get ONLY relevant characters not present
+        logger.debug("Getting relevant characters not present")
         relevant_chars_not_present = []
         all_chars = self.story.get_all_characters()
         for char in all_chars:
             if char.id in relevant_char_ids and char.id not in [c.character_id for c in self.segment.characters]:
                 relevant_chars_not_present.append(f"- {char.get_short_overview()}")
+        logger.debug(f"Got {len(relevant_chars_not_present)} relevant characters not present")
 
         # Get ONLY relevant locations not present
+        logger.debug("Getting relevant locations not present")
         relevant_locs_not_present = []
         all_locs = self.story.get_all_locations()
         for loc in all_locs:
             if loc.id in relevant_loc_ids and loc.id not in self.segment.locations_present:
                 relevant_locs_not_present.append(f"- {loc.get_short_overview()}")
+        logger.debug(f"Got {len(relevant_locs_not_present)} relevant locations not present")
 
         # Build prompt with prioritized structure
         prompt = "Generate the next scene based on the player's choice.\n\n"
