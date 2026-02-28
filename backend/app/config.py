@@ -125,8 +125,5 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=".env",
         case_sensitive=False,
+        extra="ignore",  # Ignore extra fields from .env file
     )
-        
-
-# Load settings on module import
-settings = Settings()
