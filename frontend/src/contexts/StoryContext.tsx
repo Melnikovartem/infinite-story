@@ -8,7 +8,7 @@ import {
   StoryCharacter,
   StoryLocation
 } from '../types'
-import * as api from '../services/mockApi'
+import * as api from '../services/api'
 
 export interface StoryContextType {
   // Data
@@ -125,16 +125,26 @@ export function StoryProvider({ children }: StoryProviderProps) {
       setSceneCounter(segmentResponse.scene_counter)
 
       // Update session
+      const newVisitedSegments = [...(sessionState?.visited_segments || []), segmentId]
+      const newSceneCounter = (sessionState?.scene_counter || 0) + 1
+      const startTime = sessionState?.start_time || new Date().toISOString()
+      
       const updatedSession: SessionState = {
         story_id: story.id,
         current_segment_id: segmentId,
-        visited_segments: [...(sessionState?.visited_segments || []), segmentId],
-        scene_counter: (sessionState?.scene_counter || 0) + 1,
-        start_time: sessionState?.start_time || new Date().toISOString(),
+        visited_segments: newVisitedSegments,
+        scene_counter: newSceneCounter,
+        start_time: startTime,
         last_updated: new Date().toISOString()
       }
       setSessionState(updatedSession)
-      await api.saveSession(updatedSession)
+      await api.saveSession({
+        story_id: story.id,
+        current_segment_id: segmentId,
+        visited_segments: newVisitedSegments,
+        scene_counter: newSceneCounter,
+        start_time: startTime
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load segment'
       setError(message)

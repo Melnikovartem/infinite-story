@@ -331,9 +331,13 @@ export async function navigateToChoice(
   }
 }
 
-export async function saveSession(session: SessionState): Promise<void> {
+export async function saveSession(session: { story_id: string; current_segment_id: string; visited_segments: string[]; scene_counter: number; start_time: string; last_updated?: string }): Promise<void> {
   await delay(200)
-  localStorage.setItem(`session_${session.story_id}`, JSON.stringify(session))
+  const fullSession: SessionState = {
+    ...session,
+    last_updated: session.last_updated || new Date().toISOString()
+  }
+  localStorage.setItem(`session_${session.story_id}`, JSON.stringify(fullSession))
 }
 
 export async function loadSession(storyId: string): Promise<SessionState | null> {
