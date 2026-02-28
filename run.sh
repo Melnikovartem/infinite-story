@@ -75,10 +75,15 @@ if [ $? -ne 0 ]; then
     fi
 fi
 
-# Run the CLI
+# Run the CLI with proper terminal handling
 print_message "Starting the story CLI..."
 cd "$SCRIPT_DIR/backend"  # Go to backend directory
-PYTHONPATH="$SCRIPT_DIR/backend" python -m app.cli run-story
+
+# Enable unbuffered output to prevent hanging on terminal I/O
+export PYTHONUNBUFFERED=1
+
+# Run with stdin/stdout properly connected to terminal
+PYTHONPATH="$SCRIPT_DIR/backend" python -u -m app.cli run-story
 
 # Deactivate virtual environment
 deactivate 
