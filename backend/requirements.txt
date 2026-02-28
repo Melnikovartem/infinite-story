@@ -6,3 +6,5 @@ httpx>=0.27.0  # For async HTTP requests
 typer>=0.9.0  # For CLI interface
 rich>=13.7.0  # For beautiful terminal output
 python-dotenv>=1.0.0  # For environment variable management
+fastapi>=0.109.0  # FastAPI web framework
+uvicorn>=0.27.0  # ASGI server
