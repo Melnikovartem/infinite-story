@@ -33,6 +33,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Import and include route routers
+from app.routes.sessions import router as sessions_router
+from app.routes.progress import router as progress_router
+from app.routes.reports import router as reports_router
+
+app.include_router(sessions_router, prefix="/api", tags=["sessions"])
+app.include_router(progress_router, prefix="/api", tags=["progress"])
+app.include_router(reports_router, prefix="/api", tags=["reports"])
+
 
 @app.get("/api/health")
 async def health_check():
