@@ -83,7 +83,8 @@ cd "$SCRIPT_DIR/backend"  # Go to backend directory
 export PYTHONUNBUFFERED=1
 
 # Run with stdin/stdout properly connected to terminal
-PYTHONPATH="$SCRIPT_DIR/backend" python -u -m app.cli run-story
+# Pass the story name if provided
+PYTHONPATH="$SCRIPT_DIR/backend" python -u -m app.cli run-story "$STORY_NAME"
 
 # Deactivate virtual environment
 deactivate 

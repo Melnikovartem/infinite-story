@@ -82,8 +82,12 @@ def list_stories():
             })
     display_stories(stories)
 
-async def run_story_async():
-    """Run a story after selection (async version)."""
+async def run_story_async(story_name: str = None):
+    """Run a story after selection (async version).
+    
+    Args:
+        story_name: Optional story ID to run directly (skips selection)
+    """
     # Load configuration
     try:
         config = Config.load()
@@ -122,26 +126,38 @@ async def run_story_async():
         )
         console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
 
-    logger.info("Listing available stories")
-    story_ids = Story.list_stories()
-    logger.debug(f"Found {len(story_ids)} story IDs: {story_ids}")
-    stories = []
-    for story_id in story_ids:
-        logger.debug(f"Loading story: {story_id}")
-        story = Story.load(story_id, story_id)
-        if story:
-            stories.append({
-                "id": story.id,
-                "title": story.title,
-                "genre": story.genre,
-                "description": story.description
-            })
-    display_stories(stories)
+    # If story name provided, use it directly
+    if story_name:
+        logger.info(f"Using provided story: {story_name}")
+        selected_story = {
+            "id": story_name,
+            "title": story_name,
+            "genre": "Unknown",
+            "description": "Story"
+        }
+    else:
+        # Otherwise, list and let user select
+        logger.info("Listing available stories")
+        story_ids = Story.list_stories()
+        logger.debug(f"Found {len(story_ids)} story IDs: {story_ids}")
+        stories = []
+        for story_id in story_ids:
+            logger.debug(f"Loading story: {story_id}")
+            story = Story.load(story_id, story_id)
+            if story:
+                stories.append({
+                    "id": story.id,
+                    "title": story.title,
+                    "genre": story.genre,
+                    "description": story.description
+                })
+        display_stories(stories)
 
-    selected_story = select_story(stories)
-    if not selected_story:
-        logger.warning("No story selected")
-        return
+        selected_story = select_story(stories)
+        if not selected_story:
+            logger.warning("No story selected")
+            return
+    
     logger.info(f"Selected story: {selected_story['id']}")
 
     console.print(Panel(
@@ -326,9 +342,9 @@ async def run_story_async():
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
 @app.command()
-def run_story():
-    """Run a story after selection."""
-    asyncio.run(run_story_async())
+def run_story(story: str = typer.Argument(None, help="Optional story ID to run directly")):
+    """Run a story after selection or use provided story ID."""
+    asyncio.run(run_story_async(story_name=story))
 
 async def test_generation_async(story_id: str):
     """Test scene generation for debugging."""
