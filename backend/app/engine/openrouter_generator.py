@@ -110,7 +110,10 @@ class OpenRouterGenerator(TextGenerator):
             Exception: If the API call fails
         """
         try:
-            logger.debug(f"[OpenRouter] Starting generation with model: {self.model}")
+            import time
+            start_time = time.time()
+            
+            logger.info(f"[OpenRouter] ▶️  Starting generation with model: {self.model}")
             logger.debug(f"[OpenRouter] System prompt length: {len(system_prompt)} chars")
             logger.debug(f"[OpenRouter] User prompt length: {len(user_prompt)} chars")
             logger.debug(f"[OpenRouter] Temperature: {self.temperature}, Max tokens: {self.max_tokens}")
@@ -125,36 +128,42 @@ class OpenRouterGenerator(TextGenerator):
                 "max_tokens": self.max_tokens,
             }
             
-            logger.debug(f"[OpenRouter] Sending API request...")
+            api_start = time.time()
+            logger.info(f"[OpenRouter] 🌐 Sending API request...")
             
             response = await self.client.post(
                 "/chat/completions",
                 json=payload
             )
             
-            logger.debug(f"[OpenRouter] API response received - Status: {response.status_code}")
+            api_duration = time.time() - api_start
+            logger.info(f"[OpenRouter] 📡 API response received - Status: {response.status_code}, Duration: {api_duration:.2f}s")
             
             response.raise_for_status()
             
+            parse_start = time.time()
             response_data = response.json()
+            parse_duration = time.time() - parse_start
+            logger.debug(f"[OpenRouter] Response parsed in {parse_duration:.2f}s")
             
             # Extract content from response
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 content = response_data["choices"][0]["message"]["content"]
                 
-                logger.debug(f"[OpenRouter] Response content length: {len(content)} chars")
+                logger.info(f"[OpenRouter] ✅ Response received: {len(content)} chars")
                 logger.debug(f"[OpenRouter] Response preview: {content[:300]}..." if len(content) > 300 else f"[OpenRouter] Response: {content}")
                 
                 # Log token usage if available
                 if "usage" in response_data:
                     usage = response_data["usage"]
-                    logger.debug(
-                        f"[OpenRouter] Token usage - Prompt: {usage.get('prompt_tokens', '?')}, "
+                    logger.info(
+                        f"[OpenRouter] 📊 Tokens - Prompt: {usage.get('prompt_tokens', '?')}, "
                         f"Completion: {usage.get('completion_tokens', '?')}, "
                         f"Total: {usage.get('total_tokens', '?')}"
                     )
                 
-                logger.debug(f"[OpenRouter] Generation completed successfully")
+                total_duration = time.time() - start_time
+                logger.info(f"[OpenRouter] ✨ Generation completed in {total_duration:.2f}s (API: {api_duration:.2f}s + Parse: {parse_duration:.2f}s)")
                 return content
             else:
                 raise ValueError("No choices in API response")

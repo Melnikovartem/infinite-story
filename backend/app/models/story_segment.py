@@ -353,23 +353,30 @@ class StorySegment(StoryBlock):
         Returns:
             A new StorySegment instance
         """
+        import time
+        gen_start_time = time.time()
+        
         # Generate the scene prompt using all available context
-        logger.debug(f"[GEN_SCENE_START] Starting scene generation for choice: {connecting_choice.text[:50]}...")
+        logger.info(f"🎬 Starting scene generation for choice: {connecting_choice.text[:50]}...")
         logger.debug(f"Building prompt for choice: {connecting_choice.text[:50]}...")
+        
+        prompt_start = time.time()
         prompt_builder = ScenePromptBuilder(self)
         logger.debug(f"[GEN_SCENE_PROMPT_BUILD] Building prompt with ScenePromptBuilder")
         user_prompt = prompt_builder.build_prompt(connecting_choice.text)
-        logger.debug(f"Built prompt with {len(user_prompt)} characters")
-        logger.debug(f"[GEN_SCENE_PROMPT_DONE] Prompt built successfully")
+        prompt_duration = time.time() - prompt_start
+        logger.debug(f"Built prompt with {len(user_prompt)} characters in {prompt_duration:.2f}s")
 
         # Generate the new scene
-        logger.debug("[GEN_SCENE_GEN_START] Calling generator.generate()")
+        logger.info("[GEN_SCENE_GEN_START] ⚙️  Calling generator.generate()")
+        gen_api_start = time.time()
         scene_response: SceneTextGeneratorResponse = await generator.generate(
             system_prompt="",  # Use default system prompt
             user_prompt=user_prompt,
             context_type="scene"
         )
-        logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response")
+        gen_api_duration = time.time() - gen_api_start
+        logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response in {gen_api_duration:.2f}s")
         logger.debug(f"Generator returned response")
 
         # Check if there was an error during generation
@@ -469,13 +476,18 @@ class StorySegment(StoryBlock):
         new_segment.add_outgoing_choice(choice_2)
         
         # Save everything
+        save_start = time.time()
         logger.debug(f"[GEN_SCENE_SAVE_START] Saving segment and choices")
         new_segment.save()
         choice_1.save()
         choice_2.save()
-        logger.debug(f"[GEN_SCENE_SAVE_DONE] All entities saved successfully")
-        logger.debug(f"[GEN_SCENE_COMPLETE] Scene generation completed successfully. New segment: {new_segment.id}")
+        save_duration = time.time() - save_start
+        logger.debug(f"[GEN_SCENE_SAVE_DONE] All entities saved in {save_duration:.2f}s")
+        logger.info(f"[GEN_SCENE_COMPLETE] Scene generation completed successfully. New segment: {new_segment.id}")
         connecting_choice.save()
+        
+        total_gen_duration = time.time() - gen_start_time
+        logger.info(f"⏱️  Total generation time: {total_gen_duration:.2f}s (Prompt: {prompt_duration:.2f}s + API: {gen_api_duration:.2f}s + Save: {save_duration:.2f}s)")
         logger.debug(f"[GEN_SCENE_RETURN] Returning new segment")
         
         return new_segment

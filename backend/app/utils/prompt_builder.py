@@ -118,11 +118,16 @@ class ScenePromptBuilder:
         Returns:
             A formatted prompt string containing all relevant context
         """
-        logger.debug("Starting build_prompt")
+        import time
+        start_time = time.time()
+        logger.info("🔧 Starting prompt building")
+        
         # Get relevant entity IDs based on recent context and choice
+        entity_start = time.time()
         logger.debug("Getting relevant entity IDs")
         relevant_char_ids, relevant_loc_ids = self._get_relevant_entity_ids(choice_text, lookback=3)
-        logger.debug(f"Got relevant entities")
+        entity_duration = time.time() - entity_start
+        logger.info(f"📍 Entity extraction completed in {entity_duration:.2f}s")
 
         logger.debug(f"Context analysis: {len(relevant_char_ids)} relevant characters, {len(relevant_loc_ids)} relevant locations")
         logger.debug(f"Relevant character IDs: {relevant_char_ids}")
@@ -205,6 +210,9 @@ class ScenePromptBuilder:
 
         # Log prompt statistics
         self._log_prompt_stats(prompt, prev_segments, relevant_chars_not_present, relevant_locs_not_present)
+        
+        total_duration = time.time() - start_time
+        logger.info(f"✅ Prompt building completed in {total_duration:.2f}s")
 
         return prompt
     
@@ -219,6 +227,6 @@ class ScenePromptBuilder:
         """
         prompt_length = len(prompt)
         approx_tokens = prompt_length // 4  # Rough estimate: 1 token ≈ 4 characters
-        logger.info(f"Generated prompt: {prompt_length} chars (~{approx_tokens} tokens)")
-        logger.debug(f"Prompt sections: Current scene, Choice, {len(prev_segments.split('-'))-1 if prev_segments else 0} previous segments, " +
+        logger.info(f"📝 Prompt stats: {prompt_length} chars (~{approx_tokens} tokens)")
+        logger.debug(f"   Context: {len(prev_segments.split('-'))-1 if prev_segments else 0} prev segments, " +
                     f"{len(relevant_chars)} relevant chars, {len(relevant_locs)} relevant locs")
