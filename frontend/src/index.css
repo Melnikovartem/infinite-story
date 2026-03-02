@@ -1,5 +1,6 @@
-/* Import accessibility styles */
+/* Import accessibility and performance styles */
 @import './accessibility.css';
+@import './performance.css';
 
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -81,19 +82,19 @@ button:disabled {
   box-sizing: border-box;
 }
 
-/* Smooth fade-in animation */
+/* GPU-Accelerated fade-in animation */
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translate3d(0, 10px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
-/* Smooth page transition */
+/* Smooth page transition (optimized) */
 @keyframes pageIn {
   from {
     opacity: 0;
@@ -103,23 +104,25 @@ button:disabled {
   }
 }
 
-/* Loading spinner */
+/* Loading spinner (GPU-accelerated) */
 @keyframes spin {
   0% {
-    transform: rotate(0deg);
+    transform: rotate3d(0, 0, 1, 0deg);
   }
   100% {
-    transform: rotate(360deg);
+    transform: rotate3d(0, 0, 1, 360deg);
   }
 }
 
-/* Pulse effect for loading */
+/* Pulse effect for loading (optimized) */
 @keyframes pulse {
   0%, 100% {
     opacity: 1;
+    transform: scale3d(1, 1, 1);
   }
   50% {
     opacity: 0.5;
+    transform: scale3d(0.98, 0.98, 1);
   }
 }
 
