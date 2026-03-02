@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
@@ -37,7 +38,29 @@ logger = logging.getLogger("infinite_story.cli")
 class RunMode(str, Enum):
     """CLI display modes."""
     IMMERSIVE = "immersive"
-    DEBUG = "debug"
+    UI_DEBUG = "ui_debug"
+    STORY_DEBUG = "story_debug"
+    DEV = "dev"
+
+def setup_logging(log_level: str):
+    """Configure logging level for the app."""
+    level_map = {
+        "error": logging.ERROR,
+        "warn": logging.WARNING,
+        "debug": logging.DEBUG,
+    }
+    level = level_map.get(log_level.lower(), logging.ERROR)
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        format="%(name)s - %(levelname)s - %(message)s",
+        stream=sys.stdout
+    )
+    
+    # Set level for infinite_story logger
+    app_logger = logging.getLogger("infinite_story")
+    app_logger.setLevel(level)
 
 def display_stories(stories: List[dict]) -> None:
     """Display stories in a rich table."""
@@ -184,7 +207,7 @@ async def _run_immersive_mode(runner: StoryRunner, generator):
             
             # Execute choice
             try:
-                await _execute_choice(runner, choice_id, generator, is_debug=False)
+                await _execute_choice(runner, choice_id, generator, mode=RunMode.IMMERSIVE)
             except Exception as e:
                 error_type, technical_msg = handle_api_error(e)
                 message, suggestion = ErrorHandler.handle_error(
@@ -206,47 +229,25 @@ async def _run_immersive_mode(runner: StoryRunner, generator):
         import traceback
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
-async def _run_debug_mode(runner: StoryRunner, generator):
-    """Run story in debug mode - full transparency."""
-    from app.ui.debug_display import display_segment_debug, display_next_context_debug, prompt_choice_debug
+
+async def _run_ui_debug_mode(runner: StoryRunner, generator):
+    """Run story in UI debug mode - blocks appear one-by-one with space."""
+    from app.ui.ui_debug_display import display_segment_ui_debug, prompt_choice_ui_debug
     
     try:
-        logger.info("[DEBUG_MODE_START] Starting debug mode game loop")
         while runner.is_running:
-            logger.debug(f"[DEBUG_LOOP_ITER] Game loop iteration. Current segment: {runner.current_segment.id if runner.current_segment else 'None'}")
-            
-            # Display with full context
             if runner.current_segment:
-                logger.debug(f"[DEBUG_DISPLAY_SEG] Displaying segment: {runner.current_segment.id}")
-                display_segment_debug(runner.current_segment)
+                display_segment_ui_debug(runner.current_segment)
             
-            # Show generation context for next choice
-            try:
-                logger.debug("[DEBUG_DISPLAY_CONTEXT] Displaying generation context")
-                display_next_context_debug(runner, runner.current_segment)
-            except Exception as e:
-                logger.debug(f"Could not display next context: {e}")
-            
-            # Get choices
-            logger.debug("[DEBUG_GET_CHOICES] Getting available choices")
             choices = runner.get_available_choices()
             if not choices:
                 console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
-                logger.info("Story ended - no more choices available")
                 break
             
-            logger.debug(f"[DEBUG_CHOICES_COUNT] Found {len(choices)} available choices")
+            choice_id = prompt_choice_ui_debug(runner.current_segment, choices)
             
-            # Get user choice
-            logger.debug("[DEBUG_PROMPT_CHOICE] Waiting for user choice input")
-            choice_id = prompt_choice_debug(runner.current_segment, choices)
-            logger.debug(f"[DEBUG_CHOICE_SELECTED] User selected choice: {choice_id}")
-            
-            # Execute choice
             try:
-                logger.debug(f"[DEBUG_EXEC_CHOICE] Calling _execute_choice for choice: {choice_id}")
-                await _execute_choice(runner, choice_id, generator, is_debug=True)
-                logger.debug(f"[DEBUG_EXEC_CHOICE_DONE] Choice execution completed")
+                await _execute_choice(runner, choice_id, generator, mode=RunMode.UI_DEBUG)
             except Exception as e:
                 error_type, technical_msg = handle_api_error(e)
                 message, suggestion = ErrorHandler.handle_error(
@@ -256,13 +257,9 @@ async def _run_debug_mode(runner: StoryRunner, generator):
                 )
                 console.print(f"[red]Error: {message}[/red]")
                 console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
-                logger.error(f"[DEBUG_EXEC_CHOICE_ERROR] Choice execution failed: {str(e)}", exc_info=True)
                 continue
             
-            # Auto-save state
-            logger.debug("[DEBUG_SAVE_STATE] Saving game state")
             runner.save_state()
-            logger.debug("[DEBUG_SAVE_STATE_DONE] Game state saved")
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
@@ -271,7 +268,102 @@ async def _run_debug_mode(runner: StoryRunner, generator):
         import traceback
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
-async def _execute_choice(runner: StoryRunner, choice_id: str, generator, is_debug: bool = False):
+
+async def _run_story_debug_mode(runner: StoryRunner, generator):
+    """Run story in story debug mode - comprehensive generation context."""
+    from app.ui.story_debug_display import (
+        display_segment_story_debug,
+        display_generation_context_story_debug,
+        display_generation_result_story_debug,
+        prompt_choice_story_debug
+    )
+    
+    try:
+        while runner.is_running:
+            if runner.current_segment:
+                display_segment_story_debug(runner.current_segment)
+            
+            # Show generation context before each choice
+            display_generation_context_story_debug(runner, runner.current_segment)
+            
+            choices = runner.get_available_choices()
+            if not choices:
+                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
+                break
+            
+            choice_id = prompt_choice_story_debug(runner.current_segment, choices)
+            
+            try:
+                await _execute_choice(runner, choice_id, generator, mode=RunMode.STORY_DEBUG)
+            except Exception as e:
+                error_type, technical_msg = handle_api_error(e)
+                message, suggestion = ErrorHandler.handle_error(
+                    error_type,
+                    e,
+                    "Processing your choice"
+                )
+                console.print(f"[red]Error: {message}[/red]")
+                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+                continue
+            
+            # Show result
+            if runner.current_segment:
+                display_generation_result_story_debug(runner.current_segment)
+            
+            runner.save_state()
+    
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {str(e)}[/red]")
+        import traceback
+        console.print(f"[red]{traceback.format_exc()}[/red]")
+
+
+async def _run_dev_mode(runner: StoryRunner, generator):
+    """Run story in dev mode - minimal info with important details."""
+    from app.ui.dev_display import display_segment_dev, display_generation_context_dev, prompt_choice_dev
+    
+    try:
+        while runner.is_running:
+            if runner.current_segment:
+                display_segment_dev(runner.current_segment)
+            
+            # Show minimal context
+            display_generation_context_dev(runner, runner.current_segment)
+            
+            choices = runner.get_available_choices()
+            if not choices:
+                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
+                break
+            
+            choice_id = prompt_choice_dev(runner.current_segment, choices)
+            
+            try:
+                await _execute_choice(runner, choice_id, generator, mode=RunMode.DEV)
+            except Exception as e:
+                error_type, technical_msg = handle_api_error(e)
+                message, suggestion = ErrorHandler.handle_error(
+                    error_type,
+                    e,
+                    "Processing your choice"
+                )
+                console.print(f"[red]Error: {message}[/red]")
+                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+                continue
+            
+            runner.save_state()
+    
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {str(e)}[/red]")
+        import traceback
+        console.print(f"[red]{traceback.format_exc()}[/red]")
+
+
+
+async def _execute_choice(runner: StoryRunner, choice_id: str, generator, mode: RunMode = RunMode.IMMERSIVE):
     """Execute a choice and advance the story."""
     logger.debug(f"[EXEC_CHOICE_START] Executing choice: {choice_id}")
     choice = runner.story.get_choice(choice_id)
@@ -285,7 +377,7 @@ async def _execute_choice(runner: StoryRunner, choice_id: str, generator, is_deb
         # Navigate to existing segment
         logger.debug(f"[EXEC_CHOICE_NAV] Navigating to existing segment: {choice.to_segment_id}")
         runner.make_choice(choice_id)
-        if is_debug:
+        if mode != RunMode.IMMERSIVE:
             console.print(f"\n[cyan]Navigated to segment: {runner.current_segment.id}[/cyan]")
         logger.debug(f"[EXEC_CHOICE_NAV_DONE] Navigation complete. Current segment: {runner.current_segment.id}")
     else:
@@ -300,17 +392,22 @@ async def _execute_choice(runner: StoryRunner, choice_id: str, generator, is_deb
             console.print("[green]Scene generated successfully![/green]")
             logger.debug(f"[EXEC_CHOICE_GEN_DONE] New segment set as current: {new_segment.id}")
             
-            if is_debug:
+            if mode != RunMode.IMMERSIVE:
                 console.print(f"\n[cyan]New segment: {new_segment.id}[/cyan]")
 
-async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERSIVE, resume: bool = False):
-    """Run a story in immersive or debug mode.
+async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERSIVE, resume: bool = False, log_level: str = "error"):
+    """Run a story in one of four modes.
     
     Args:
         story_name: Optional story ID to run directly (skips selection)
-        mode: RunMode.IMMERSIVE (default) or RunMode.DEBUG
+        mode: IMMERSIVE (default), UI_DEBUG, STORY_DEBUG, or DEV
         resume: Resume from previous session if available
+        log_level: error (default), warn, or debug
     """
+    # Setup logging based on mode
+    if log_level:
+        setup_logging(log_level)
+    
     # Load configuration
     try:
         config = Config.load()
@@ -403,8 +500,12 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
         # Run appropriate mode
         if mode == RunMode.IMMERSIVE:
             await _run_immersive_mode(runner, generator)
-        else:
-            await _run_debug_mode(runner, generator)
+        elif mode == RunMode.UI_DEBUG:
+            await _run_ui_debug_mode(runner, generator)
+        elif mode == RunMode.STORY_DEBUG:
+            await _run_story_debug_mode(runner, generator)
+        elif mode == RunMode.DEV:
+            await _run_dev_mode(runner, generator)
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
@@ -419,26 +520,39 @@ def run_story(
     mode: RunMode = typer.Option(
         RunMode.IMMERSIVE,
         "--mode",
-        help="CLI mode: immersive (default, beautiful narrative) or debug (transparent, all details)"
+        help="CLI mode: immersive (beautiful), ui_debug (blocks one-by-one), story_debug (generation context), dev (minimal)"
     ),
     resume: bool = typer.Option(
         False,
         "--resume",
         help="Resume from previous session if available"
     ),
+    log_level: str = typer.Option(
+        "error",
+        "--log-level",
+        help="Logging level: error (default), warn, debug"
+    ),
 ):
     """
-    Run a story with two modes:
+    Run a story with four modes:
     
     Immersive (default):
       python -m app.cli run-story story_name
       Beautiful narrative experience, focus on prose.
     
-    Debug:
-      python -m app.cli run-story story_name --mode debug
-      Transparent view of segments, choices, context.
+    UI Debug:
+      python -m app.cli run-story story_name --mode ui_debug
+      Blocks appear one-by-one, press ENTER to continue.
+    
+    Story Debug:
+      python -m app.cli run-story story_name --mode story_debug
+      See comprehensive generation context before each choice.
+    
+    Dev:
+      python -m app.cli run-story story_name --mode dev
+      Minimal interface with important details (arc, parent, etc).
     """
-    asyncio.run(run_story_async(story_name=story, mode=mode, resume=resume))
+    asyncio.run(run_story_async(story_name=story, mode=mode, resume=resume, log_level=log_level))
 
 async def test_generation_async(story_id: str):
     """Test scene generation for debugging."""
