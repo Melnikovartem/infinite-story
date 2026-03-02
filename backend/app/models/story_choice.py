@@ -19,6 +19,10 @@ class StoryChoice(StoryBlock):
     clicks_logged: int = 0
     clicks_anonymous: int = 0
     flags: ChoiceFlags = Field(default_factory=ChoiceFlags)
+    locked: bool = Field(
+        False,
+        description="Whether this choice is locked during generation to prevent race conditions"
+    )
 
     def __init__(self, **data):
         """Initialize a StoryChoice instance.
@@ -29,3 +33,13 @@ class StoryChoice(StoryBlock):
         """
         super().__init__(**data)
         self.story.add_choice(self)
+    
+    def lock(self) -> None:
+        """Lock this choice to prevent concurrent generation."""
+        self.locked = True
+        self.save()
+    
+    def unlock(self) -> None:
+        """Unlock this choice after generation attempt."""
+        self.locked = False
+        self.save()
