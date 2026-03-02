@@ -19,6 +19,11 @@ class StoryRunner:
         self.story = story
         self.current_segment: Optional[StorySegment] = None
         self.visited_segments: Set[str] = set()  # Set of segment IDs we've visited
+    
+    @property
+    def is_running(self) -> bool:
+        """Check if the story is still running (has current segment and choices available)."""
+        return self.current_segment is not None and len(self.get_available_choices()) > 0
         
     def start(self) -> None:
         """Start the story from the beginning."""
