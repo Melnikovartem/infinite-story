@@ -1,0 +1,11 @@
+{
+  "id": "veil_of_thornreach",
+  "story_id": "veil_of_thornreach",
+  "title": "The Veil of Thornreach",
+  "description": "A young mage must protect an ancient sanctuary from dark forces threatening to breach its protective wards. Uncover secrets about the sanctuary's past and make choices that will determine its fate.",
+  "genre": "Fantasy",
+  "user_id": "user_1",
+  "start_segment_id": "segment_001",
+  "created_at": "2024-02-28T10:00:00Z",
+  "updated_at": "2024-02-28T10:00:00Z"
+}

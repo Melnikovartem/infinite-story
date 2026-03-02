@@ -1,0 +1,11 @@
+{
+  "id": "seas_of_fortune",
+  "story_id": "seas_of_fortune",
+  "title": "Seas of Fortune",
+  "description": "An epic adventure across treacherous seas in search of legendary treasure. Navigate through storms, pirates, and mysterious islands.",
+  "genre": "Adventure",
+  "user_id": "user_1",
+  "start_segment_id": "segment_1_abc123",
+  "created_at": "2024-02-28T10:00:00Z",
+  "updated_at": "2024-02-28T10:00:00Z"
+}
