@@ -30,7 +30,7 @@ print_help() {
     echo ""
     echo "Commands:"
     echo "  run-story [story_id]          Play a story (default command)"
-    echo "  create-story [id]             Create a new story interactively"
+    echo "  create-story-ai [id]          Create story with AI generation (NEW!)"
     echo "  list-stories                  List all available stories"
     echo "  delete-story [story_id]       Delete a story"
     echo "  clear-state [story_id]        Reset story to beginning"
@@ -40,11 +40,19 @@ print_help() {
     echo "  --mode [immersive|debug]      Display mode (default: immersive)"
     echo "  --resume                      Resume from previous session"
     echo ""
+    echo "Options for create-story-ai:"
+    echo "  --title TEXT                  Story title (required)"
+    echo "  --description TEXT            Story description (required)"
+    echo "  --genre TEXT                  Genre like Fantasy, Sci-Fi, etc (required)"
+    echo "  --world TEXT                  Optional: world vision (AI expands if empty)"
+    echo "  --scene TEXT                  Optional: opening scene direction (AI creates if empty)"
+    echo ""
     echo "Examples:"
     echo "  ./run.sh                                    # Play default story"
     echo "  ./run.sh my_story --mode debug              # Play with debug output"
     echo "  ./run.sh my_story --resume                  # Resume previous session"
-    echo "  ./run.sh create-story my_story --title \"My Story\" --description \"...\" --genre \"Fantasy\""
+    echo "  ./run.sh create-story-ai my_story --title \"Lost City\" --description \"An ancient city awakens\" --genre \"Adventure\""
+    echo "  ./run.sh create-story-ai my_story --title \"Lost City\" --description \"An ancient city awakens\" --genre \"Adventure\" --world \"Tech and nature merged\""
     echo "  ./run.sh list-stories                       # List all stories"
     echo ""
 }
@@ -62,7 +70,7 @@ REMAINING_ARGS=()
 
 if [ $# -gt 0 ]; then
     case "$1" in
-        run-story|create-story|list-stories|delete-story|clear-state|test-generation)
+        run-story|create-story-ai|list-stories|delete-story|clear-state|test-generation)
             COMMAND="$1"
             shift
             REMAINING_ARGS=("$@")
@@ -141,9 +149,9 @@ if '$STORY_NAME' not in story_ids:
 else
     # Run other commands directly
     case "$COMMAND" in
-        create-story)
-            print_message "Creating new story..."
-            python -u -m app.cli create-story "${REMAINING_ARGS[@]}"
+        create-story-ai)
+            print_message "🤖 Creating story with AI generation..."
+            python -u -m app.cli create-story-ai "${REMAINING_ARGS[@]}"
             ;;
         list-stories)
             print_message "Listing available stories..."
