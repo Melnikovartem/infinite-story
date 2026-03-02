@@ -196,10 +196,14 @@ class StoryLoader:
         
         characters = []
         try:
+            # Create a minimal story object for characters
+            story_data = {"id": story_id, "story_id": story_id, "title": "", "description": ""}
+            story = Story(**story_data)
+            
             for char_file in chars_dir.glob("*.json"):
                 with open(char_file, "r") as f:
                     data = json.load(f)
-                character = StoryCharacter(**data)
+                character = StoryCharacter(**data, story=story)
                 characters.append(character)
             
             logger.debug(f"Loaded {len(characters)} characters for story {story_id}")
@@ -253,10 +257,14 @@ class StoryLoader:
         
         locations = []
         try:
+            # Create a minimal story object for locations
+            story_data = {"id": story_id, "story_id": story_id, "title": "", "description": ""}
+            story = Story(**story_data)
+            
             for loc_file in locs_dir.glob("*.json"):
                 with open(loc_file, "r") as f:
                     data = json.load(f)
-                location = StoryLocation(**data)
+                location = StoryLocation(**data, story=story)
                 locations.append(location)
             
             logger.debug(f"Loaded {len(locations)} locations for story {story_id}")
