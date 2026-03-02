@@ -54,15 +54,100 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Global animations and transitions */
+* {
+  box-sizing: border-box;
+}
+
+/* Smooth fade-in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
   }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
+
+/* Smooth page transition */
+@keyframes pageIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Loading spinner */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Pulse effect for loading */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Apply fade-in to main content */
+#root {
+  animation: pageIn 0.3s ease-in;
+}
+
+/* Responsive typography */
+@media (max-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: 2.2em;
+  }
+
+  button {
+    padding: 0.5em 1em;
+    font-size: 0.95em;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    font-size: 13px;
+  }
+
+  h1 {
+    font-size: 1.8em;
+  }
+
+  button {
+    padding: 0.4em 0.8em;
+    font-size: 0.9em;
+    min-height: 40px;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+   :root {
+     color: #213547;
+     background-color: #ffffff;
+   }
+   a:hover {
+     color: #747bff;
+   }
+   button {
+     background-color: #f9f9f9;
+   }
+ }

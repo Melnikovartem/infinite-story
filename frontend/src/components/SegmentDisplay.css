@@ -1,6 +1,10 @@
 .segment-display {
   font-size: 16px;
   line-height: 1.8;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  animation: fadeIn 0.3s ease-in-out;
 }
 
 .segment-title {
@@ -8,15 +12,26 @@
   color: #2c3e50;
   margin: 0 0 20px 0;
   font-weight: 700;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  animation: fadeIn 0.4s ease-in-out;
 }
 
 .segment-content {
   margin-bottom: 30px;
   color: #333;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .segment-content p {
   margin: 0;
+  margin-bottom: 1em;
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .characters-present,
@@ -42,6 +57,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
+  max-width: 100%;
 }
 
 .character-state {
@@ -51,6 +67,9 @@
   background: white;
   border-radius: 4px;
   border: 1px solid #e0e0e0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow: hidden;
 }
 
 .char-name {
@@ -120,16 +139,100 @@
   color: #95a5a6;
 }
 
+/* Tablet breakpoint (768px and below) */
 @media (max-width: 768px) {
+  .segment-display {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
   .segment-title {
     font-size: 22px;
+    margin-bottom: 16px;
+  }
+
+  .segment-content {
+    margin-bottom: 20px;
+    font-size: 14px;
   }
 
   .characters-list {
     flex-direction: column;
+    gap: 12px;
   }
 
   .character-state {
     min-width: 100%;
+    padding: 10px;
+  }
+
+  .characters-present,
+  .location-info {
+    padding: 16px;
+    margin-top: 20px;
+    border-left-width: 2px;
+  }
+}
+
+/* Mobile breakpoint (480px and below) */
+@media (max-width: 480px) {
+  .segment-display {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .segment-title {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+
+  .segment-content {
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+
+  .characters-present h4,
+  .location-info h4 {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+
+  .character-state {
+    padding: 8px;
+  }
+
+  .char-name {
+    font-size: 14px;
+  }
+
+  .char-emotion {
+    font-size: 12px;
+  }
+
+  .char-status {
+    font-size: 11px;
+  }
+
+  .characters-present,
+  .location-info {
+    padding: 12px;
+    margin-top: 16px;
+  }
+
+  .location-name {
+    font-size: 14px;
+  }
+
+  .location-desc {
+    font-size: 12px;
+  }
+
+  .location-atmosphere {
+    font-size: 11px;
+  }
+
+  .word-count {
+    margin-top: 16px;
+    font-size: 11px;
   }
 }
