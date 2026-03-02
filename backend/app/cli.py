@@ -280,6 +280,7 @@ async def create_story_ai_async(
     from app.engine.generators.arc_generator import ArcGenerator
     from app.engine.generators.character_generator import CharacterGenerator
     from app.engine.generators.protagonist_selector import ProtagonistSelector
+    from app.engine.generators.location_generator import LocationGenerator
     from app.models.text_types import TextBlock
     
     # Load configuration
@@ -347,14 +348,25 @@ async def create_story_ai_async(
         console.print("[green]✅ World generated![/green]")
         console.print(f"[cyan]Fundamental Truths: {len(world_context.fundamental_truths)}[/cyan]")
         
-        console.print("\n[bold yellow]⏳ Step 2: Generating story arcs...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 2: Generating world locations...[/bold yellow]")
+        
+        # Generate locations
+        loc_gen = LocationGenerator(story, generator)
+        locations = await loc_gen.generate_world_locations(
+            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+            fundamental_truths=world_context.fundamental_truths,
+            user_input=world_input
+        )
+        console.print(f"[green]✅ Generated {len(locations)} world locations![/green]")
+        
+        console.print("\n[bold yellow]⏳ Step 3: Generating story arcs...[/bold yellow]")
         
         # Generate arcs
         arc_gen = ArcGenerator(story, generator)
         arcs = await arc_gen.generate_future_arcs(count=3, user_input=world_input)
         console.print(f"[green]✅ Generated {len(arcs)} story arcs![/green]")
         
-        console.print("\n[bold yellow]⏳ Step 3: Generating characters...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 4: Generating characters...[/bold yellow]")
         
         # Generate initial characters
         char_gen = CharacterGenerator(story, generator)
@@ -365,7 +377,7 @@ async def create_story_ai_async(
             console.print(f"[yellow]⚠️  Character generation skipped: {str(e)[:50]}[/yellow]")
             characters = []
         
-        console.print("\n[bold yellow]⏳ Step 4: Selecting protagonist...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 5: Selecting protagonist...[/bold yellow]")
         
         # Select protagonist
         proto_sel = ProtagonistSelector(story, generator)
@@ -376,7 +388,7 @@ async def create_story_ai_async(
             console.print(f"[yellow]⚠️  Protagonist selection skipped: {str(e)[:50]}[/yellow]")
             protagonist = None
         
-        console.print("\n[bold yellow]⏳ Step 5: Creating the first scene of this world...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 6: Creating the first scene of this world...[/bold yellow]")
         
         # If user provided scene input, use it; otherwise AI creates something
         if first_scene_input.strip():
@@ -437,7 +449,7 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         story.add_segment(opening_segment)
         
         # Generate choices for opening segment
-        console.print("\n[bold yellow]⏳ Step 6: Generating choices for opening scene...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 7: Generating choices for opening scene...[/bold yellow]")
         
         from app.models.story_choice import StoryChoice
         import uuid
@@ -502,6 +514,8 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
         
         story.save()
         world_context.save()
+        for location in locations:
+            location.save()
         for arc in arcs:
             arc.save()
         for char in characters:
@@ -521,6 +535,7 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
 
 [green]✨ Generated:[/green]
 • Living World with {len(world_context.fundamental_truths)} fundamental truths
+• {len(locations)} World Locations
 • {len(arcs)} Story Arcs
 • {len(characters)} Characters
 • Protagonist: {protagonist.name if protagonist and hasattr(protagonist, 'name') else 'TBD'}

@@ -3,10 +3,12 @@ from .story_block import StoryBlock
 class StoryLocation(StoryBlock):
     """A location in a story.
     
-    This represents a location with its name and description.
+    This represents a location with its name and descriptions.
     """
     name: str
-    description: str
+    description: str  # Short description (1-2 sentences)
+    full_description: str = ""  # Full detailed description
+    current_state: str = ""  # Current state/changes in this episode
 
     def __init__(self, **data):
         """Initialize a StoryLocation instance.
