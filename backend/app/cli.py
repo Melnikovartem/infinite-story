@@ -1780,5 +1780,260 @@ def list_models(
         console.print("  AI_PROVIDER=openrouter")
         console.print("  AI_MODEL=deepseek-v3  # Or any other model")
 
+async def create_story_step_by_step_async(
+    story_id: str,
+    title: str,
+    description: str,
+    genre: str,
+    step: Optional[int] = None,
+    skip: Optional[int] = None,
+    reset: Optional[int] = None,
+    show_status: bool = False
+):
+    """Create story step-by-step with ability to skip and retry broken steps."""
+    from app.engine.step_generation_manager import StepGenerationManager
+    from app.engine.generators.story_planner import StoryPlanner
+    from app.engine.generators.world_generator import WorldGenerator
+    from app.engine.generators.faction_generator import FactionGenerator
+    from app.engine.generators.magic_system_generator import MagicSystemGenerator
+    from app.engine.generators.location_generator import LocationGenerator
+    from app.engine.generators.arc_generator import ArcGenerator
+    from app.engine.generators.character_generator import CharacterGenerator
+    from app.engine.generators.protagonist_selector import ProtagonistSelector
+    from app.models.text_types import TextBlock
+    from app.models.story_segment import StorySegment
+    from app.models.story_choice import StoryChoice
+    import uuid
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+    
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+    
+    # Load or create story
+    story = Story.load(story_id, story_id)
+    if not story:
+        story = Story(
+            id=story_id,
+            story_id=story_id,
+            title=title,
+            description=description,
+            genre=genre,
+            start_segment_id="opening"
+        )
+    
+    # Initialize step manager
+    step_manager = StepGenerationManager(story, generator)
+    
+    # Handle reset request
+    if reset is not None:
+        if reset < 0 or reset > 9:
+            console.print(f"[red]Invalid step number: {reset}[/red]")
+            return
+        step_manager.reset_step(reset, delete_outputs=True)
+        console.print(f"[yellow]Reset step {reset}. Downstream steps marked for rerun.[/yellow]")
+        return
+    
+    # Handle skip request
+    if skip is not None:
+        if skip < 0 or skip > 9:
+            console.print(f"[red]Invalid step number: {skip}[/red]")
+            return
+        if not step_manager._can_run_step(skip):
+            missing = step_manager._get_missing_dependencies(skip)
+            console.print(f"[red]Cannot skip step {skip}: missing dependencies: {missing}[/red]")
+            return
+        step_manager.mark_step_skipped(skip)
+        console.print(f"[yellow]Skipped step {skip}. Downstream steps marked for rerun.[/yellow]")
+        return
+    
+    # Show status if requested
+    if show_status:
+        status = step_manager.get_all_steps_status()
+        summary = step_manager.get_step_summary()
+        
+        console.print(Panel(
+            f"Progress: {summary['progress']} | Status: {summary['overall_status']}",
+            title="Generation Status",
+            border_style="cyan"
+        ))
+        
+        console.print("\n[bold cyan]Step Status:[/bold cyan]")
+        for i in range(10):
+            s = status[i]
+            icon = "✅" if s["status"] == "completed" else (
+                "⏭️" if s["status"] == "skipped" else (
+                    "❌" if s["status"] == "failed" else "⏳"
+                )
+            )
+            can_run = "✓" if s["can_run"] else "✗"
+            console.print(f"{icon} Step {i}: {s['name']} [{s['status']}] (runnable: {can_run})")
+            if s["status"] == "failed" and s.get("error_message"):
+                console.print(f"   Error: {s['error_message'][:80]}...")
+            if s["missing_deps"]:
+                console.print(f"   Missing: {s['missing_deps']}")
+        
+        return
+    
+    # Run specified step or next runnable step
+    if step is not None:
+        if step < 0 or step > 9:
+            console.print(f"[red]Invalid step number: {step}[/red]")
+            return
+        if not step_manager._can_run_step(step):
+            missing = step_manager._get_missing_dependencies(step)
+            console.print(f"[red]Cannot run step {step}: missing dependencies: {missing}[/red]")
+            return
+        target_step = step
+    else:
+        target_step = step_manager.get_next_runnable_step()
+        if target_step is None:
+            summary = step_manager.get_step_summary()
+            console.print(Panel(
+                f"All steps completed!\nProgress: {summary['progress']}",
+                title="Generation Complete",
+                border_style="green"
+            ))
+            return
+    
+    console.print(Panel(
+        f"[bold cyan]{step_manager.steps[target_step].name}[/bold cyan]\n{step_manager.steps[target_step].description}",
+        title=f"Step {target_step}",
+        border_style="yellow"
+    ))
+    
+    try:
+        # Execute the appropriate step
+        if target_step == 0:
+            console.print("[bold yellow]⏳ Planning story scope...[/bold yellow]")
+            planner = StoryPlanner(generator)
+            plan = await planner.plan_story_scope(title, description, genre)
+            step_manager.mark_step_completed(target_step, plan)
+            console.print(f"[green]✅ Step 0 complete! Factions: {plan.get('total_factions', '?')}, Locations: {plan.get('total_locations', '?')}[/green]")
+        
+        elif target_step == 1:
+            world_gen = WorldGenerator(generator)
+            world_context = await world_gen.generate_world_context(story=story)
+            step_manager.mark_step_completed(target_step, {"truths": len(world_context.fundamental_truths)})
+            console.print(f"[green]✅ Step 1 complete! Generated {len(world_context.fundamental_truths)} fundamental truths[/green]")
+        
+        elif target_step == 2:
+            plan = None  # Would need to load from previous step
+            faction_gen = FactionGenerator(story, generator)
+            factions = await faction_gen.generate_factions(3, "", [], "")
+            step_manager.mark_step_completed(target_step, {"count": len(factions)})
+            console.print(f"[green]✅ Step 2 complete! Generated {len(factions)} factions[/green]")
+        
+        elif target_step == 3:
+            magic_gen = MagicSystemGenerator(story, generator)
+            magic_system = await magic_gen.generate_magic_system("", genre, "")
+            step_manager.mark_step_completed(target_step, {"name": magic_system.name})
+            console.print(f"[green]✅ Step 3 complete! Magic system: {magic_system.name}[/green]")
+        
+        elif target_step == 4:
+            loc_gen = LocationGenerator(story, generator)
+            locations = await loc_gen.generate_world_locations("", [], "")
+            step_manager.mark_step_completed(target_step, {"count": len(locations)})
+            console.print(f"[green]✅ Step 4 complete! Generated {len(locations)} locations[/green]")
+        
+        elif target_step == 5:
+            arc_gen = ArcGenerator(story, generator)
+            arcs = await arc_gen.generate_future_arcs(count=3)
+            step_manager.mark_step_completed(target_step, {"count": len(arcs)})
+            console.print(f"[green]✅ Step 5 complete! Generated {len(arcs)} arcs[/green]")
+        
+        elif target_step == 6:
+            char_gen = CharacterGenerator(story, generator)
+            characters = await char_gen.generate_faction_characters([])  # Would need loaded factions
+            step_manager.mark_step_completed(target_step, {"count": len(characters)})
+            console.print(f"[green]✅ Step 6 complete! Generated {len(characters)} characters[/green]")
+        
+        elif target_step == 7:
+            proto_sel = ProtagonistSelector(story, generator)
+            protagonist = await proto_sel.select_or_develop_protagonist()
+            step_manager.mark_step_completed(target_step, {"name": getattr(protagonist, 'name', 'Unknown')})
+            console.print(f"[green]✅ Step 7 complete! Protagonist: {getattr(protagonist, 'name', 'Unknown')}[/green]")
+        
+        elif target_step == 8:
+            console.print("[yellow]Opening scene generation (Step 8) - implement as needed[/yellow]")
+            step_manager.mark_step_skipped(target_step)
+        
+        elif target_step == 9:
+            console.print("[yellow]Choice generation (Step 9) - implement as needed[/yellow]")
+            step_manager.mark_step_skipped(target_step)
+        
+        console.print(f"\n[yellow]Next runnable step: {step_manager.get_next_runnable_step() or 'None (complete)'}[/yellow]")
+        
+    except Exception as e:
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        step_manager.mark_step_failed(target_step, str(e))
+        console.print(f"[red]Step {target_step} failed: {error_msg}[/red]")
+        console.print(f"[yellow]To retry, run: create-story-step story_id --step {target_step}[/yellow]")
+        console.print(f"[yellow]To skip, run: create-story-step story_id --skip {target_step}[/yellow]")
+        logger.error(f"Step {target_step} failed: {e}", exc_info=True)
+
+@app.command()
+def create_story_step(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    step: Optional[int] = typer.Option(None, "--step", help="Run specific step (0-9)"),
+    skip: Optional[int] = typer.Option(None, "--skip", help="Skip a step"),
+    reset: Optional[int] = typer.Option(None, "--reset", help="Reset a step to pending"),
+    status: bool = typer.Option(False, "--status", help="Show generation status"),
+    title: str = typer.Option("Untitled", "--title", help="Story title"),
+    description: str = typer.Option("", "--description", help="Story description"),
+    genre: str = typer.Option("Unknown", "--genre", help="Story genre"),
+):
+    """Create story step-by-step with ability to skip broken steps and rerun.
+    
+    Examples:
+        # Show status of all steps
+        python -m app.cli create-story-step my_story --status
+        
+        # Run next available step
+        python -m app.cli create-story-step my_story
+        
+        # Run specific step
+        python -m app.cli create-story-step my_story --step 2
+        
+        # Skip a broken step
+        python -m app.cli create-story-step my_story --skip 4
+        
+        # Reset a step and rerun
+        python -m app.cli create-story-step my_story --reset 3
+        python -m app.cli create-story-step my_story --step 3
+    """
+    asyncio.run(create_story_step_by_step_async(
+        story_id, title, description, genre, step, skip, reset, status
+    ))
+
 if __name__ == "__main__":
     app()

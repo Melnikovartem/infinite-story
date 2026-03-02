@@ -28,13 +28,14 @@ print_help() {
     echo ""
     echo "Usage: ./run.sh [COMMAND] [OPTIONS]"
     echo ""
-    echo "Commands:"
-    echo "  run-story [story_id]          Play a story (default command)"
-    echo "  create-story-ai [id]          Create story with AI generation (NEW!)"
-    echo "  list-stories                  List all available stories"
-    echo "  delete-story [story_id]       Delete a story"
-    echo "  clear-state [story_id]        Reset story to beginning"
-    echo "  test-generation [story_id]    Test AI generation on a story"
+echo "Commands:"
+echo "  run-story [story_id]          Play a story (default command)"
+echo "  create-story-ai [id]          Create story with AI generation"
+echo "  create-story-step [id]        Create story step-by-step (can skip/retry broken steps)"
+echo "  list-stories                  List all available stories"
+echo "  delete-story [story_id]       Delete a story"
+echo "  clear-state [story_id]        Reset story to beginning"
+echo "  test-generation [story_id]    Test AI generation on a story"
     echo ""
     echo "Options for run-story:"
     echo "  --mode [immersive|debug]      Display mode (default: immersive)"
@@ -70,7 +71,7 @@ REMAINING_ARGS=()
 
 if [ $# -gt 0 ]; then
     case "$1" in
-        run-story|create-story-ai|list-stories|delete-story|clear-state|test-generation)
+        run-story|create-story-ai|create-story-step|list-stories|delete-story|clear-state|test-generation)
             COMMAND="$1"
             shift
             REMAINING_ARGS=("$@")
@@ -152,6 +153,10 @@ else
         create-story-ai)
             print_message "🤖 Creating story with AI generation..."
             python -u -m app.cli create-story-ai "${REMAINING_ARGS[@]}"
+            ;;
+        create-story-step)
+            print_message "🔧 Creating story step-by-step..."
+            python -u -m app.cli create-story-step "${REMAINING_ARGS[@]}"
             ;;
         list-stories)
             print_message "Listing available stories..."
