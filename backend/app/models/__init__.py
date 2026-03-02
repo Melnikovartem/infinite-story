@@ -8,6 +8,11 @@ from .story_location import StoryLocation
 from .text_types import TextType, TextBlock
 from .episode_recap import EpisodeRecap, CharacterState
 from .story_arc import StoryArc, ArcCompressionResult
+from .character_state import CharacterStateSnapshot
+from .episode_meta import EpisodeMeta
+from .segment_recap import SegmentRecap
+from .character_recap import CharacterRecap
+from .arc_recap import ArcRecap
 
 __all__ = [
     'User',
@@ -24,6 +29,11 @@ __all__ = [
     'TextBlock',
     'EpisodeRecap',
     'CharacterState',
+    'CharacterStateSnapshot',
     'StoryArc',
     'ArcCompressionResult',
+    'EpisodeMeta',
+    'SegmentRecap',
+    'CharacterRecap',
+    'ArcRecap',
 ]

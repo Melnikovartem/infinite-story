@@ -6,6 +6,7 @@ import logging
 from app.models import Story, StorySegment, EpisodeRecap, StoryArc, CharacterState
 from app.models.story_segment import SegmentStatus
 from app.engine.generator import TextGenerator
+from app.engine.character_state_updater import CharacterStateUpdater
 
 logger = logging.getLogger("infinite_story.engine.episode_recap_generator")
 
@@ -23,16 +24,23 @@ class EpisodeRecapGenerator:
         arc_id: Optional[str] = None
     ) -> EpisodeRecap:
         """
-        Generate a recap for completed episode.
+        Generate a recap for completed episode (E2-1 Enhanced).
         
         Steps:
         1. Walk episode backward to collect all segments
         2. Extract all character changes
-        3. Build recap prompt with context
-        4. Call AI to generate title, summary, themes
-        5. Reconcile character states (apply changes)
-        6. Create EpisodeRecap object
-        7. Save to disk
+        3. Load EpisodeMeta to get selected_themes
+        4. Build enhanced recap prompt
+        5. Call AI to generate:
+           - title (auto-generated episode name)
+           - summary
+           - themes_explored
+           - hook_for_next (bridges to next episode)
+           - unresolved_new (new mysteries raised)
+        6. Reconcile character states (apply changes)
+        7. Create EpisodeRecap object with new fields
+        8. Update EpisodeMeta.episode_name
+        9. Save to disk
         
         Args:
             episode_number: The episode number to recap
@@ -44,6 +52,8 @@ class EpisodeRecapGenerator:
         Raises:
             ValueError: If no segments found for the episode
         """
+        from app.models.episode_meta import EpisodeMeta
+        
         # 1. Collect segments in this episode
         episode_segments = self._walk_episode_segments(
             episode_number, 
@@ -57,7 +67,20 @@ class EpisodeRecapGenerator:
         all_changes = self._collect_changes(episode_segments)
         starting_states = self._extract_starting_states(episode_segments)
         
-        # 3. Build recap prompt
+        # 3. Load EpisodeMeta for selected themes
+        episode_meta = None
+        selected_themes = []
+        if arc_id:
+            try:
+                episode_meta_id = f"episode_meta_{episode_number}_{arc_id}"
+                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                if episode_meta:
+                    selected_themes = episode_meta.selected_themes
+                    logger.debug(f"Loaded EpisodeMeta, selected themes: {selected_themes}")
+            except Exception as e:
+                logger.debug(f"EpisodeMeta not found: {e}")
+        
+        # 4. Build enhanced recap prompt with theme extraction
         recap_prompt = self._build_recap_prompt(
             episode_segments,
             all_changes,
@@ -65,7 +88,20 @@ class EpisodeRecapGenerator:
             arc_id
         )
         
-        # 4. Call AI
+        # Add theme extraction request to prompt
+        recap_prompt += f"""
+
+SELECTED THEMES FOR THIS EPISODE:
+{', '.join(selected_themes)}
+
+Additionally, extract:
+- THEMES_EXPLORED: Which of the selected themes were actually explored?
+- HOOK_FOR_NEXT: A bridging sentence to the next episode
+- UNRESOLVED_NEW: Any NEW mysteries/questions raised this episode
+"""
+        
+        # 5. Call AI
+        logger.debug(f"Calling AI for episode {episode_number} recap generation")
         recap_response = await self.generator.generate(
             system_prompt="",
             user_prompt=recap_prompt,
@@ -79,37 +115,88 @@ class EpisodeRecapGenerator:
             ai_title = f"Episode {episode_number}"
             ai_summary = "Episode summary unavailable"
             ai_themes = []
+            ai_themes_explored = []
+            ai_hook_for_next = ""
+            ai_unresolved_new = []
         else:
             # Extract AI-generated values from response
             ai_title = getattr(recap_response, 'title', f"Episode {episode_number}")
             ai_summary = getattr(recap_response, 'summary', "Episode summary unavailable")
             ai_themes = getattr(recap_response, 'key_themes', [])
+            ai_themes_explored = getattr(recap_response, 'themes_explored', [])
+            ai_hook_for_next = getattr(recap_response, 'hook_for_next', "")
+            ai_unresolved_new = getattr(recap_response, 'unresolved_new', [])
         
-        # 5. Reconcile character states
+        # 6. Reconcile character states
         ending_states = self._reconcile_character_states(
             starting_states,
             all_changes
         )
         
-        # 6. Create EpisodeRecap
+        # 7. Create EpisodeRecap with enhanced fields
         recap_id = f"recap_{self.story.id}_ep{episode_number}_{arc_id or 'main'}"
         recap = EpisodeRecap(
             id=recap_id,
             story_id=self.story.id,
             episode_number=episode_number,
             arc_id=arc_id,
-            title=ai_title,
+            title=ai_title,  # Auto-generated from AI
             summary=ai_summary,
-            key_themes=ai_themes if isinstance(ai_themes, list) else [],
+            key_themes=selected_themes if selected_themes else (ai_themes if isinstance(ai_themes, list) else []),
             tone=episode_segments[0].episode_tone or "neutral",
             segment_ids=[seg.id for seg in episode_segments],
             starting_character_states=starting_states,
             ending_character_states=ending_states,
+            
+            # NEW FIELDS (E2 Enhanced)
+            themes_explored=ai_themes_explored if isinstance(ai_themes_explored, list) else [],
+            hook_for_next=ai_hook_for_next,
+            unresolved_new=ai_unresolved_new if isinstance(ai_unresolved_new, list) else [],
+            episode_complete=True,
+            segment_count=len(episode_segments),
         )
         
-        # 7. Save
+        # 8. Update EpisodeMeta with episode_name
+        if episode_meta:
+            try:
+                episode_meta.episode_name = ai_title
+                episode_meta.save()
+                logger.info(f"Updated EpisodeMeta with episode name: {ai_title}")
+            except Exception as e:
+                logger.warning(f"Failed to update EpisodeMeta: {e}")
+        
+        # 9. Update character states based on episode events (E2-3 Enhanced)
+        try:
+            updater = CharacterStateUpdater(self.story, self.generator)
+            character_updates = await updater.update_character_states(
+                episode_number=episode_number,
+                arc_id=arc_id,
+                segment_ids=episode_segments,
+                prev_recap=prev_recap
+            )
+            logger.info(f"Updated states for {len(character_updates)} characters after episode {episode_number}")
+        except Exception as e:
+            logger.warning(f"Failed to update character states: {e}")
+            character_updates = {}
+        
+        # 10. Check themes and generate new characters if theme event triggers (E2-4 Enhanced)
+        try:
+            updater = CharacterStateUpdater(self.story, self.generator)
+            for theme in recap.themes_explored:
+                new_char = await updater.generate_new_character_for_theme(
+                    theme=theme,
+                    arc_id=arc_id,
+                    episode_number=episode_number
+                )
+                if new_char:
+                    new_char.save()
+                    logger.info(f"Generated new character '{new_char.name}' for theme '{theme}'")
+        except Exception as e:
+            logger.warning(f"Failed to generate new characters: {e}")
+        
+        # 11. Save recap
         recap.save()
-        logger.info(f"Generated recap for episode {episode_number}")
+        logger.info(f"Generated recap for episode {episode_number}: {ai_title}")
         
         return recap
     
@@ -119,30 +206,55 @@ class EpisodeRecapGenerator:
         previous_recap: Optional[EpisodeRecap] = None
     ) -> Dict[str, Any]:
         """
-        Generate context for a new episode.
+        Generate context for a new episode (E2-2 Enhanced).
+        
+        Steps:
+        1. Load arc
+        2. Select themes via ThemeSelector (weighted random)
+        3. Generate episode tone/end_condition/direction via AI
+        4. Create and save EpisodeMeta
+        5. Return context dict
         
         Args:
             arc_id: The arc ID for the new episode
             previous_recap: Optional recap from the previous episode
             
         Returns:
-            Dictionary with tone_tags, end_condition, narrative_direction
+            Dictionary with episode context (tone_tags, end_condition, narrative_direction,
+            selected_themes, episode_focus, story_hooks)
             
         Raises:
             ValueError: If arc not found
         """
-        # Get arc - load from disk if needed
+        from app.utils.theme_selector import ThemeSelector
+        from app.models.episode_meta import EpisodeMeta
+        
+        # Step 1: Get arc
         arc = StoryArc.load(self.story.id, arc_id)
         if not arc:
             raise ValueError(f"Arc {arc_id} not found")
         
-        # Build prompt
+        logger.info(f"Generating episode context for arc {arc_id}")
+        
+        # Step 2: Select themes for this episode
+        next_episode_num = arc.episode_count + 1
+        selected_themes = ThemeSelector.select_themes(
+            arc,
+            previous_recap,
+            next_episode_num,
+            count=2
+        )
+        logger.debug(f"Selected themes: {selected_themes}")
+        
+        # Step 3: Build enhanced prompt with arc context
         prompt = self._build_episode_generation_prompt(
             arc,
-            previous_recap
+            previous_recap,
+            selected_themes
         )
         
-        # Call AI
+        # Step 4: Call AI
+        logger.debug(f"Calling AI for episode {next_episode_num} context generation")
         response = await self.generator.generate(
             system_prompt="",
             user_prompt=prompt,
@@ -153,18 +265,47 @@ class EpisodeRecapGenerator:
         if response.error:
             logger.warning(f"AI generation error for episode context: {response.error}")
             # Use fallback values
-            return {
+            context = {
                 'tone_tags': ['neutral'],
                 'end_condition': 'Episode completion',
                 'narrative_direction': 'Story progresses forward',
+                'selected_themes': selected_themes,
+                'episode_focus': list(arc.character_arc_goals.values())[0] if arc.character_arc_goals else '',
+                'story_hooks': arc.plot_hooks[:2] if arc.plot_hooks else [],
+            }
+        else:
+            # Extract values from response
+            context = {
+                'tone_tags': getattr(response, 'tone_tags', ['neutral']),
+                'end_condition': getattr(response, 'end_condition', 'Episode completion'),
+                'narrative_direction': getattr(response, 'narrative_direction', 'Story progresses'),
+                'selected_themes': selected_themes,
+                'episode_focus': getattr(response, 'episode_focus', ''),
+                'story_hooks': getattr(response, 'story_hooks', []),
             }
         
-        # Extract values from response
-        return {
-            'tone_tags': getattr(response, 'tone_tags', []),
-            'end_condition': getattr(response, 'end_condition', ''),
-            'narrative_direction': getattr(response, 'narrative_direction', ''),
-        }
+        logger.info(f"Generated episode {next_episode_num} context: {context}")
+        
+        # Step 5: Create EpisodeMeta and save it
+        try:
+            episode_meta = EpisodeMeta(
+                id=f"episode_meta_{next_episode_num}_{arc_id}",
+                story_id=self.story.id,
+                episode_number=next_episode_num,
+                arc_id=arc_id,
+                episode_tone=context['tone_tags'][0] if context['tone_tags'] else 'neutral',
+                episode_end_condition=context['end_condition'],
+                narrative_direction=context['narrative_direction'],
+                selected_themes=selected_themes,
+                episode_focus=context.get('episode_focus', ''),
+                story_hooks=context.get('story_hooks', []),
+            )
+            episode_meta.save()
+            logger.info(f"Created and saved EpisodeMeta for episode {next_episode_num}")
+        except Exception as e:
+            logger.error(f"Failed to create/save EpisodeMeta: {e}")
+        
+        return context
     
     def _walk_episode_segments(
         self,

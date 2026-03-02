@@ -1,4 +1,4 @@
-"""Builds rich context for segment generation based on episode history."""
+"""Builds rich, comprehensive context for segment generation based on full story history."""
 
 from typing import Dict, List, Optional, Any
 import logging
@@ -10,11 +10,18 @@ logger = logging.getLogger("infinite_story.engine.segment_context_builder")
 
 
 class SegmentContextBuilder:
-    """Build rich context for segment generation.
+    """Build comprehensive context for segment generation.
     
-    This class walks backward through the parent chain, accumulates character
-    state changes, detects episode transitions, and calculates pacing signals
-    to inform the AI generation engine.
+    Walks through story history and collects:
+    - All character summaries (short) + extended info if in last 3 segments
+    - Full current episode information
+    - Last 3 episode recaps
+    - Last 10 arc recaps
+    - Full current arc information
+    - Last 10 segment recaps
+    - Last 3 segment full text (for conversation continuation)
+    - Character evolution tracking
+    - Pacing signals
     """
     
     def __init__(self, story: Story):
@@ -28,99 +35,148 @@ class SegmentContextBuilder:
     def build_context(
         self,
         current_segment_id: str,
-        user_choice: str  # The choice text the user made
+        user_choice: str
     ) -> Dict[str, Any]:
-        """Build generation context for a new segment.
+        """Build comprehensive generation context for a new segment.
         
-        Walks backward through the parent chain, accumulates changes,
-        detects episode transitions, and calculates pacing weight.
+        Collects:
+        1. All character summaries + extended info for last 3 segments
+        2. Full episode information
+        3. Last 3 episode recaps
+        4. Last 10 arc recaps
+        5. Full arc information
+        6. Last 10 segment recaps
+        7. Last 3 segment full text
+        8. Pacing weight
+        9. Episode transition signals
         
         Args:
             current_segment_id: ID of the segment the user is in
             user_choice: The text of the choice the user made
             
         Returns:
-            A context dict with all information needed for segment generation:
-            {
-                'previous_segments': [...],  # Last 3-5 scenes
-                'character_states': {...},   # Latest character snapshot
-                'accumulated_changes': [...],  # All change_notes in chain
-                'episode_context': {...},    # Tone, end_condition, pacing
-                'should_transition': bool,   # Start new episode?
-                'pacing_weight': 0.0-1.0,   # Progress to episode end
-                'protagonist_id': 'char_1',  # Main character this episode
-            }
+            Comprehensive context dict for generation
         """
-        # 1. Get the current segment
+        # Get the current segment
         current_seg = self.story.get_segment(current_segment_id)
         if not current_seg:
             raise ValueError(f"Segment {current_segment_id} not found")
         
-        # 2. Walk backward to episode start
+        # Walk backward to episode start
         episode_chain = self._walk_episode_chain(current_segment_id)
         
-        # 3. Accumulate character changes
+        # Accumulate character changes
         accumulated_changes = self._accumulate_changes(episode_chain)
         
-        # 4. Detect episode transition
+        # Detect episode transition
         should_transition = self._should_transition_episode(
             current_seg,
             accumulated_changes
         )
         
-        # 5. Calculate pacing weight
+        # Calculate pacing weight
         pacing = self._calculate_pacing_weight(
             current_seg,
             should_transition
         )
         
-        # 6. Assemble context
-        return {
-            'previous_segments': [
-                self.story.get_segment(seg_id).get_short_overview()
-                for seg_id in episode_chain[-5:]  # Last 5 scenes
-            ],
-            'character_states': current_seg.character_states,
-            'accumulated_changes': accumulated_changes,
-            'episode_number': current_seg.episode_number,
-            'episode_tone': current_seg.episode_tone,
-            'episode_end_condition': current_seg.episode_end_condition,
-            'segment_number_in_episode': current_seg.segment_number_in_episode,
+        # Build comprehensive context
+        context_dict = {
+            # ====================================================================
+            # CHARACTER CONTEXT
+            # ====================================================================
+            'all_characters': self._get_all_character_summaries(),
+            'extended_characters': self._get_extended_character_info(episode_chain[-3:]),
+            'character_changes_this_episode': accumulated_changes,
+            
+            # ====================================================================
+            # EPISODE CONTEXT
+            # ====================================================================
+            'current_episode': self._get_current_episode_info(current_seg),
+            'recent_episode_recaps': self._get_recent_episode_recaps(
+                current_seg.episode_number,
+                current_seg.arc_id,
+                count=3
+            ),
+            
+            # ====================================================================
+            # ARC CONTEXT
+            # ====================================================================
+            'current_arc': self._get_current_arc_info(current_seg.arc_id),
+            'recent_arc_recaps': self._get_recent_arc_recaps(count=10),
+            
+            # ====================================================================
+            # SEGMENT CONTEXT
+            # ====================================================================
+            'segment_recaps': self._get_segment_recaps(
+                episode_chain,
+                count=10
+            ),
+            'recent_segments_full': self._get_recent_segments_full(
+                episode_chain[-3:]
+            ),
+            
+            # ====================================================================
+            # NAVIGATION & SIGNALS
+            # ====================================================================
             'should_transition_episode': should_transition,
             'pacing_weight': pacing,
-            'protagonist_id': current_seg.protagonist_id,
+            'episode_number': current_seg.episode_number,
+            'segment_number_in_episode': current_seg.segment_number_in_episode,
             'user_choice': user_choice,
         }
+        
+        # Add arc context if available
+        if current_seg.arc_id:
+            try:
+                from app.models.story_arc import StoryArc
+                arc = StoryArc.load(self.story.id, current_seg.arc_id)
+                if arc:
+                    context_dict.update({
+                        'arc_premise': arc.premise,
+                        'arc_themes': arc.themes,
+                        'arc_tone': arc.arc_tone,
+                        'character_arc_goals': arc.character_arc_goals,
+                        'unresolved_mysteries': arc.unresolved_mysteries,
+                        'central_conflict': arc.central_conflict,
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to load arc context: {e}")
+        
+        # Add episode metadata if available
+        if current_seg.arc_id and current_seg.episode_number:
+            try:
+                from app.models.episode_meta import EpisodeMeta
+                episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
+                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                if episode_meta:
+                    context_dict.update({
+                        'episode_selected_themes': episode_meta.selected_themes,
+                        'episode_focus': episode_meta.episode_focus,
+                        'story_hooks': episode_meta.story_hooks,
+                    })
+            except Exception as e:
+                logger.debug(f"Episode metadata not found: {e}")
+        
+        return context_dict
     
     def _walk_episode_chain(self, segment_id: str) -> List[str]:
-        """Walk backward from segment to episode start.
-        
-        Traverses the parent_segment_id chain backward, collecting all segment
-        IDs that belong to the current episode, until reaching the episode start
-        or a segment from a different episode.
-        
-        Args:
-            segment_id: The ID of the segment to start walking from
-            
-        Returns:
-            List of segment IDs in chronological order (start to current)
-        """
+        """Walk backward from segment to episode start."""
         chain = []
         current = self.story.get_segment(segment_id)
         if not current:
             return chain
         
         episode_num = current.episode_number
-        visited = set()  # Prevent circular references
+        visited = set()
         
         while current and current.episode_number == episode_num:
-            # Prevent infinite loops
             if current.id in visited:
                 logger.warning(f"Circular reference detected at segment {current.id}")
                 break
             visited.add(current.id)
             
-            chain.insert(0, current.id)  # Prepend (walking backward)
+            chain.insert(0, current.id)
             
             if not current.parent_segment_id:
                 break
@@ -130,17 +186,7 @@ class SegmentContextBuilder:
         return chain
     
     def _accumulate_changes(self, segment_chain: List[str]) -> List[str]:
-        """Collect all change_notes from segment chain.
-        
-        Walks through the chain and aggregates all character/location change
-        notes to provide context about what has happened in the episode.
-        
-        Args:
-            segment_chain: List of segment IDs to process
-            
-        Returns:
-            List of all change_notes found in the chain
-        """
+        """Collect all change_notes from segment chain."""
         all_changes = []
         for seg_id in segment_chain:
             seg = self.story.get_segment(seg_id)
@@ -153,43 +199,19 @@ class SegmentContextBuilder:
         current_segment: StorySegment,
         changes: List[str]
     ) -> bool:
-        """Decide if this segment should end the episode.
-        
-        Triggers episode transition if:
-        1. end_condition_proximity >= 0.8 (AI said we're near end)
-        2. segment_number_in_episode >= 18 (hard limit)
-        3. Changes mention explicit end condition keywords
-        
-        Args:
-            current_segment: The current segment being evaluated
-            changes: Accumulated change notes from the episode
-            
-        Returns:
-            True if episode should transition, False otherwise
-        """
-        # Check proximity to end condition
+        """Decide if this segment should end the episode."""
         if current_segment.end_condition_proximity >= 0.8:
-            logger.debug(
-                f"Segment {current_segment.id}: end_condition_proximity "
-                f"{current_segment.end_condition_proximity} >= 0.8, transitioning"
-            )
+            logger.debug(f"Segment {current_segment.id}: proximity >= 0.8, transitioning")
             return True
         
-        # Check segment count (max ~20 per episode)
         if current_segment.segment_number_in_episode >= 18:
-            logger.debug(
-                f"Segment {current_segment.id}: segment_number_in_episode "
-                f"{current_segment.segment_number_in_episode} >= 18, transitioning"
-            )
+            logger.debug(f"Segment {current_segment.id}: count >= 18, transitioning")
             return True
         
-        # Check for explicit end condition keywords
         end_keywords = ['chapter', 'end', 'conclusion', 'climax', 'finale']
         for change in changes:
             if any(kw in change.lower() for kw in end_keywords):
-                logger.debug(
-                    f"Segment {current_segment.id}: found end keyword in changes, transitioning"
-                )
+                logger.debug(f"Segment {current_segment.id}: found end keyword, transitioning")
                 return True
         
         return False
@@ -199,29 +221,193 @@ class SegmentContextBuilder:
         segment: StorySegment,
         will_transition: bool
     ) -> float:
-        """Calculate pacing weight (0.0 to 1.0).
-        
-        Provides a signal to the AI about how much "room" is left in the episode.
-        Uses a quadratic curve: slow at start, accelerating toward end.
-        
-        - 0.0 = start of episode (lots of room)
-        - 0.5 = halfway through (some room)
-        - 0.9+ = very close to end
-        - 1.0 (reserved for actual episode end)
-        
-        Args:
-            segment: The current segment
-            will_transition: Whether this segment will transition to next episode
-            
-        Returns:
-            Float between 0.0 and 1.0 representing progress through episode
-        """
+        """Calculate pacing weight (0.0 to 1.0)."""
         if will_transition:
-            return 0.9  # Very close to end
+            return 0.9
         
-        # Quadratic curve: (seg_num / max)^2 gives nonlinear progression
         seg_num = segment.segment_number_in_episode
         max_segments = 20
         
         weight = (seg_num / max_segments) ** 2
-        return min(weight, 0.99)  # Cap at 0.99 (leave 1.0 for actual end)
+        return min(weight, 0.99)
+    
+    # ========================================================================
+    # NEW: Comprehensive Context Builders
+    # ========================================================================
+    
+    def _get_all_character_summaries(self) -> Dict[str, Dict[str, Any]]:
+        """Get short recaps for ALL characters in story."""
+        from app.models.character_recap import CharacterRecap
+        
+        summaries = {}
+        try:
+            for character in self.story.get_all_characters():
+                try:
+                    recap = CharacterRecap.load(self.story.id, character.id)
+                    if recap:
+                        summaries[character.id] = {
+                            'name': recap.character_name,
+                            'status': recap.current_status,
+                            'emotion': recap.current_emotion,
+                            'description': recap.short_description,
+                            'relationships': recap.key_relationships,
+                            'last_seen': recap.last_seen_episode,
+                        }
+                except:
+                    # Fallback to character data
+                    summaries[character.id] = {
+                        'name': character.name,
+                        'description': character.description,
+                        'status': 'unknown',
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to get character summaries: {e}")
+        
+        return summaries
+    
+    def _get_extended_character_info(self, recent_segments: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get full character info for characters in last 3 segments."""
+        extended = {}
+        
+        # Collect character IDs from recent segments
+        recent_char_ids = set()
+        for seg_id in recent_segments:
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                recent_char_ids.update(seg.characters_present)
+        
+        # Get full info for these characters
+        for char_id in recent_char_ids:
+            try:
+                character = self.story.get_character(char_id)
+                if character:
+                    extended[char_id] = {
+                        'name': character.name,
+                        'description': character.description,
+                        'background': character.background,
+                        'avatar': f"{character.avatar_shape}:{character.avatar_color}",
+                    }
+            except Exception as e:
+                logger.debug(f"Failed to get extended info for {char_id}: {e}")
+        
+        return extended
+    
+    def _get_current_episode_info(self, segment: StorySegment) -> Dict[str, Any]:
+        """Get full current episode information."""
+        return {
+            'episode_number': segment.episode_number,
+            'episode_tone': segment.episode_tone,
+            'episode_end_condition': segment.episode_end_condition,
+            'segment_number': segment.segment_number_in_episode,
+            'pacing_weight': segment.pacing_weight,
+            'protagonist_id': segment.protagonist_id,
+        }
+    
+    def _get_recent_episode_recaps(
+        self,
+        current_episode: int,
+        arc_id: Optional[str],
+        count: int = 3
+    ) -> List[Dict[str, Any]]:
+        """Get last N episode recaps."""
+        from app.models.episode_recap import EpisodeRecap
+        
+        recaps = []
+        
+        # Look back from current episode
+        for ep_num in range(current_episode - 1, max(0, current_episode - count - 1), -1):
+            try:
+                recap_id = f"recap_{self.story.id}_ep{ep_num}_{arc_id or 'main'}"
+                recap = EpisodeRecap.load(self.story.id, recap_id)
+                if recap:
+                    recaps.append({
+                        'episode': ep_num,
+                        'title': recap.title,
+                        'summary': recap.summary,
+                        'themes': recap.key_themes,
+                        'hook_for_next': recap.hook_for_next,
+                    })
+            except:
+                pass
+        
+        return recaps
+    
+    def _get_current_arc_info(self, arc_id: Optional[str]) -> Dict[str, Any]:
+        """Get full current arc information."""
+        if not arc_id:
+            return {}
+        
+        try:
+            from app.models.story_arc import StoryArc
+            arc = StoryArc.load(self.story.id, arc_id)
+            if arc:
+                return {
+                    'title': arc.title,
+                    'premise': arc.premise,
+                    'narrative_direction': arc.narrative_direction,
+                    'central_conflict': arc.central_conflict,
+                    'themes': arc.themes,
+                    'character_arc_goals': arc.character_arc_goals,
+                    'unresolved_mysteries': arc.unresolved_mysteries,
+                    'plot_hooks': arc.plot_hooks,
+                    'episode_count': arc.episode_count,
+                    'tone': arc.arc_tone,
+                    'mood': arc.arc_mood,
+                }
+        except Exception as e:
+            logger.warning(f"Failed to get arc info: {e}")
+        
+        return {}
+    
+    def _get_recent_arc_recaps(self, count: int = 10) -> List[Dict[str, Any]]:
+        """Get last N arc recaps from story."""
+        # TODO: Implement arc recap storage and loading
+        # For now, return empty as arcs are tracked in StoryArc model
+        return []
+    
+    def _get_segment_recaps(self, segment_chain: List[str], count: int = 10) -> List[Dict[str, Any]]:
+        """Get recaps for recent segments."""
+        from app.models.segment_recap import SegmentRecap
+        
+        recaps = []
+        
+        # Get last N segments from chain
+        for seg_id in segment_chain[-count:]:
+            try:
+                recap = SegmentRecap.load(self.story.id, f"segment_recap_{seg_id}")
+                if recap:
+                    recaps.append({
+                        'segment_id': recap.segment_id,
+                        'description': recap.short_description,
+                        'key_events': recap.key_events,
+                        'characters': recap.characters_present,
+                        'changes': recap.character_changes,
+                    })
+            except:
+                # Fallback: create basic recap from segment
+                seg = self.story.get_segment(seg_id)
+                if seg:
+                    recaps.append({
+                        'segment_id': seg.id,
+                        'description': seg.short_description,
+                        'characters': seg.characters_present,
+                    })
+        
+        return recaps
+    
+    def _get_recent_segments_full(self, recent_segment_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get full text of last 3 segments for conversation continuation."""
+        full_segments = []
+        
+        for seg_id in recent_segment_ids:
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                full_segments.append({
+                    'segment_id': seg.id,
+                    'description': seg.short_description,
+                    'text': seg.get_plain_text_script() if hasattr(seg, 'get_plain_text_script') else '',
+                    'characters': seg.characters_present,
+                    'changes': seg.change_notes,
+                })
+        
+        return full_segments

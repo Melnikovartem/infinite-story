@@ -191,7 +191,13 @@ class SceneTextGeneratorResponse(TextGeneratorResponse):
     # Updates
     character_status_change: Dict[str, str] = Field(default_factory=dict, description="Changes in character states during the scene")
     location_status_change: Dict[str, str] = Field(default_factory=dict, description="Changes in location status during the scene")
-
+    
+    # Character Evolution (E2-3 Enhanced)
+    change_notes: List[str] = Field(
+        default_factory=list,
+        description="Running log of character/location changes for episode tracking (e.g., 'Knight received conflicting order', 'Trust in king wavered')"
+    )
+    
     # Choices
     choice_1: Optional[str] = Field(None, description="First choice presented to the player")
     choice_2: Optional[str] = Field(None, description="Second choice presented to the player")

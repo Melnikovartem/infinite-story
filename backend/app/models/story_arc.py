@@ -68,6 +68,62 @@ class StoryArc(StoryBase):
         description="Guideline for where arc is heading"
     )
     
+    # ========================================================================
+    # A. THEMES SYSTEM (NEW)
+    # ========================================================================
+    themes: List[str] = Field(
+        default_factory=list,
+        description="List of themes in this arc (e.g., ['betrayal', 'redemption', 'power'])"
+    )
+    theme_weights: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Weights for theme selection (set from defaults, can be customized)"
+    )
+    
+    # ========================================================================
+    # B. CHARACTER DEVELOPMENT (NEW)
+    # ========================================================================
+    character_arc_goals: Dict[str, str] = Field(
+        default_factory=dict,
+        description="character_id -> goal (e.g., 'char_1': 'learn to trust')"
+    )
+    key_characters: List[str] = Field(
+        default_factory=list,
+        description="Character IDs important to this arc"
+    )
+    
+    # ========================================================================
+    # C. NARRATIVE STRUCTURE (NEW)
+    # ========================================================================
+    unresolved_mysteries: List[str] = Field(
+        default_factory=list,
+        description="Questions/mysteries to resolve in this arc"
+    )
+    plot_hooks: List[str] = Field(
+        default_factory=list,
+        description="Key plot points/hooks to explore"
+    )
+    central_conflict: str = Field(
+        default="",
+        description="Main conflict driving this arc"
+    )
+    
+    # ========================================================================
+    # D. GENERATION GUIDANCE (NEW)
+    # ========================================================================
+    arc_tone: str = Field(
+        default="neutral",
+        description="Overall arc tone (different from episode tone)"
+    )
+    arc_mood: str = Field(
+        default="",
+        description="Dominant emotional mood"
+    )
+    generation_guidelines: str = Field(
+        default="",
+        description="Special AI generation instructions for this arc"
+    )
+    
     # Compression status
     is_compressed: bool = Field(
         False,

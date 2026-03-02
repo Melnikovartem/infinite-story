@@ -12,6 +12,7 @@ from app.utils.prompt_builder import ScenePromptBuilder
 if TYPE_CHECKING:
     from ..engine.generator import TextGenerator
     from ..models.text_types import SceneTextGeneratorResponse
+    from .character_state import CharacterStateSnapshot
 
 logger = logging.getLogger("infinite_story.models.story_segment")
 
@@ -103,11 +104,27 @@ class StorySegment(StoryBlock):
     )
     character_states: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
-        description="State snapshot of each character at this segment"
+        description="[DEPRECATED] Keep for backward compatibility - use EpisodeMeta.character_state_snapshot instead"
     )
     change_notes: List[str] = Field(
         default_factory=list,
-        description="Lightweight notes about character/location changes"
+        description="Running log of character/location changes in this segment (e.g., 'Knight discovered the betrayal', 'Relationship with King changed')"
+    )
+    
+    # ========================================================================
+    # E2: Episode Metadata Fields (NEW)
+    # ========================================================================
+    episode_selected_themes: List[str] = Field(
+        default_factory=list,
+        description="Themes selected for this episode (from EpisodeMeta)"
+    )
+    episode_focus: str = Field(
+        default="",
+        description="Episode focus - which character/plot to advance (from EpisodeMeta)"
+    )
+    story_hooks: List[str] = Field(
+        default_factory=list,
+        description="Hooks to explore this episode (from EpisodeMeta)"
     )
     
     # -- Episode Completion Signals (E0-1) --

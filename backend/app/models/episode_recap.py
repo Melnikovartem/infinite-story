@@ -47,11 +47,44 @@ class EpisodeRecap(StoryBase):
     
     # Thematic reflection
     key_themes: List[str] = Field(default_factory=list)
-    tone: str  # e.g., "dark_and_mysterious"
+    tone: str = Field(default="")  # e.g., "dark_and_mysterious"
+    
+    # ========================================================================
+    # NEW: Enhanced Theme & Hook Tracking
+    # ========================================================================
+    themes_explored: List[str] = Field(
+        default_factory=list,
+        description="Which themes from selected_themes were actually explored in segments"
+    )
+    theme_depth: Dict[str, str] = Field(
+        default_factory=dict,
+        description="theme_name -> how deeply was it explored"
+    )
+    hook_for_next: str = Field(
+        default="",
+        description="Hook that bridges to the next episode"
+    )
+    unresolved_new: List[str] = Field(
+        default_factory=list,
+        description="New mysteries/questions raised this episode"
+    )
+    
+    # ========================================================================
+    # NEW: Episode Completion Tracking
+    # ========================================================================
+    episode_complete: bool = Field(
+        default=True,
+        description="Marked True when recap is generated"
+    )
+    segment_count: int = Field(
+        default=0,
+        ge=0,
+        description="How many segments in this episode"
+    )
     
     # Generation metadata
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    generator_model: str = "gpt-4o-mini"
+    generator_model: str = Field(default="gpt-4o-mini")
     
     def get_short_overview(self) -> str:
         """Brief summary for UI."""

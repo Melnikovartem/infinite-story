@@ -11,6 +11,7 @@ from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
 from ..models.episode_recap import EpisodeRecap
+from ..models.segment_recap import SegmentRecap
 from ..engine.segment_context_builder import SegmentContextBuilder
 from ..engine.episode_recap_generator import EpisodeRecapGenerator
 
@@ -458,6 +459,11 @@ class StoryRunner:
                 end_condition_proximity=0.0,  # Would come from AI response
                 triggers_episode_transition=False,  # New segment doesn't trigger transition yet
                 status=SegmentStatus.GENERATED,
+                
+                # NEW FIELDS (E2 Enhanced)
+                episode_selected_themes=context.get('episode_selected_themes', []),
+                episode_focus=context.get('episode_focus', ''),
+                story_hooks=context.get('story_hooks', []),
             )
             logger.debug(f"Created segment {segment_id}")
             
@@ -479,6 +485,9 @@ class StoryRunner:
             new_segment.save()
             logger.info(f"Saved segment {segment_id} and choices")
             
+            # Create and save SegmentRecap for context building (E2-6)
+            self._create_and_save_segment_recap(new_segment, context)
+            
             return new_segment
         
         except Exception as e:
@@ -486,10 +495,12 @@ class StoryRunner:
             raise ValueError(f"Segment generation failed: {str(e)}")
     
     def _build_generation_prompt(self, context: Dict[str, Any]) -> str:
-        """Build a detailed prompt for AI generation.
+        """Build a detailed prompt for AI generation (E2 Enhanced).
         
         Combines context information into a structured prompt that guides the AI
         to generate a coherent, paced, and consistent story segment.
+        
+        Now includes arc context, themes, and character arc goals.
         
         Args:
             context: Generation context dict from SegmentContextBuilder
@@ -502,31 +513,115 @@ class StoryRunner:
         
         prompt = f"""You are a creative storyteller continuing a narrative.
 
-EPISODE CONTEXT:
-- Episode: {context['episode_number']}
-- Tone: {context['episode_tone']}
-- End Condition: {context['episode_end_condition']}
-- Scene {context['segment_number_in_episode']} of ~20
-- Pacing: {context['pacing_weight']:.1%} toward episode end
+ARC CONTEXT:
+────────────
+Arc Premise: {context.get('arc_premise', 'N/A')}
+Central Conflict: {context.get('central_conflict', 'N/A')}
+Arc Themes: {', '.join(context.get('arc_themes', []))}
+Arc Tone: {context.get('arc_tone', 'neutral')} - {context.get('arc_mood', '')}
 
+Character Arc Goals:
+"""
+        
+        for char_id, goal in context.get('character_arc_goals', {}).items():
+            prompt += f"  • {char_id}: {goal}\n"
+        
+        prompt += f"""
+EPISODE CONTEXT:
+────────────────
+Episode: {context['episode_number']}
+Focus: {context.get('episode_focus', 'Main narrative')}
+Selected Themes: {', '.join(context.get('episode_selected_themes', []))}
+Tone: {context['episode_tone']}
+End Condition: {context['episode_end_condition']}
+Scene {context['segment_number_in_episode']} of ~20
+Pacing: {context['pacing_weight']:.0%} toward episode end
+
+Episode Hooks to Explore:
+"""
+        
+        for hook in context.get('story_hooks', []):
+            prompt += f"  • {hook}\n"
+        
+        prompt += f"""
+Unresolved Arc Mysteries:
+"""
+        
+        for mystery in context.get('unresolved_mysteries', [])[:3]:  # Limit to 3
+            prompt += f"  • {mystery}\n"
+        
+        prompt += f"""
 PREVIOUS SCENES:
+────────────────
 {prev_scenes}
 
 CHARACTER STATES:
-{json.dumps(context.get('character_states', {}), indent=2)}
+─────────────────
+{json.dumps(context.get('character_states', {{}}), indent=2, default=str)}
 
 ACCUMULATED CHANGES THIS EPISODE:
+──────────────────────────────────
 {changes_str}
 
 USER CHOSE: "{context['user_choice']}"
 
 Generate the next scene that:
-1. Follows naturally from the choice
-2. Respects character states and changes
-3. Maintains the episode tone
-4. Advances toward the end condition
-5. Leaves room for {20 - context['segment_number_in_episode']} more scenes
+1. Follows naturally from the user's choice
+2. Respects current character states (emotions, health, relationships)
+3. Maintains the selected themes: {', '.join(context.get('episode_selected_themes', []))}
+4. Advances the episode focus: {context.get('episode_focus', 'main narrative')}
+5. Moves toward the end condition: {context['episode_end_condition']}
+6. Stays true to arc premise: {context.get('arc_premise', 'the overarching narrative')}
+7. Explores at least one hook: {', '.join(context.get('story_hooks', [])[:1])}
 
-Respond with a brief scene description (2-3 sentences).
+Respond with:
+- A 2-3 sentence scene description
+- Track any character state changes (mood, health, relationships, items)
+- Provide change_notes in format: "Character X did Y" or "Relationship changed"
 """
         return prompt
+    
+    def _create_and_save_segment_recap(
+        self,
+        segment: StorySegment,
+        context: Dict[str, Any]
+    ) -> None:
+        """Create and save a SegmentRecap for context building (E2-6).
+        
+        Called after segment generation to create a quick reference recap
+        that can be loaded during context building without loading full segment.
+        
+        Args:
+            segment: The newly generated StorySegment
+            context: The generation context dict
+        """
+        try:
+            # Extract key events from change_notes (if available)
+            change_notes = segment.change_notes or context.get('accumulated_changes', [])
+            key_events = change_notes[:4] if change_notes else []  # Limit to 4
+            
+            # Get characters present in current segment
+            characters_present = list(context.get('character_states', {}).keys())
+            
+            # Create recap
+            recap = SegmentRecap(
+                story_id=self.story.id,
+                segment_id=segment.id,
+                episode_number=segment.episode_number,
+                arc_id=segment.arc_id or self.current_arc_id or "",
+                segment_number_in_episode=segment.segment_number_in_episode,
+                short_description=segment.short_description or "",
+                key_events=key_events,
+                characters_present=characters_present,
+                character_changes=change_notes,  # Use change_notes as character changes
+                change_notes=change_notes,
+                themes_present=segment.episode_selected_themes or context.get('episode_selected_themes', []),
+            )
+            
+            # Save recap to disk
+            recap.save()
+            logger.debug(f"Created and saved SegmentRecap for segment {segment.id}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to create SegmentRecap for segment {segment.id}: {e}")
+            # Don't raise - this is optional for context building
