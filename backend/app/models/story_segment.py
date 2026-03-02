@@ -337,30 +337,40 @@ class StorySegment(StoryBlock):
             A new StorySegment instance
         """
         # Generate the scene prompt using all available context
+        logger.debug(f"[GEN_SCENE_START] Starting scene generation for choice: {connecting_choice.text[:50]}...")
         logger.debug(f"Building prompt for choice: {connecting_choice.text[:50]}...")
         prompt_builder = ScenePromptBuilder(self)
+        logger.debug(f"[GEN_SCENE_PROMPT_BUILD] Building prompt with ScenePromptBuilder")
         user_prompt = prompt_builder.build_prompt(connecting_choice.text)
         logger.debug(f"Built prompt with {len(user_prompt)} characters")
+        logger.debug(f"[GEN_SCENE_PROMPT_DONE] Prompt built successfully")
 
         # Generate the new scene
-        logger.debug("Calling generator.generate()")
+        logger.debug("[GEN_SCENE_GEN_START] Calling generator.generate()")
         scene_response: SceneTextGeneratorResponse = await generator.generate(
             system_prompt="",  # Use default system prompt
             user_prompt=user_prompt,
             context_type="scene"
         )
+        logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response")
         logger.debug(f"Generator returned response")
 
         # Check if there was an error during generation
         if scene_response.error:
+            logger.error(f"[GEN_SCENE_ERROR] Scene generation failed: {scene_response.error}")
             raise ValueError(f"Scene generation failed: {scene_response.error}")
+
+        logger.debug(f"[GEN_SCENE_RESPONSE_OK] Response validated successfully")
 
         # Generate unique segment ID based on total number of segments
         import uuid
+        logger.debug(f"[GEN_SCENE_ID_GEN] Generating unique segment ID")
         segment_count = len(self.story.get_all_segments())
         new_segment_id = f"segment_{segment_count + 1}_{uuid.uuid4().hex[:8]}"
+        logger.debug(f"[GEN_SCENE_ID_CREATED] New segment ID: {new_segment_id}")
 
         # Create new segment
+        logger.debug(f"[GEN_SCENE_CREATE_OBJ] Creating new StorySegment object")
         new_segment = StorySegment(
             story=self.story,
             id=new_segment_id,
@@ -373,8 +383,10 @@ class StorySegment(StoryBlock):
             characters_present=scene_response.characters_present,
             locations_present=scene_response.locations_present
         )
+        logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
 
         # Copy over existing running status from current segment
+        logger.debug(f"[GEN_SCENE_COPY_STATUS] Copying character and location statuses")
         new_segment.characters_running_status.extend(self.characters_running_status)
         new_segment.locations_running_status.extend(self.locations_running_status)
 
@@ -395,12 +407,16 @@ class StorySegment(StoryBlock):
             )
             logger.debug(f"  Location '{loc_id}' status: {new_status}")
 
+        logger.debug(f"[GEN_SCENE_UPDATE_STATUS_DONE] Status updates completed")
+
         # Set up the choice pointers for connecting choice
+        logger.debug(f"[GEN_SCENE_CONNECT_CHOICE] Connecting choice to new segment")
         connecting_choice.to_segment_id = new_segment.id
         new_segment.add_incoming_choice(connecting_choice)
         self.add_outgoing_choice(connecting_choice)
 
         # Generate unique choice IDs based on total number of choices
+        logger.debug(f"[GEN_SCENE_CREATE_CHOICES] Creating new choices for the segment")
         choice_count = len(self.story.get_all_choices())
         choice_1_id = f"choice_{choice_count + 1}_{uuid.uuid4().hex[:8]}"
         choice_2_id = f"choice_{choice_count + 2}_{uuid.uuid4().hex[:8]}"
@@ -421,15 +437,20 @@ class StorySegment(StoryBlock):
             to_segment_id=None,
             text=scene_response.choice_2
         )
+        logger.debug(f"[GEN_SCENE_CHOICES_CREATED] Created choices: {choice_1_id}, {choice_2_id}")
 
         # Add outgoing choices to new segment
         new_segment.add_outgoing_choice(choice_1)
         new_segment.add_outgoing_choice(choice_2)
         
         # Save everything
+        logger.debug(f"[GEN_SCENE_SAVE_START] Saving segment and choices")
         new_segment.save()
         choice_1.save()
         choice_2.save()
+        logger.debug(f"[GEN_SCENE_SAVE_DONE] All entities saved successfully")
+        logger.debug(f"[GEN_SCENE_COMPLETE] Scene generation completed successfully. New segment: {new_segment.id}")
         connecting_choice.save()
+        logger.debug(f"[GEN_SCENE_RETURN] Returning new segment")
         
         return new_segment

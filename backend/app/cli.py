@@ -133,8 +133,10 @@ def clear_state(story_id: str = typer.Argument(..., help="Story ID to reset")):
 
 async def _initialize_generator(config: Config):
     """Initialize and return generator based on config."""
+    logger.debug(f"[INIT_GEN_START] Initializing generator with provider: {config.generator.provider}")
     if config.generator.provider == "openrouter":
         logger.info(f"Initializing OpenRouter generator with model: {config.generator.model}")
+        logger.debug(f"[INIT_GEN_OPENROUTER] Creating OpenRouter generator instance")
         generator = OpenRouterGenerator(
             api_key=config.generator.api_key,
             model=config.generator.model,
@@ -144,9 +146,11 @@ async def _initialize_generator(config: Config):
             site_name=config.generator.site_name,
             auto_fallback=True
         )
+        logger.debug(f"[INIT_GEN_OPENROUTER_DONE] OpenRouter generator initialized")
         console.print(f"[cyan]Using OpenRouter with model: {generator.model}[/cyan]")
     else:  # openai
         logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
+        logger.debug(f"[INIT_GEN_OPENAI] Creating OpenAI generator instance")
         generator = OpenAIGenerator(
             api_base=config.generator.base_url,
             api_key=config.generator.api_key,
@@ -154,7 +158,9 @@ async def _initialize_generator(config: Config):
             temperature=config.generator.temperature,
             max_tokens=config.generator.max_tokens
         )
+        logger.debug(f"[INIT_GEN_OPENAI_DONE] OpenAI generator initialized")
         console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
+    logger.debug(f"[INIT_GEN_DONE] Generator initialization complete")
     return generator
 
 async def _run_immersive_mode(runner: StoryRunner, generator):
@@ -205,30 +211,42 @@ async def _run_debug_mode(runner: StoryRunner, generator):
     from app.ui.debug_display import display_segment_debug, display_next_context_debug, prompt_choice_debug
     
     try:
+        logger.info("[DEBUG_MODE_START] Starting debug mode game loop")
         while runner.is_running:
+            logger.debug(f"[DEBUG_LOOP_ITER] Game loop iteration. Current segment: {runner.current_segment.id if runner.current_segment else 'None'}")
+            
             # Display with full context
             if runner.current_segment:
+                logger.debug(f"[DEBUG_DISPLAY_SEG] Displaying segment: {runner.current_segment.id}")
                 display_segment_debug(runner.current_segment)
             
             # Show generation context for next choice
             try:
+                logger.debug("[DEBUG_DISPLAY_CONTEXT] Displaying generation context")
                 display_next_context_debug(runner, runner.current_segment)
             except Exception as e:
                 logger.debug(f"Could not display next context: {e}")
             
             # Get choices
+            logger.debug("[DEBUG_GET_CHOICES] Getting available choices")
             choices = runner.get_available_choices()
             if not choices:
                 console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
                 logger.info("Story ended - no more choices available")
                 break
             
+            logger.debug(f"[DEBUG_CHOICES_COUNT] Found {len(choices)} available choices")
+            
             # Get user choice
+            logger.debug("[DEBUG_PROMPT_CHOICE] Waiting for user choice input")
             choice_id = prompt_choice_debug(runner.current_segment, choices)
+            logger.debug(f"[DEBUG_CHOICE_SELECTED] User selected choice: {choice_id}")
             
             # Execute choice
             try:
+                logger.debug(f"[DEBUG_EXEC_CHOICE] Calling _execute_choice for choice: {choice_id}")
                 await _execute_choice(runner, choice_id, generator, is_debug=True)
+                logger.debug(f"[DEBUG_EXEC_CHOICE_DONE] Choice execution completed")
             except Exception as e:
                 error_type, technical_msg = handle_api_error(e)
                 message, suggestion = ErrorHandler.handle_error(
@@ -238,10 +256,13 @@ async def _run_debug_mode(runner: StoryRunner, generator):
                 )
                 console.print(f"[red]Error: {message}[/red]")
                 console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+                logger.error(f"[DEBUG_EXEC_CHOICE_ERROR] Choice execution failed: {str(e)}", exc_info=True)
                 continue
             
             # Auto-save state
+            logger.debug("[DEBUG_SAVE_STATE] Saving game state")
             runner.save_state()
+            logger.debug("[DEBUG_SAVE_STATE_DONE] Game state saved")
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
@@ -252,24 +273,32 @@ async def _run_debug_mode(runner: StoryRunner, generator):
 
 async def _execute_choice(runner: StoryRunner, choice_id: str, generator, is_debug: bool = False):
     """Execute a choice and advance the story."""
+    logger.debug(f"[EXEC_CHOICE_START] Executing choice: {choice_id}")
     choice = runner.story.get_choice(choice_id)
     if not choice:
         console.print(f"[red]Choice '{choice_id}' not found[/red]")
+        logger.error(f"[EXEC_CHOICE_ERROR] Choice not found: {choice_id}")
         return
     
     # Check if choice leads to existing segment or needs generation
     if choice.to_segment_id:
         # Navigate to existing segment
+        logger.debug(f"[EXEC_CHOICE_NAV] Navigating to existing segment: {choice.to_segment_id}")
         runner.make_choice(choice_id)
         if is_debug:
             console.print(f"\n[cyan]Navigated to segment: {runner.current_segment.id}[/cyan]")
+        logger.debug(f"[EXEC_CHOICE_NAV_DONE] Navigation complete. Current segment: {runner.current_segment.id}")
     else:
         # Generate new segment
+        logger.debug(f"[EXEC_CHOICE_GEN_START] Starting generation for choice: {choice.text}")
         with console.status("[bold yellow]Generating next scene...[/bold yellow]", spinner="dots"):
+            logger.debug(f"[EXEC_CHOICE_GEN_CALL] Calling generate_next_scene()")
             new_segment = await runner.current_segment.generate_next_scene(choice, generator)
+            logger.debug(f"[EXEC_CHOICE_GEN_RECEIVED] Received new segment: {new_segment.id}")
             runner.current_segment = new_segment
             runner.visited_segments.add(new_segment.id)
             console.print("[green]Scene generated successfully![/green]")
+            logger.debug(f"[EXEC_CHOICE_GEN_DONE] New segment set as current: {new_segment.id}")
             
             if is_debug:
                 console.print(f"\n[cyan]New segment: {new_segment.id}[/cyan]")
