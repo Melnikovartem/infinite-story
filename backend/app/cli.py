@@ -854,6 +854,99 @@ def test_generation(
     """Test scene generation with a story."""
     asyncio.run(test_generation_async(story_id))
 
+async def test_world_generation_async(story_id: str, user_input: str = ""):
+    """Test world generation for a story."""
+    from app.engine.generators.world_generator import WorldGenerator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for world generation test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator based on provider
+    if config.generator.provider == "openrouter":
+        logger.info(f"Initializing OpenRouter generator with model: {config.generator.model}")
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:  # openai
+        logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(f"[cyan]Testing world generation for story: {story_id}[/cyan]")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    console.print(f"[green]Loaded story: {story.title}[/green]")
+    console.print(f"[green]Description: {story.description}[/green]")
+    console.print(f"[green]Genre: {story.genre}[/green]\n")
+
+    # Initialize world generator
+    world_gen = WorldGenerator(generator)
+
+    # Generate world context
+    console.print("[bold yellow]⏳ Generating world context...[/bold yellow]")
+    try:
+        context = await world_gen.generate_world_context(
+            story=story,
+            user_input=user_input
+        )
+
+        console.print("[green]✅ World context generated successfully![/green]\n")
+        
+        # Display fundamental truths
+        console.print("[bold cyan]Fundamental Truths:[/bold cyan]")
+        for i, truth in enumerate(context.fundamental_truths, 1):
+            console.print(f"  {i}. {truth}")
+        
+        # Display worldbuilding details
+        console.print("\n[bold cyan]Worldbuilding Details:[/bold cyan]")
+        for key, value in context.worldbuilding.items():
+            console.print(f"  [yellow]{key.upper()}:[/yellow]")
+            # Truncate long values for display
+            if isinstance(value, str) and len(value) > 200:
+                console.print(f"    {value[:200]}...")
+            else:
+                console.print(f"    {value}")
+
+    except Exception as e:
+        console.print(f"[red]Error generating world context: {str(e)}[/red]")
+        logger.error(f"World generation error: {e}", exc_info=True)
+
+@app.command()
+def test_world_generation(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to test with"),
+    user_input: str = typer.Option("", help="Optional user input for world generation")
+):
+    """Test world generation with a story."""
+    asyncio.run(test_world_generation_async(story_id, user_input))
+
 @app.command()
 def list_models(
     provider: str = typer.Option(

@@ -22,17 +22,13 @@ class WorldGenerator:
     
     async def generate_world_context(
         self,
-        story_id: str,
-        story_title: str,
-        story_description: str,
+        story,
         user_input: str = ""
     ) -> StoryContext:
         """Generate world context from story details.
         
         Args:
-            story_id: ID of the story
-            story_title: Title of the story
-            story_description: Description of the story
+            story: Story instance to generate context for
             user_input: Optional user-provided world information
             
         Returns:
@@ -42,12 +38,12 @@ class WorldGenerator:
             ValueError: If generation fails
         """
         try:
-            logger.info(f"Generating world context for story '{story_title}'")
+            logger.info(f"Generating world context for story '{story.title}'")
             
             # Build prompt
             prompt = self._build_world_prompt(
-                story_title,
-                story_description,
+                story.title,
+                story.description,
                 user_input
             )
             
@@ -69,8 +65,9 @@ class WorldGenerator:
             
             # Create context
             context = StoryContext(
-                id=f"context_{story_id}",
-                story_id=story_id,
+                id=f"context_{story.id}",
+                story_id=story.id,
+                story=story,
                 fundamental_truths=fundamental_truths,
                 worldbuilding=worldbuilding
             )
