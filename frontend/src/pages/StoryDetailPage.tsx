@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { StoryDetail } from '../types'
-import * as api from '../services/mockApi'
+import * as api from '../services/api'
 import CharacterAvatar from '../components/CharacterAvatar'
 import './StoryDetailPage.css'
 

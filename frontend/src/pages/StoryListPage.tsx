@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Story } from '../types'
-import * as api from '../services/mockApi'
+import * as api from '../services/api'
 import './StoryListPage.css'
 
 export default function StoryListPage() {
@@ -15,7 +15,9 @@ export default function StoryListPage() {
       try {
         setLoading(true)
         const response = await api.fetchStories()
-        setStories(response.stories)
+        // Handle both array format and object format
+        const storiesList = Array.isArray(response) ? response : (response.stories || [])
+        setStories(storiesList)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load stories')
       } finally {
@@ -56,7 +58,7 @@ export default function StoryListPage() {
           {stories.map(story => (
             <div key={story.id} className="story-card">
               <h3>{story.title}</h3>
-              <p className="author">By {story.author}</p>
+              {story.genre && <p className="genre">{story.genre}</p>}
               <p className="description">{story.description}</p>
               <button
                 className="play-button"
