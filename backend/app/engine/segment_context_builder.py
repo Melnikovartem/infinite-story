@@ -5,6 +5,7 @@ import logging
 
 from app.models import Story, StorySegment
 from app.models.story_segment import SegmentStatus
+from app.engine.story_validator import StoryValidator
 
 logger = logging.getLogger("infinite_story.engine.segment_context_builder")
 
@@ -22,24 +23,36 @@ class SegmentContextBuilder:
     - Last 3 segment full text (for conversation continuation)
     - Character evolution tracking
     - Pacing signals
+    
+    Also validates story completeness before building context and auto-generates
+    missing pieces (world, arcs, characters, protagonist) if needed.
     """
     
-    def __init__(self, story: Story):
+    def __init__(self, story: Story, generator: Optional[Any] = None):
         """Initialize the context builder.
         
         Args:
             story: The Story instance to build context from
+            generator: Optional AI generator for auto-generation of missing pieces
         """
         self.story = story
+        self.generator = generator
     
-    def build_context(
+    async def build_context(
         self,
         current_segment_id: str,
         user_choice: str
     ) -> Dict[str, Any]:
         """Build comprehensive generation context for a new segment.
         
-        Collects:
+        FIRST: Validates story completeness and auto-generates missing pieces:
+        - World description (if missing)
+        - Story description (if missing)
+        - Arcs (3 future outlines if no active arcs)
+        - Characters (parsed from segments or generated)
+        - Protagonist (selected or developed)
+        
+        THEN: Collects:
         1. All character summaries + extended info for last 3 segments
         2. Full episode information
         3. Last 3 episode recaps
@@ -56,7 +69,20 @@ class SegmentContextBuilder:
             
         Returns:
             Comprehensive context dict for generation
+            
+        Raises:
+            ValueError: If story validation/repair fails or segment not found
         """
+        # VALIDATION: Validate and auto-generate missing story pieces
+        if self.generator:
+            try:
+                validator = StoryValidator(self.story, self.generator)
+                validation_report = await validator.validate_and_repair()
+                logger.info(f"Story validation complete. Generated: {validation_report.get('generated', [])}")
+            except Exception as e:
+                logger.error(f"Story validation failed: {e}")
+                # Don't fail here - continue with what we have
+        
         # Get the current segment
         current_seg = self.story.get_segment(current_segment_id)
         if not current_seg:

@@ -350,8 +350,8 @@ class StoryRunner:
         
         try:
             # Build rich context for generation
-            builder = SegmentContextBuilder(self.story)
-            context = builder.build_context(
+            builder = SegmentContextBuilder(self.story, self.generator)
+            context = await builder.build_context(
                 self.current_segment.id,
                 choice.text
             )

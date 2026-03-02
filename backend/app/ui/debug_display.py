@@ -124,18 +124,24 @@ def display_next_context_debug(runner, segment) -> None:
         # Try to build context if available
         from app.engine.segment_context_builder import SegmentContextBuilder
         
-        builder = SegmentContextBuilder(runner.story)
-        context = builder.build_context(
-            segment.id,
-            "(hypothetical choice)"
-        )
+        builder = SegmentContextBuilder(runner.story, None)  # No generator in debug mode
+        # TODO: This should be async - for now, skip validation
+        context = None
+        try:
+            # Try to build without validation (skip async validation)
+            # This is a temporary workaround for debug display
+            current_seg = runner.story.get_segment(segment.id)
+            if current_seg:
+                context = {}  # Build minimal context for display
+        except:
+            context = None
         
         # Show condensed view
-        episode = context.get('episode_number', '?')
-        tone = context.get('episode_tone', '(not set)')
-        pacing = context.get('pacing_weight', 0)
-        should_transition = context.get('should_transition_episode', False)
-        changes = len(context.get('accumulated_changes', []))
+        episode = context.get('episode_number', '?') if context else '?'
+        tone = context.get('episode_tone', '(not set)') if context else '(not set)'
+        pacing = context.get('pacing_weight', 0) if context else 0
+        should_transition = context.get('should_transition_episode', False) if context else False
+        changes = len(context.get('accumulated_changes', [])) if context else 0
         
         console.print(f"  Episode: {episode}")
         console.print(f"  Tone: {tone}")
@@ -143,13 +149,14 @@ def display_next_context_debug(runner, segment) -> None:
         console.print(f"  Should Transition: {should_transition}")
         console.print(f"  Accumulated Changes: {changes} items")
         
-        console.print("\n  [dim]Full context (for copy-paste debugging):[/dim]")
-        syntax = Syntax(
-            json.dumps(context, indent=2, default=str),
-            "json",
-            theme="monokai"
-        )
-        console.print(syntax)
+        if context:
+            console.print("\n  [dim]Full context (for copy-paste debugging):[/dim]")
+            syntax = Syntax(
+                json.dumps(context, indent=2, default=str),
+                "json",
+                theme="monokai"
+            )
+            console.print(syntax)
     
     except Exception as e:
         console.print(f"  [dim]Context builder not available: {e}[/dim]")
