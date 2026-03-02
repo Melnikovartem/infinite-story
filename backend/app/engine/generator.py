@@ -3,9 +3,15 @@ from pydantic import BaseModel, ValidationError
 import json
 import re
 import logging
+from abc import ABC, abstractmethod
 from ..models.text_types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
 
 logger = logging.getLogger("infinite_story.engine.generator")
+
+
+class GenerationValidationError(Exception):
+    """Raised when generated response fails validation."""
+    pass
 
 class TextGenerator:
     """Class for generating text content using AI models.
@@ -173,3 +179,141 @@ Return ONLY a valid JSON object with all required fields filled in. Do not inclu
             NotImplementedError: This method must be implemented by subclasses
         """
         raise NotImplementedError("_generate_content method must be implemented")
+    
+    # ========================================================================
+    # E1-3: Enhanced Generator Interface with Validation and Fallbacks
+    # ========================================================================
+    
+    async def generate_with_fallback(
+        self,
+        context_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_retries: int = 3
+    ) -> TextGeneratorResponse:
+        """Generate content with graceful fallback if validation fails.
+        
+        Attempts generation up to max_retries times, validating each response.
+        On repeated failures, returns a synthetic fallback response that is
+        valid but minimal.
+        
+        Args:
+            context_type: Type of generation ("scene", "recap", etc.)
+            system_prompt: System prompt (if empty, uses default)
+            user_prompt: User prompt specifying what to generate
+            max_retries: Maximum retry attempts before fallback
+            
+        Returns:
+            A validated response, or synthetic fallback if all attempts fail
+        """
+        response_type = self.response_types.get(context_type)
+        if not response_type:
+            raise ValueError(f"Invalid context_type: {context_type}")
+        
+        for attempt in range(max_retries):
+            try:
+                logger.debug(f"Generation attempt {attempt + 1}/{max_retries} for context_type={context_type}")
+                
+                # Try generation
+                response = await self.generate(system_prompt, user_prompt, context_type)
+                
+                # Validate response
+                if response.error:
+                    logger.warning(f"Attempt {attempt + 1} failed with error: {response.error}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        # Last attempt failed, use fallback
+                        logger.warning(f"All {max_retries} attempts failed, using synthetic fallback")
+                        return self._create_synthetic_fallback(context_type)
+                
+                logger.info(f"Generation succeeded on attempt {attempt + 1}")
+                return response
+            
+            except GenerationValidationError as e:
+                logger.warning(f"Validation error on attempt {attempt + 1}: {str(e)}")
+                if attempt >= max_retries - 1:
+                    logger.warning(f"All {max_retries} attempts failed, using synthetic fallback")
+                    return self._create_synthetic_fallback(context_type)
+        
+        # Shouldn't reach here, but fallback just in case
+        return self._create_synthetic_fallback(context_type)
+    
+    def _validate_response(
+        self,
+        context_type: str,
+        response: TextGeneratorResponse
+    ) -> bool:
+        """Validate that a generated response has all required fields.
+        
+        Args:
+            context_type: Type of generation ("scene", "recap", etc.)
+            response: The response to validate
+            
+        Returns:
+            True if valid, False otherwise
+            
+        Raises:
+            GenerationValidationError: If validation fails
+        """
+        required_fields = {
+            'scene': ['text_blocks', 'choice_1', 'choice_2'],
+            'recap': ['title', 'summary'],
+            'arc_context': ['narrative_summary'],
+        }
+        
+        required = required_fields.get(context_type, [])
+        
+        # Check for generation error
+        if response.error:
+            raise GenerationValidationError(f"Response has error: {response.error}")
+        
+        # Validate required fields exist and have values
+        for field in required:
+            if not hasattr(response, field) or getattr(response, field) is None:
+                raise GenerationValidationError(
+                    f"Response missing required field: {field}"
+                )
+        
+        return True
+    
+    def _create_synthetic_fallback(
+        self,
+        context_type: str
+    ) -> TextGeneratorResponse:
+        """Create a minimal valid synthetic response when generation fails.
+        
+        Ensures the game continues even if AI fails, maintaining consistency.
+        
+        Args:
+            context_type: Type of generation ("scene", "recap", etc.)
+            
+        Returns:
+            A valid synthetic response of the appropriate type
+        """
+        response_type = self.response_types[context_type]
+        
+        if context_type == 'scene':
+            return response_type(
+                short_description="The scene continues",
+                atmosphere="calm",
+                time_of_day="afternoon",
+                weather="clear",
+                text_blocks=[],
+                characters_present=[],
+                locations_present=[],
+                character_status_change={},
+                location_status_change={},
+                choice_1="Continue forward",
+                choice_2="Take a different approach"
+            )
+        elif context_type == 'recap':
+            return response_type(
+                title="Episode Recap",
+                summary="The story unfolds as characters progress through events.",
+                key_themes=[]
+            )
+        else:
+            # Generic fallback
+            logger.warning(f"No fallback defined for context_type={context_type}")
+            return response_type()

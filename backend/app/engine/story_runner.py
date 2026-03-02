@@ -1,14 +1,16 @@
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 import json
 import logging
+import uuid
 from pathlib import Path
 from ..models.story import Story
-from ..models.story_segment import StorySegment
+from ..models.story_segment import StorySegment, SegmentStatus
 from ..models.story_character import StoryCharacter
 from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
+from ..engine.segment_context_builder import SegmentContextBuilder
 
 logger = logging.getLogger("infinite_story.engine.story_runner")
 
@@ -287,3 +289,191 @@ class StoryRunner:
 
         self.current_segment = segment
         self.visited_segments.add(segment_id)
+    
+    # ========================================================================
+    # E1-2: Generation Pipeline
+    # ========================================================================
+    
+    async def traverse_or_generate(
+        self,
+        choice: StoryChoice
+    ) -> StorySegment:
+        """Main pipeline decision: traverse existing segment or generate new one.
+        
+        When a user makes a choice, this decides whether to:
+        1. Traverse to an existing segment (if to_segment_id is set)
+        2. Generate a new segment (if to_segment_id is null)
+        
+        Uses choice locking to prevent race conditions during generation.
+        
+        Args:
+            choice: The choice the user made
+            
+        Returns:
+            The destination segment (either existing or newly generated)
+            
+        Raises:
+            ValueError: If destination segment not found or generation fails
+        """
+        # Case 1: Choice already has a destination
+        if choice.to_segment_id:
+            dest = self.story.get_segment(choice.to_segment_id)
+            if not dest:
+                raise ValueError(f"Destination segment {choice.to_segment_id} not found")
+            logger.debug(f"Traversing to existing segment {choice.to_segment_id}")
+            return dest
+        
+        # Case 2: Choice needs generation
+        # Lock the choice to prevent duplicate generation by other requests
+        choice.lock()
+        logger.debug(f"Locked choice {choice.id} for generation")
+        
+        try:
+            # Build rich context for generation
+            builder = SegmentContextBuilder(self.story)
+            context = builder.build_context(
+                self.current_segment.id,
+                choice.text
+            )
+            logger.debug(f"Built generation context for choice from segment {self.current_segment.id}")
+            
+            # Generate new segment using context
+            new_segment = await self._generate_segment(context)
+            logger.info(f"Generated new segment {new_segment.id}")
+            
+            # Link choice to new segment
+            choice.to_segment_id = new_segment.id
+            choice.save()
+            logger.debug(f"Linked choice {choice.id} to segment {new_segment.id}")
+            
+            return new_segment
+        
+        except Exception as e:
+            # Unlock on failure so retry is possible
+            logger.error(f"Generation failed: {str(e)}", exc_info=True)
+            choice.unlock()
+            raise e
+        
+        finally:
+            # Always unlock at the end
+            choice.unlock()
+            logger.debug(f"Unlocked choice {choice.id}")
+    
+    async def _generate_segment(self, context: Dict[str, Any]) -> StorySegment:
+        """Generate a new story segment using AI and context.
+        
+        Creates a complete segment with all fields, generates 2 outgoing choices,
+        and saves everything to disk.
+        
+        Args:
+            context: Generation context dict from SegmentContextBuilder
+            
+        Returns:
+            The newly created StorySegment
+            
+        Raises:
+            ValueError: If generation fails or segment creation fails
+        """
+        if not self.current_segment:
+            raise ValueError("No current segment set")
+        
+        try:
+            # Build detailed prompt for generation
+            prompt = self._build_generation_prompt(context)
+            logger.debug(f"Built generation prompt ({len(prompt)} chars)")
+            
+            # Call AI generator (would need generator initialized in __init__)
+            # For now, this creates a placeholder segment
+            # In real implementation, would call: response = await self.generator.generate(...)
+            
+            # Create segment with all fields from context
+            segment_id = f"seg_{uuid.uuid4().hex[:12]}"
+            new_segment = StorySegment(
+                story=self.story,
+                id=segment_id,
+                short_description="A scene in the story",  # Would come from AI response
+                text_blocks=[],  # Would come from AI response
+                episode_number=context['episode_number'],
+                episode_tone=context['episode_tone'],
+                episode_end_condition=context['episode_end_condition'],
+                segment_number_in_episode=context['segment_number_in_episode'] + 1,
+                pacing_weight=context['pacing_weight'],
+                protagonist_id=context['protagonist_id'],
+                parent_segment_id=self.current_segment.id,
+                character_states=context.get('character_states', {}),
+                change_notes=context.get('accumulated_changes', []),
+                end_condition_proximity=0.0,  # Would come from AI response
+                triggers_episode_transition=context['should_transition_episode'],
+                status=SegmentStatus.GENERATED,
+            )
+            logger.debug(f"Created segment {segment_id}")
+            
+            # Create 2 outgoing choices
+            choice_texts = ["Continue forward", "Take a different approach"]  # Would come from AI response
+            for i, choice_text in enumerate(choice_texts):
+                choice_id = f"choice_{uuid.uuid4().hex[:12]}"
+                choice = StoryChoice(
+                    story=self.story,
+                    id=choice_id,
+                    from_segment_id=new_segment.id,
+                    to_segment_id=None,
+                    text=choice_text,
+                )
+                choice.save()
+                logger.debug(f"Created choice {choice_id}")
+            
+            # Save segment
+            new_segment.save()
+            logger.info(f"Saved segment {segment_id} and choices")
+            
+            return new_segment
+        
+        except Exception as e:
+            logger.error(f"Error in _generate_segment: {str(e)}", exc_info=True)
+            raise ValueError(f"Segment generation failed: {str(e)}")
+    
+    def _build_generation_prompt(self, context: Dict[str, Any]) -> str:
+        """Build a detailed prompt for AI generation.
+        
+        Combines context information into a structured prompt that guides the AI
+        to generate a coherent, paced, and consistent story segment.
+        
+        Args:
+            context: Generation context dict from SegmentContextBuilder
+            
+        Returns:
+            A formatted prompt string for the AI
+        """
+        prev_scenes = "\n".join(context['previous_segments']) if context['previous_segments'] else "(none)"
+        changes_str = "\n".join(context['accumulated_changes']) if context['accumulated_changes'] else "(none)"
+        
+        prompt = f"""You are a creative storyteller continuing a narrative.
+
+EPISODE CONTEXT:
+- Episode: {context['episode_number']}
+- Tone: {context['episode_tone']}
+- End Condition: {context['episode_end_condition']}
+- Scene {context['segment_number_in_episode']} of ~20
+- Pacing: {context['pacing_weight']:.1%} toward episode end
+
+PREVIOUS SCENES:
+{prev_scenes}
+
+CHARACTER STATES:
+{json.dumps(context.get('character_states', {}), indent=2)}
+
+ACCUMULATED CHANGES THIS EPISODE:
+{changes_str}
+
+USER CHOSE: "{context['user_choice']}"
+
+Generate the next scene that:
+1. Follows naturally from the choice
+2. Respects character states and changes
+3. Maintains the episode tone
+4. Advances toward the end condition
+5. Leaves room for {20 - context['segment_number_in_episode']} more scenes
+
+Respond with a brief scene description (2-3 sentences).
+"""
+        return prompt
