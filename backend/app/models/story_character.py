@@ -55,6 +55,8 @@ class StoryCharacter(StoryBlock):
     avatar_shape: AvatarShape = Field(default=AvatarShape.CIRCLE)
     avatar_color: str = Field(default="#FF6B6B")
     running_status: List[dict[str, Any]] = Field(default_factory=list)
+    faction_id: Optional[str] = Field(default=None, description="ID of the faction this character belongs to")
+    importance_tier: str = Field(default="minor", description="Character importance: minor, major, or protagonist")
 
     def __init__(self, **data: Any):
         """Initialize a StoryCharacter instance.

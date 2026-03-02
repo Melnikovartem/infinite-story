@@ -276,7 +276,10 @@ async def create_story_ai_async(
     first_scene_input: str = ""
 ):
     """Create a story with AI-powered world, arcs, characters, and opening scene generation."""
+    from app.engine.generators.story_planner import StoryPlanner
     from app.engine.generators.world_generator import WorldGenerator
+    from app.engine.generators.faction_generator import FactionGenerator
+    from app.engine.generators.magic_system_generator import MagicSystemGenerator
     from app.engine.generators.arc_generator import ArcGenerator
     from app.engine.generators.character_generator import CharacterGenerator
     from app.engine.generators.protagonist_selector import ProtagonistSelector
@@ -340,6 +343,18 @@ async def create_story_ai_async(
             start_segment_id="opening"
         )
         
+        console.print("\n[bold yellow]⏳ Step 0: Planning story scope...[/bold yellow]")
+        
+        # Plan story scope before generation
+        planner = StoryPlanner(generator)
+        story_plan = await planner.plan_story_scope(title, description, genre)
+        
+        console.print(f"[green]✅ Story scope planned![/green]")
+        console.print(f"[cyan]  • {story_plan['total_factions']} factions[/cyan]")
+        console.print(f"[cyan]  • {story_plan['total_locations']} locations[/cyan]")
+        console.print(f"[cyan]  • {story_plan['total_factions'] * ((story_plan['chars_per_faction_min'] + story_plan['chars_per_faction_max']) // 2)} characters (pool)[/cyan]")
+        console.print(f"[cyan]  • {len(story_plan['major_tensions'])} major tensions[/cyan]")
+        
         console.print("\n[bold yellow]⏳ Step 1: Generating living world...[/bold yellow]")
         
         # Generate world context
@@ -348,7 +363,34 @@ async def create_story_ai_async(
         console.print("[green]✅ World generated![/green]")
         console.print(f"[cyan]Fundamental Truths: {len(world_context.fundamental_truths)}[/cyan]")
         
-        console.print("\n[bold yellow]⏳ Step 2: Generating world locations...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 2: Generating factions and politics...[/bold yellow]")
+        
+        # Generate factions
+        faction_gen = FactionGenerator(story, generator)
+        factions = await faction_gen.generate_factions(
+            count=story_plan['total_factions'],
+            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+            major_tensions=story_plan['major_tensions'],
+            user_input=world_input
+        )
+        console.print(f"[green]✅ Generated {len(factions)} factions![/green]")
+        for faction in factions:
+            console.print(f"  • {faction.name}: {faction.description[:50]}...")
+        
+        console.print("\n[bold yellow]⏳ Step 3: Generating magic/tech system...[/bold yellow]")
+        
+        # Generate magic/tech system
+        magic_gen = MagicSystemGenerator(story, generator)
+        magic_system = await magic_gen.generate_magic_system(
+            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+            genre=genre,
+            user_input=world_input
+        )
+        console.print(f"[green]✅ Generated magic system: {magic_system.name}![/green]")
+        console.print(f"  [yellow]Limitations:[/yellow] {', '.join(magic_system.limitations[:2])}")
+        console.print(f"  [yellow]Costs:[/yellow] {', '.join(magic_system.costs[:2])}")
+        
+        console.print("\n[bold yellow]⏳ Step 4: Generating world locations...[/bold yellow]")
         
         # Generate locations
         loc_gen = LocationGenerator(story, generator)
@@ -359,25 +401,25 @@ async def create_story_ai_async(
         )
         console.print(f"[green]✅ Generated {len(locations)} world locations![/green]")
         
-        console.print("\n[bold yellow]⏳ Step 3: Generating story arcs...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 5: Generating story arcs...[/bold yellow]")
         
         # Generate arcs
         arc_gen = ArcGenerator(story, generator)
         arcs = await arc_gen.generate_future_arcs(count=3, user_input=world_input)
         console.print(f"[green]✅ Generated {len(arcs)} story arcs![/green]")
         
-        console.print("\n[bold yellow]⏳ Step 4: Generating characters...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 6: Generating characters aligned to factions...[/bold yellow]")
         
-        # Generate initial characters
+        # Generate characters aligned to factions
         char_gen = CharacterGenerator(story, generator)
         try:
-            characters = await char_gen.generate_initial_characters(count=3, user_input="")
-            console.print(f"[green]✅ Generated {len(characters)} characters![/green]")
+            characters = await char_gen.generate_faction_characters(factions, story_plan)
+            console.print(f"[green]✅ Generated {len(characters)} faction-aligned characters![/green]")
         except Exception as e:
             console.print(f"[yellow]⚠️  Character generation skipped: {str(e)[:50]}[/yellow]")
             characters = []
         
-        console.print("\n[bold yellow]⏳ Step 5: Selecting protagonist...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 7: Selecting protagonist...[/bold yellow]")
         
         # Select protagonist
         proto_sel = ProtagonistSelector(story, generator)
@@ -388,7 +430,7 @@ async def create_story_ai_async(
             console.print(f"[yellow]⚠️  Protagonist selection skipped: {str(e)[:50]}[/yellow]")
             protagonist = None
         
-        console.print("\n[bold yellow]⏳ Step 6: Creating the first scene of this world...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 8: Creating the first scene of this world...[/bold yellow]")
         
         # If user provided scene input, use it; otherwise AI creates something
         if first_scene_input.strip():
@@ -449,7 +491,7 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         story.add_segment(opening_segment)
         
         # Generate choices for opening segment
-        console.print("\n[bold yellow]⏳ Step 7: Generating choices for opening scene...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 9: Generating choices for opening scene...[/bold yellow]")
         
         from app.models.story_choice import StoryChoice
         import uuid
@@ -514,6 +556,9 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
         
         story.save()
         world_context.save()
+        for faction in factions:
+            faction.save()
+        magic_system.save()
         for location in locations:
             location.save()
         for arc in arcs:
@@ -526,37 +571,38 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
         for choice in choices_list:
             choice.save()
         
-        console.print(Panel(
-            f"""[green]✅ AI-Powered Story Created Successfully![/green]
+        # Build faction list safely
+        faction_list = "\n".join([f"  • {f.name}" for f in factions[:3]]) if factions else "  • Unknown"
+        
+        # Build success message
+        success_msg = f"""[green]✅ AI-Powered Story Created Successfully![/green]
 
-[cyan]📖 Story:[/cyan] {title}
-[cyan]🆔 ID:[/cyan] {story_id}
-[cyan]🎭 Genre:[/cyan] {genre}
+Story: {title}
+ID: {story_id}
+Genre: {genre}
 
-[green]✨ Generated:[/green]
-• Living World with {len(world_context.fundamental_truths)} fundamental truths
-• {len(locations)} World Locations
+[green]Generated:[/green]
+• {len(world_context.fundamental_truths)} World Truths
+• {len(factions)} Factions
+• {len(locations)} Locations
 • {len(arcs)} Story Arcs
 • {len(characters)} Characters
 • Protagonist: {protagonist.name if protagonist and hasattr(protagonist, 'name') else 'TBD'}
-• Opening Scene with {len(choices_list)} choices
+• {len(choices_list)} Opening Choices
 
-[yellow]🚀 Next Steps:[/yellow]
-1. Generate more scenes for the first arc
-2. Refine characters and arcs
-3. Add more choices to future scenes
-4. Play and explore the story
-
-[bold]📖 Play it now:[/bold]
-./run.sh {story_id}""",
-            title="🎉 Success! World Created!",
+[yellow]Next:[/yellow] ./run.sh {story_id}"""
+        
+        console.print(Panel(
+            success_msg,
+            title="Success!",
             border_style="green"
         ))
         
         logger.info(f"AI story created: {story_id}")
         
     except Exception as e:
-        console.print(f"[red]Error creating story: {e}[/red]")
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        console.print(f"[red]Error creating story: {error_msg}[/red]")
         logger.error(f"Story creation failed: {e}", exc_info=True)
 
 @app.command()

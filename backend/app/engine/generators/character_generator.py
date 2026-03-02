@@ -90,13 +90,15 @@ class CharacterGenerator:
     async def generate_initial_characters(
         self,
         count: int = 3,
-        user_input: str = ""
+        user_input: str = "",
+        factions: Optional[List[Any]] = None
     ) -> List[StoryCharacter]:
         """Generate initial characters based on world and arcs.
         
         Args:
             count: Number of characters to generate
             user_input: Optional user guidance for character creation
+            factions: Optional list of factions to assign characters to
             
         Returns:
             List of generated StoryCharacter objects
@@ -127,7 +129,15 @@ Create characters that will drive the story forward and create interesting confl
             
             # Create and save character objects
             created_chars = []
-            for details in char_details:
+            for i, details in enumerate(char_details):
+                # Assign faction if available
+                faction_id = None
+                if factions and i < len(factions):
+                    faction_id = factions[i].id
+                
+                # First character is major, rest are minor initially
+                importance_tier = "major" if i == 0 else "minor"
+                
                 char = StoryCharacter(
                     story=self.story,
                     id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
@@ -135,11 +145,13 @@ Create characters that will drive the story forward and create interesting confl
                     name=details.get('name', 'Unnamed Character'),
                     description=details.get('description', ''),
                     background=details.get('background', ''),
-                    avatar_color=self._select_avatar_color()
+                    avatar_color=self._select_avatar_color(),
+                    faction_id=faction_id,
+                    importance_tier=importance_tier
                 )
                 char.save()
                 created_chars.append(char)
-                logger.info(f"Generated character: {char.name}")
+                logger.info(f"Generated character: {char.name} (faction: {faction_id}, tier: {importance_tier})")
             
             return created_chars
             
@@ -227,6 +239,91 @@ Make sure the characters:
                     })
         
         return details[:count]
+    
+    async def generate_faction_characters(
+        self,
+        factions: List[Any],
+        story_plan: Optional[Dict[str, Any]] = None
+    ) -> List[StoryCharacter]:
+        """Generate characters assigned to factions.
+        
+        Args:
+            factions: List of faction objects to populate with characters
+            story_plan: Optional story scope plan containing character count requirements
+            
+        Returns:
+            List of generated StoryCharacter objects
+        """
+        try:
+            logger.info(f"Generating faction-aligned characters for {len(factions)} factions")
+            
+            # Determine characters per faction from story plan
+            if story_plan:
+                chars_per_faction_min = story_plan.get('chars_per_faction_min', 1)
+                chars_per_faction_max = story_plan.get('chars_per_faction_max', 3)
+            else:
+                chars_per_faction_min = 1
+                chars_per_faction_max = 3
+            
+            created_chars = []
+            
+            for faction in factions:
+                # Generate 1-3 characters per faction
+                num_chars = min(chars_per_faction_max, max(chars_per_faction_min, 2))
+                
+                # Build faction-specific prompt
+                prompt = f"""Create {num_chars} compelling characters for the {faction.name} faction:
+
+Faction Description: {faction.description}
+Faction Goals: {', '.join(faction.goals) if hasattr(faction, 'goals') else 'Unknown'}
+Faction Resources: {', '.join(faction.resources) if hasattr(faction, 'resources') else 'Unknown'}
+
+These characters should:
+- Be aligned with the faction's values and goals
+- Have clear motivations tied to the faction's agenda
+- Be distinct personalities within the faction
+- Have potential for interesting conflicts
+
+For EACH character, provide:
+NAME: A fitting name
+DESCRIPTION: Physical appearance (1-2 sentences)
+BACKGROUND: How they came to this faction (1-2 sentences)
+ROLE IN FACTION: Their position/function"""
+                
+                response = await self.generator.generate(
+                    system_prompt="You are creating characters aligned with specific factions and organizations.",
+                    user_prompt=prompt,
+                    context_type="character"
+                )
+                
+                if not response.error:
+                    char_details = self._parse_character_details(response, num_chars)
+                    
+                    for i, details in enumerate(char_details):
+                        # First character per faction is major, rest are minor
+                        importance_tier = "major" if i == 0 else "minor"
+                        
+                        char = StoryCharacter(
+                            story=self.story,
+                            id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
+                            story_id=self.story.id,
+                            name=details.get('name', 'Unnamed Character'),
+                            description=details.get('description', ''),
+                            background=details.get('background', ''),
+                            avatar_color=self._select_avatar_color(),
+                            faction_id=faction.id,
+                            importance_tier=importance_tier
+                        )
+                        char.save()
+                        created_chars.append(char)
+                        logger.info(f"Generated {faction.name} character: {char.name}")
+            
+            logger.info(f"Generated {len(created_chars)} faction-aligned characters")
+            return created_chars
+            
+        except Exception as e:
+            logger.error(f"Failed to generate faction characters: {e}", exc_info=True)
+            raise ValueError(f"Faction character generation failed: {str(e)}")
     
     def _select_avatar_color(self) -> str:
         """Select a unique avatar color for the character."""
