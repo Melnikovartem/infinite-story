@@ -267,6 +267,254 @@ def create_story(
         console.print(f"[red]Error creating story: {e}[/red]")
         logger.error(f"Story creation failed: {e}", exc_info=True)
 
+async def create_story_ai_async(
+    story_id: str,
+    title: str,
+    description: str,
+    genre: str,
+    world_input: str = "",
+    first_scene_input: str = ""
+):
+    """Create a story with AI-powered world, arcs, characters, and opening scene generation."""
+    from app.engine.generators.world_generator import WorldGenerator
+    from app.engine.generators.arc_generator import ArcGenerator
+    from app.engine.generators.character_generator import CharacterGenerator
+    from app.engine.generators.protagonist_selector import ProtagonistSelector
+    from app.models.text_types import TextBlock
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for story creation"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(Panel(
+        f"[bold cyan]Creating AI-Powered Story: {title}[/bold cyan]\n[yellow]Genre: {genre}[/yellow]",
+        title="🤖 AI Story Creator",
+        border_style="cyan"
+    ))
+
+    try:
+        # Check if story already exists
+        existing = Story.load(story_id, story_id)
+        if existing:
+            console.print(f"[red]Story '{story_id}' already exists![/red]")
+            return
+        
+        # Create basic story object
+        story = Story(
+            id=story_id,
+            story_id=story_id,
+            title=title,
+            description=description,
+            genre=genre,
+            start_segment_id="opening"
+        )
+        
+        console.print("\n[bold yellow]⏳ Step 1: Generating living world...[/bold yellow]")
+        
+        # Generate world context
+        world_gen = WorldGenerator(generator)
+        world_context = await world_gen.generate_world_context(story=story, user_input=world_input)
+        console.print("[green]✅ World generated![/green]")
+        console.print(f"[cyan]Fundamental Truths: {len(world_context.fundamental_truths)}[/cyan]")
+        
+        console.print("\n[bold yellow]⏳ Step 2: Generating story arcs...[/bold yellow]")
+        
+        # Generate arcs
+        arc_gen = ArcGenerator(story, generator)
+        arcs = await arc_gen.generate_future_arcs(count=3, user_input=world_input)
+        console.print(f"[green]✅ Generated {len(arcs)} story arcs![/green]")
+        
+        console.print("\n[bold yellow]⏳ Step 3: Generating characters...[/bold yellow]")
+        
+        # Generate initial characters
+        char_gen = CharacterGenerator(story, generator)
+        try:
+            characters = await char_gen.generate_initial_characters(count=3, user_input="")
+            console.print(f"[green]✅ Generated {len(characters)} characters![/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Character generation skipped: {str(e)[:50]}[/yellow]")
+            characters = []
+        
+        console.print("\n[bold yellow]⏳ Step 4: Selecting protagonist...[/bold yellow]")
+        
+        # Select protagonist
+        proto_sel = ProtagonistSelector(story, generator)
+        try:
+            protagonist = await proto_sel.select_or_develop_protagonist(user_choice=None)
+            console.print(f"[green]✅ Protagonist selected: {protagonist.name if hasattr(protagonist, 'name') else 'Unknown'}![/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Protagonist selection skipped: {str(e)[:50]}[/yellow]")
+            protagonist = None
+        
+        console.print("\n[bold yellow]⏳ Step 5: Creating the first scene of this world...[/bold yellow]")
+        
+        # If user provided scene input, use it; otherwise AI creates something
+        if first_scene_input.strip():
+            scene_direction = f"User's direction: {first_scene_input}"
+        else:
+            scene_direction = "Create something that brings this world to life - an atmospheric, engaging scene that hooks the reader and establishes the mood of this living, breathing world."
+        
+        # Generate first segment
+        opening_prompt = f"""Create a CAPTIVATING opening scene for this story:
+
+Title: {title}
+Genre: {genre}
+World Description: {world_context.fundamental_truths[0] if world_context.fundamental_truths else 'A mysterious world'}
+
+Scene Direction: {scene_direction}
+
+Write an opening narrative that:
+- Immediately draws the reader into this LIVING world
+- Establishes the atmosphere and mood
+- Shows the world as a character - alive, breathing, with personality
+- Hints at the story's core conflicts or mysteries
+- Creates compelling story hooks that make readers want to know more
+- Is vivid, atmospheric, and engaging"""
+        
+        opening_response = await generator.generate(
+            system_prompt="""You are a master storyteller creating immersive opening scenes. 
+Write with vivid sensory details that make the reader feel present in this living world. 
+Your opening scenes hook readers immediately and establish mood, setting, and possibility.""",
+            user_prompt=opening_prompt,
+            context_type="scene"
+        )
+        
+        opening_text = opening_response.content if hasattr(opening_response, 'content') else str(opening_response)
+        
+        console.print("[green]✅ First scene generated![/green]")
+        
+        # Create opening segment
+        from app.models.story_segment import StorySegment
+        
+        opening_segment = StorySegment(
+            id="opening",
+            story_id=story_id,
+            short_description="The Story Begins",
+            atmosphere="atmospheric",
+            episode_number=1,
+            arc_id="arc_1",
+            protagonist_id=protagonist.id if protagonist and hasattr(protagonist, 'id') else None
+        )
+        
+        # Add text block
+        text_block = TextBlock(
+            type="narrator_describing",
+            content=opening_text,
+            emotion="mysterious"
+        )
+        opening_segment.text_blocks = [text_block]
+        story.add_segment(opening_segment)
+        
+        # Set start segment
+        story.start_segment_id = "opening"
+        
+        # Save everything
+        console.print("\n[bold yellow]💾 Saving story to disk...[/bold yellow]")
+        
+        story.save()
+        world_context.save()
+        for arc in arcs:
+            arc.save()
+        for char in characters:
+            char.save()
+        if protagonist:
+            protagonist.save()
+        opening_segment.save()
+        
+        console.print(Panel(
+            f"""[green]✅ AI-Powered Story Created Successfully![/green]
+
+[cyan]📖 Story:[/cyan] {title}
+[cyan]🆔 ID:[/cyan] {story_id}
+[cyan]🎭 Genre:[/cyan] {genre}
+
+[green]✨ Generated:[/green]
+• Living World with {len(world_context.fundamental_truths)} fundamental truths
+• {len(arcs)} Story Arcs
+• {len(characters)} Characters
+• Protagonist: {protagonist.name if protagonist and hasattr(protagonist, 'name') else 'TBD'}
+• Opening Scene
+
+[yellow]🚀 Next Steps:[/yellow]
+1. Add choices to the opening scene
+2. Generate more scenes for the first arc
+3. Refine characters and arcs
+4. Play and explore the story
+
+[bold]📖 Play it now:[/bold]
+python -m app.cli run-story {story_id}""",
+            title="🎉 Success! World Created!",
+            border_style="green"
+        ))
+        
+        logger.info(f"AI story created: {story_id}")
+        
+    except Exception as e:
+        console.print(f"[red]Error creating story: {e}[/red]")
+        logger.error(f"Story creation failed: {e}", exc_info=True)
+
+@app.command()
+def create_story_ai(
+    story_id: str = typer.Argument(..., help="Unique identifier for the story"),
+    title: str = typer.Option(..., "--title", help="Display title of the story"),
+    description: str = typer.Option(..., "--description", help="Long description of the story"),
+    genre: str = typer.Option("Unknown", "--genre", help="Genre (e.g., Fantasy, Sci-Fi, Mystery)"),
+    world_input: str = typer.Option("", "--world", help="Optional: Your world vision (AI will expand if empty)"),
+    first_scene_input: str = typer.Option("", "--scene", help="Optional: Opening scene direction (AI will create if empty)")
+):
+    """Create a story with AI-powered world and opening scene generation.
+    
+    The AI will:
+    - Generate a LIVING WORLD if you don't provide world details
+    - Create a captivating OPENING SCENE
+    - Use your input to guide creative generation
+    
+    Example (with AI generation):
+        python -m app.cli create-story-ai my_story \\
+            --title "The Last Explorer" \\
+            --description "A journey through forgotten lands" \\
+            --genre "Adventure"
+    
+    Example (with user guidance):
+        python -m app.cli create-story-ai my_story \\
+            --title "The Last Explorer" \\
+            --description "A journey through forgotten lands" \\
+            --genre "Adventure" \\
+            --world "A world where technology and nature merged" \\
+            --scene "Start in an ancient ruins discovery"
+    """
+    asyncio.run(create_story_ai_async(story_id, title, description, genre, world_input, first_scene_input))
+
 @app.command()
 def list_stories():
     """List all available stories."""
