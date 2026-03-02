@@ -132,13 +132,17 @@ class StoryLoader:
         
         choices = []
         try:
+            # Create a minimal story object for choices
+            story_data = {"id": story_id, "story_id": story_id, "title": "", "description": ""}
+            story = Story(**story_data)
+            
             for choice_file in choices_dir.glob("*.json"):
                 with open(choice_file, "r") as f:
                     data = json.load(f)
                 
                 # Only include choices that start from this segment
                 if data.get("from_segment_id") == segment_id:
-                    choice = StoryChoice(**data)
+                    choice = StoryChoice(**data, story=story)
                     choices.append(choice)
             
             logger.debug(f"Loaded {len(choices)} choices for segment {segment_id}")

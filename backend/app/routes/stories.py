@@ -110,13 +110,13 @@ async def get_story_detail(story_id: str) -> Dict[str, Any]:
     try:
         story = StoryLoader.load_story(story_id)
         if not story:
-            return ResponseFormatter.error(f"Story '{story_id}' not found", 404)
+            return error_response(f"Story '{story_id}' not found")
         
         # Load characters and locations
         characters = StoryLoader.load_all_characters(story_id)
         locations = StoryLoader.load_all_locations(story_id)
         
-        return ResponseFormatter.success({
+        return success_response({
             "id": story.id,
             "title": story.title,
             "description": story.description,
@@ -175,8 +175,8 @@ async def get_segment(segment_id: str, story_id: str = Query(...)) -> Dict[str, 
                 "id": c.id,
                 "from_segment_id": c.from_segment_id,
                 "to_segment_id": c.to_segment_id,
-                "choice_text": c.choice_text,
-                "generated": c.generated,
+                "choice_text": c.text,
+                "generated": False,
             }
             for c in choices
         ]
