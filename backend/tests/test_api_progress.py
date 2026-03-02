@@ -28,13 +28,13 @@ class TestProgressEndpoints:
         """Test getting progress for a story."""
         # Create and save a session
         session = SessionState(
+            id="session_001",
             story_id="test_story",
+            user_id="test_user",
             current_segment_id="segment_5",
-            visited_segments=["segment_1", "segment_2", "segment_3", "segment_4", "segment_5"],
-            scene_counter=5,
-            start_time=datetime.now(UTC) - timedelta(minutes=10)
+            visited_segments=["segment_1", "segment_2", "segment_3", "segment_4", "segment_5"]
         )
-        SessionState.save_to_file("test_story", session)
+        session.save()
         
         # Get progress
         response = client.get("/api/progress/test_story")
@@ -58,13 +58,13 @@ class TestProgressEndpoints:
         """Test getting progress with estimated total scenes."""
         # Create session
         session = SessionState(
+            id="session_002",
             story_id="test_story",
+            user_id="test_user",
             current_segment_id="segment_3",
-            visited_segments=["segment_1", "segment_2", "segment_3"],
-            scene_counter=3,
-            start_time=datetime.now(UTC) - timedelta(minutes=6)
+            visited_segments=["segment_1", "segment_2", "segment_3"]
         )
-        SessionState.save_to_file("test_story", session)
+        session.save()
         
         # Get progress with estimate
         response = client.get(
@@ -82,13 +82,13 @@ class TestProgressEndpoints:
         """Test getting progress without total scene estimate."""
         # Create session
         session = SessionState(
+            id="session_003",
             story_id="test_story",
+            user_id="test_user",
             current_segment_id="segment_1",
-            visited_segments=["segment_1"],
-            scene_counter=1,
-            start_time=datetime.now(UTC)
+            visited_segments=["segment_1"]
         )
-        SessionState.save_to_file("test_story", session)
+        session.save()
         
         # Get progress without estimate
         response = client.get("/api/progress/test_story")
@@ -100,15 +100,14 @@ class TestProgressEndpoints:
     def test_get_progress_reading_pace(self):
         """Test that reading pace is calculated correctly."""
         # Create session with known times
-        start_time = datetime.now(UTC) - timedelta(minutes=10)
         session = SessionState(
+            id="session_004",
             story_id="test_story",
+            user_id="test_user",
             current_segment_id="segment_5",
-            visited_segments=["s1", "s2", "s3", "s4", "s5"],
-            scene_counter=5,
-            start_time=start_time
+            visited_segments=["s1", "s2", "s3", "s4", "s5"]
         )
-        SessionState.save_to_file("test_story", session)
+        session.save()
         
         response = client.get("/api/progress/test_story")
         assert response.status_code == 200

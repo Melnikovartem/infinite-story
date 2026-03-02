@@ -50,6 +50,8 @@ class TestAutoSaveBasics:
         
         # Create a session
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story_id,
             current_segment_id="segment_001",
             visited_segments=["segment_001"],
@@ -62,7 +64,7 @@ class TestAutoSaveBasics:
         assert result is True
         
         # Verify it was saved
-        loaded = SessionState.load_from_file(story_id)
+        loaded = SessionState.load(story_id, "session_test")
         assert loaded is not None
         assert loaded.scene_counter == 1
     
@@ -71,6 +73,8 @@ class TestAutoSaveBasics:
         story_id = "debounce_test"
         
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story_id,
             current_segment_id="segment_001",
             visited_segments=["segment_001"],
@@ -139,6 +143,8 @@ class TestAutoSaveInGameFlow:
         
         # Create and save a session
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story_id,
             current_segment_id="segment_001",
             visited_segments=["segment_001"],
@@ -178,6 +184,8 @@ class TestAutoSaveErrorHandling:
         
         # Create a valid session
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story_id,
             current_segment_id="segment_001",
             visited_segments=["segment_001"],
@@ -221,6 +229,8 @@ class TestMultiStoryAutoSave:
         story2 = "story_b"
         
         session1 = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story1,
             current_segment_id="seg_1",
             visited_segments=["seg_1"],
@@ -229,6 +239,8 @@ class TestMultiStoryAutoSave:
         )
         
         session2 = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id=story2,
             current_segment_id="seg_1",
             visited_segments=["seg_1"],
@@ -257,6 +269,8 @@ class TestMultiStoryAutoSave:
         # Create sessions for multiple stories
         for i in range(3):
             session = SessionState(
+            id="session_test",
+            user_id="test_user",
                 story_id=f"cleanup_story_{i}",
                 current_segment_id="segment_001",
                 visited_segments=["segment_001"],
@@ -291,7 +305,7 @@ class TestAutoSaveIntegrationWithAPI:
         assert response.status_code == 200
         
         # Verify by loading from disk
-        loaded = SessionState.load_from_file(story_id)
+        loaded = SessionState.load(story_id, "session_test")
         assert loaded is not None
         assert loaded.story_id == story_id
     
