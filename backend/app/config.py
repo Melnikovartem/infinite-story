@@ -127,3 +127,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",  # Ignore extra fields from .env file
     )
+
+
+# Create settings instance
+settings = Settings()

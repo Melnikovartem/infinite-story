@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ReportModal from '../ReportModal'
+import { ReportModal } from '../ReportModal'
 
 describe('ReportModal', () => {
   it('does not render when closed', () => {
