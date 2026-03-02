@@ -67,8 +67,8 @@ class AutoSaveManager:
             return False
         
         try:
-            # Perform save
-            SessionState.save_to_file(story_id, session)
+            # Perform save using StoryBase.save()
+            session.save()
             cls._last_saves[story_id] = datetime.now(UTC)
             logger.info(f"Auto-saved session for story {story_id}")
             return True
@@ -97,8 +97,8 @@ class AutoSaveManager:
             return False
         
         try:
-            # Perform save
-            SessionState.save_to_file(story_id, session)
+            # Perform save using StoryBase.save()
+            session.save()
             cls._last_saves[story_id] = datetime.now(UTC)
             logger.info(f"Auto-saved session for story {story_id}")
             return True
@@ -139,7 +139,7 @@ class AutoSaveManager:
         
         Args:
             days_old: Delete saves older than this many days
-                      (defaults to CLEANUP_OLDER_THAN_DAYS)
+                       (defaults to CLEANUP_OLDER_THAN_DAYS)
             
         Returns:
             Dictionary with cleanup statistics
@@ -166,26 +166,29 @@ class AutoSaveManager:
                 
                 cleanup_stats["total_stories_checked"] += 1
                 
-                runner_state_file = story_dir / "runner_state.json"
-                if not runner_state_file.exists():
+                # v2: Sessions are stored in sessionstate subdirectory (StoryBase pattern)
+                sessionstate_dir = story_dir / "sessionstate"
+                if not sessionstate_dir.exists():
                     continue
                 
-                # Get file modification time
-                file_mtime = datetime.fromtimestamp(
-                    runner_state_file.stat().st_mtime,
-                    tz=UTC
-                )
-                
-                # Delete if older than cutoff
-                if file_mtime < cutoff_time:
-                    try:
-                        runner_state_file.unlink()
-                        cleanup_stats["sessions_deleted"] += 1
-                        logger.info(f"Deleted old session for {story_dir.name}")
-                    except Exception as e:
-                        error_msg = f"Failed to delete session for {story_dir.name}: {e}"
-                        cleanup_stats["errors"].append(error_msg)
-                        logger.error(error_msg)
+                # Iterate through session files
+                for session_file in sessionstate_dir.glob("*.json"):
+                    # Get file modification time
+                    file_mtime = datetime.fromtimestamp(
+                        session_file.stat().st_mtime,
+                        tz=UTC
+                    )
+                    
+                    # Delete if older than cutoff
+                    if file_mtime < cutoff_time:
+                        try:
+                            session_file.unlink()
+                            cleanup_stats["sessions_deleted"] += 1
+                            logger.info(f"Deleted old session {session_file.stem} for {story_dir.name}")
+                        except Exception as e:
+                            error_msg = f"Failed to delete session {session_file.stem} for {story_dir.name}: {e}"
+                            cleanup_stats["errors"].append(error_msg)
+                            logger.error(error_msg)
             
             logger.info(
                 f"Auto-save cleanup completed: {cleanup_stats['sessions_deleted']} "

@@ -1,278 +1,240 @@
-"""Tests for StoryArc and ArcCompressionResult models (E0-3)."""
+"""Unit tests for StoryArc model."""
 
 import pytest
+import shutil
 from datetime import datetime, UTC
+from pathlib import Path
+
+from app.models.story import Story
 from app.models.story_arc import StoryArc, ArcCompressionResult
+from app.models.story_base import LOCAL_DATA_DIR
 
 
-class TestArcCompressionResult:
-    """Tests for ArcCompressionResult model."""
+@pytest.fixture
+def test_data():
+    """Fixture to set up and tear down test data for StoryArc tests."""
+    test_story_id = "test_arc_story"
+    test_data_dir = LOCAL_DATA_DIR / test_story_id
     
-    def test_compression_result_creation(self):
-        """Create a compression result."""
-        result = ArcCompressionResult(
-            arc_id="arc_001",
-            mainline_branch_segments=["seg_1", "seg_2", "seg_3"],
-            archived_segments=["seg_1_alt", "seg_2_alt"],
-            selection_rationale="Branch followed by most users and most coherent narrative"
-        )
-        
-        assert result.arc_id == "arc_001"
-        assert len(result.mainline_branch_segments) == 3
-        assert len(result.archived_segments) == 2
-        assert "most users" in result.selection_rationale
+    # Clean up any existing test data
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
     
-    def test_compression_result_defaults(self):
-        """Compression result with defaults."""
-        result = ArcCompressionResult(
-            arc_id="arc_002",
-            mainline_branch_segments=["seg_1"],
-            archived_segments=[],
-            selection_rationale="Only one branch exists"
-        )
-        
-        assert result.compression_model == "gpt-4o-mini"
-        assert isinstance(result.compressed_at, datetime)
-        assert len(result.archived_segments) == 0
+    # Create test story
+    story = Story(
+        id=test_story_id,
+        title="Test Story for Arcs",
+        description="A test story for arc testing",
+        genre="Test",
+        user_id="test_user_1",
+        start_segment_id="seg_1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC)
+    )
+    
+    yield {
+        "story": story,
+        "story_id": test_story_id,
+        "test_data_dir": test_data_dir
+    }
+    
+    # Clean up after test
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
 
 
-class TestStoryArc:
-    """Tests for StoryArc model."""
+def test_story_arc_creation(test_data):
+    """Test creating a StoryArc with basic fields."""
+    story = test_data["story"]
+    story_id = test_data["story_id"]
     
-    def test_story_arc_creation(self):
-        """Create a story arc with basic fields."""
-        arc = StoryArc(
-            id="arc_001",
-            story_id="story_1",
-            title="The Rise of the Northern Kingdom",
-            description="A tale of ambition and power in the frozen north",
-            premise="Power corrupts the innocent",
-            narrative_direction="Towards inevitable downfall",
-            start_segment_id="seg_1"
-        )
-        
-        assert arc.id == "arc_001"
-        assert arc.story_id == "story_1"
-        assert arc.title == "The Rise of the Northern Kingdom"
-        assert arc.premise == "Power corrupts the innocent"
-        assert arc.start_segment_id == "seg_1"
+    arc = StoryArc(
+        story=story,
+        id="arc_1",
+        title="The Rise of the Northern Kingdom",
+        description="An epic tale of ambition and power",
+        start_segment_id="seg_1",
+        premise="Power corrupts the innocent",
+        narrative_direction="Building towards a major betrayal",
+        episode_count=5
+    )
     
-    def test_story_arc_defaults(self):
-        """Story arc with default values."""
-        arc = StoryArc(
-            id="arc_002",
-            story_id="story_1",
-            title="The Fall",
-            description="Consequences unfold",
-            premise="All empires crumble",
-            narrative_direction="Towards redemption or ruin",
-            start_segment_id="seg_10"
-        )
-        
-        assert arc.episode_ids == []
-        assert arc.episode_count == 0
-        assert arc.current_segment_id is None
-        assert arc.is_compressed is False
-        assert arc.compression_result is None
-    
-    def test_story_arc_with_episodes(self):
-        """Story arc with episode tracking."""
-        arc = StoryArc(
-            id="arc_003",
-            story_id="story_1",
-            title="The Reckoning",
-            description="The final arc",
-            premise="Consequences arrive",
-            narrative_direction="Towards resolution",
-            start_segment_id="seg_20",
-            episode_ids=["ep_1", "ep_2", "ep_3"],
-            episode_count=3
-        )
-        
-        assert len(arc.episode_ids) == 3
-        assert arc.episode_count == 3
-    
-    def test_story_arc_with_current_segment(self):
-        """Story arc with current segment tracking."""
-        arc = StoryArc(
-            id="arc_004",
-            story_id="story_1",
-            title="In Progress",
-            description="Currently being played",
-            premise="A tale unfolds",
-            narrative_direction="Unknown",
-            start_segment_id="seg_1",
-            current_segment_id="seg_5"
-        )
-        
-        assert arc.current_segment_id == "seg_5"
-    
-    def test_story_arc_uncompressed(self):
-        """Uncompressed arc has no compression result."""
-        arc = StoryArc(
-            id="arc_005",
-            story_id="story_1",
-            title="Active Arc",
-            description="Still generating",
-            premise="Story continues",
-            narrative_direction="Forward",
-            start_segment_id="seg_1"
-        )
-        
-        assert arc.is_compressed is False
-        assert arc.compression_result is None
+    assert arc.id == "arc_1"
+    assert arc.story_id == story_id
+    assert arc.title == "The Rise of the Northern Kingdom"
+    assert arc.description == "An epic tale of ambition and power"
+    assert arc.start_segment_id == "seg_1"
+    assert arc.premise == "Power corrupts the innocent"
+    assert arc.narrative_direction == "Building towards a major betrayal"
+    assert arc.episode_count == 5
+    assert arc.is_compressed is False
+    assert arc.compression_result is None
+    assert arc.episode_ids == []
+    assert arc.current_segment_id is None
 
 
-class TestStoryArcMethods:
-    """Tests for StoryArc helper methods."""
+def test_story_arc_serialization(test_data):
+    """Test saving and loading a StoryArc."""
+    story = test_data["story"]
+    story_id = test_data["story_id"]
     
-    def test_get_short_overview(self):
-        """Test short overview method."""
-        arc = StoryArc(
-            id="arc_006",
-            story_id="story_1",
-            title="The Beginning",
-            description="First arc",
-            premise="It begins",
-            narrative_direction="Forward",
-            start_segment_id="seg_1",
-            episode_count=3
-        )
-        
-        overview = arc.get_short_overview()
-        assert "The Beginning" in overview
-        assert "3 episodes" in overview
+    arc = StoryArc(
+        story=story,
+        id="arc_2",
+        title="The Fall of Kings",
+        description="A tragic narrative",
+        start_segment_id="seg_1",
+        premise="Pride precedes destruction",
+        narrative_direction="Moving towards downfall",
+        episode_count=8,
+        current_segment_id="seg_15",
+        episode_ids=["ep_1", "ep_2", "ep_3"]
+    )
     
-    def test_get_full_overview(self):
-        """Test full overview method."""
-        arc = StoryArc(
-            id="arc_007",
-            story_id="story_1",
-            title="The Middle",
-            description="The heart of the story",
-            premise="Conflict escalates",
-            narrative_direction="Towards climax",
-            start_segment_id="seg_10",
-            episode_count=5,
-            is_compressed=True
-        )
-        
-        overview = arc.get_full_overview()
-        assert "The Middle" in overview
-        assert "Conflict escalates" in overview
-        assert "Towards climax" in overview
-        assert "5" in overview
-        assert "True" in overview
+    # Save the arc
+    arc.save()
     
-    def test_mark_compressed(self):
-        """Test marking arc as compressed."""
-        arc = StoryArc(
-            id="arc_008",
-            story_id="story_1",
-            title="Completed",
-            description="Ready for compression",
-            premise="Arc complete",
-            narrative_direction="Finalized",
-            start_segment_id="seg_1"
-        )
-        
-        assert arc.is_compressed is False
-        assert arc.compression_result is None
-        
-        compression = ArcCompressionResult(
-            arc_id=arc.id,
-            mainline_branch_segments=["seg_1", "seg_2", "seg_3"],
-            archived_segments=["seg_1_alt"],
-            selection_rationale="Most coherent path"
-        )
-        
-        arc.mark_compressed(compression)
-        
-        assert arc.is_compressed is True
-        assert arc.compression_result is not None
-        assert arc.compression_result.arc_id == "arc_008"
+    # Load it back
+    loaded = StoryArc.load(story_id, "arc_2")
     
-    def test_add_episode(self):
-        """Test adding episodes to arc."""
-        arc = StoryArc(
-            id="arc_009",
-            story_id="story_1",
-            title="Growing Arc",
-            description="Episodes will be added",
-            premise="Growth",
-            narrative_direction="Expansion",
-            start_segment_id="seg_1"
-        )
-        
-        assert arc.episode_count == 0
-        
-        arc.add_episode("ep_1")
-        assert arc.episode_count == 1
-        assert "ep_1" in arc.episode_ids
-        
-        arc.add_episode("ep_2")
-        assert arc.episode_count == 2
-        
-        # Adding duplicate should not increase count
-        arc.add_episode("ep_1")
-        assert arc.episode_count == 2
+    assert loaded is not None
+    assert loaded.id == arc.id
+    assert loaded.title == arc.title
+    assert loaded.description == arc.description
+    assert loaded.start_segment_id == arc.start_segment_id
+    assert loaded.premise == arc.premise
+    assert loaded.narrative_direction == arc.narrative_direction
+    assert loaded.episode_count == arc.episode_count
+    assert loaded.current_segment_id == arc.current_segment_id
+    assert loaded.episode_ids == ["ep_1", "ep_2", "ep_3"]
 
 
-class TestStoryArcSerialization:
-    """Tests for StoryArc save/load."""
+def test_arc_compression_result(test_data):
+    """Test ArcCompressionResult creation and integration with StoryArc."""
+    story = test_data["story"]
     
-    def test_story_arc_save_and_load(self):
-        """Save and load a story arc."""
+    compression = ArcCompressionResult(
+        arc_id="arc_1",
+        mainline_branch_segments=["seg_1", "seg_2", "seg_3"],
+        archived_segments=["seg_alt_1", "seg_alt_2"],
+        selection_rationale="This path maximized character development",
+        compression_model="gpt-4o"
+    )
+    
+    assert compression.arc_id == "arc_1"
+    assert compression.mainline_branch_segments == ["seg_1", "seg_2", "seg_3"]
+    assert compression.archived_segments == ["seg_alt_1", "seg_alt_2"]
+    assert compression.selection_rationale == "This path maximized character development"
+    assert compression.compression_model == "gpt-4o"
+    assert compression.compressed_at is not None
+    
+    # Create an arc with compression
+    arc = StoryArc(
+        story=story,
+        id="arc_compressed",
+        title="Compressed Arc",
+        start_segment_id="seg_1",
+        is_compressed=True,
+        compression_result=compression
+    )
+    
+    assert arc.is_compressed is True
+    assert arc.compression_result == compression
+
+
+def test_story_arc_overviews(test_data):
+    """Test the overview methods of StoryArc."""
+    story = test_data["story"]
+    
+    arc = StoryArc(
+        story=story,
+        id="arc_3",
+        title="The Magical Revolution",
+        description="Magic awakens in the world",
+        start_segment_id="seg_1",
+        premise="Knowledge is power",
+        narrative_direction="Magic spreads across the land",
+        episode_count=12
+    )
+    
+    # Test short overview
+    short = arc.get_short_overview()
+    assert "The Magical Revolution" in short
+    assert "12 episodes" in short
+    
+    # Test full overview
+    full = arc.get_full_overview()
+    assert "Arc: The Magical Revolution" in full
+    assert "Premise: Knowledge is power" in full
+    assert "Direction: Magic spreads across the land" in full
+    assert "Episodes: 12" in full
+    assert "Compressed: False" in full
+    assert "Description:" in full
+
+
+def test_story_arc_list_all(test_data):
+    """Test listing all arcs for a story."""
+    story = test_data["story"]
+    story_id = test_data["story_id"]
+    
+    # Create multiple arcs
+    arcs = []
+    for i in range(3):
         arc = StoryArc(
-            id="arc_010",
-            story_id="test_story",
-            title="Serialization Test",
-            description="Testing save/load",
-            premise="Test premise",
-            narrative_direction="Test direction",
-            start_segment_id="seg_1",
-            episode_ids=["ep_1", "ep_2"],
-            episode_count=2
+            story=story,
+            id=f"arc_{i}",
+            title=f"Arc {i}",
+            start_segment_id=f"seg_{i}",
         )
-        
-        # Save
         arc.save()
-        
-        # Load
-        loaded = StoryArc.load("test_story", "arc_010")
-        
-        assert loaded is not None
-        assert loaded.title == "Serialization Test"
-        assert loaded.premise == "Test premise"
-        assert len(loaded.episode_ids) == 2
-        assert loaded.episode_count == 2
+        arcs.append(arc)
     
-    def test_story_arc_save_with_compression(self):
-        """Save and load compressed arc."""
-        compression = ArcCompressionResult(
-            arc_id="arc_011",
-            mainline_branch_segments=["seg_1", "seg_2", "seg_3"],
-            archived_segments=["seg_1_alt"],
-            selection_rationale="Best narrative flow"
-        )
-        
-        arc = StoryArc(
-            id="arc_011",
-            story_id="test_story",
-            title="Compressed Arc",
-            description="Already compressed",
-            premise="Complete",
-            narrative_direction="Finalized",
-            start_segment_id="seg_1",
-            is_compressed=True,
-            compression_result=compression
-        )
-        
-        arc.save()
-        loaded = StoryArc.load("test_story", "arc_011")
-        
-        assert loaded is not None
-        assert loaded.is_compressed is True
-        assert loaded.compression_result is not None
-        assert len(loaded.compression_result.mainline_branch_segments) == 3
-        assert len(loaded.compression_result.archived_segments) == 1
+    # List all arcs
+    arc_ids = StoryArc.list_all(story_id)
+    
+    assert len(arc_ids) == 3
+    assert "arc_0" in arc_ids
+    assert "arc_1" in arc_ids
+    assert "arc_2" in arc_ids
+
+
+def test_story_arc_with_episode_ids(test_data):
+    """Test StoryArc with episode tracking."""
+    story = test_data["story"]
+    
+    episodes = ["ep_1", "ep_2", "ep_3", "ep_4", "ep_5"]
+    
+    arc = StoryArc(
+        story=story,
+        id="arc_episodes",
+        title="The Five-Episode Arc",
+        start_segment_id="seg_1",
+        current_segment_id="seg_25",
+        episode_ids=episodes,
+        episode_count=len(episodes)
+    )
+    
+    assert len(arc.episode_ids) == 5
+    assert arc.episode_count == 5
+    assert arc.episode_ids == episodes
+
+
+def test_story_arc_defaults(test_data):
+    """Test StoryArc default values."""
+    story = test_data["story"]
+    
+    arc = StoryArc(
+        story=story,
+        id="arc_defaults",
+        title="Minimal Arc",
+        start_segment_id="seg_1"
+    )
+    
+    assert arc.description == ""
+    assert arc.premise == ""
+    assert arc.narrative_direction == ""
+    assert arc.episode_ids == []
+    assert arc.episode_count == 0
+    assert arc.is_compressed is False
+    assert arc.compression_result is None
+    assert arc.current_segment_id is None

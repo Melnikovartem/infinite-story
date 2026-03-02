@@ -12,20 +12,17 @@ router = APIRouter()
 
 class SessionStateRequest(BaseModel):
     """Request body for saving session state."""
+    id: str = Field(..., description="Session ID (unique identifier)")
     story_id: str = Field(..., description="ID of the story")
+    user_id: str = Field(..., description="ID of the user")
     current_segment_id: str = Field(..., description="Current segment ID")
     visited_segments: list[str] = Field(
-        ...,
+        default_factory=list,
         description="List of visited segment IDs"
     )
-    scene_counter: int = Field(
-        ...,
-        ge=1,
-        description="Current scene number"
-    )
-    start_time: datetime = Field(
-        ...,
-        description="Session start time"
+    visited_choices: list[str] = Field(
+        default_factory=list,
+        description="List of visited choice IDs"
     )
 
 
@@ -61,15 +58,16 @@ async def save_session(request: SessionStateRequest) -> SessionSaveResponse:
     try:
         # Create SessionState from request
         session = SessionState(
+            id=request.id,
             story_id=request.story_id,
+            user_id=request.user_id,
             current_segment_id=request.current_segment_id,
             visited_segments=request.visited_segments,
-            scene_counter=request.scene_counter,
-            start_time=request.start_time
+            visited_choices=request.visited_choices
         )
         
-        # Save to disk
-        SessionState.save_to_file(request.story_id, session)
+        # Save to disk using StoryBase.save()
+        session.save()
         
         return SessionSaveResponse(
             success=True,
@@ -83,18 +81,19 @@ async def save_session(request: SessionStateRequest) -> SessionSaveResponse:
         )
 
 
-@router.get("/sessions/{story_id}", response_model=SessionStateResponse)
-async def load_session(story_id: str) -> SessionStateResponse:
+@router.get("/sessions/{story_id}/{session_id}", response_model=SessionStateResponse)
+async def load_session(story_id: str, session_id: str) -> SessionStateResponse:
     """Load saved session for a story.
     
     Args:
         story_id: ID of the story
+        session_id: ID of the session to load
         
     Returns:
         Loaded session state if found, otherwise found=False
     """
     try:
-        session = SessionState.load_from_file(story_id)
+        session = SessionState.load(story_id, session_id)
         
         if session is None:
             return SessionStateResponse(
@@ -113,24 +112,27 @@ async def load_session(story_id: str) -> SessionStateResponse:
         )
 
 
-@router.delete("/sessions/{story_id}", response_model=SessionDeleteResponse)
-async def delete_session(story_id: str) -> SessionDeleteResponse:
+@router.delete("/sessions/{story_id}/{session_id}", response_model=SessionDeleteResponse)
+async def delete_session(story_id: str, session_id: str) -> SessionDeleteResponse:
     """Delete saved session for a story.
     
     Args:
         story_id: ID of the story
+        session_id: ID of the session to delete
         
     Returns:
         Success response
     """
     try:
-        deleted = SessionState.delete_from_file(story_id)
+        session = SessionState.load(story_id, session_id)
         
-        if not deleted:
+        if session is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No session found for story {story_id}"
+                detail=f"No session found for story {story_id} with id {session_id}"
             )
+        
+        session.delete()
         
         return SessionDeleteResponse(
             success=True,
