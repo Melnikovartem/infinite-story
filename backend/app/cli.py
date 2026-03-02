@@ -419,6 +419,7 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         opening_segment = StorySegment(
             id="opening",
             story_id=story_id,
+            story=story,  # Pass the story object
             short_description="The Story Begins",
             atmosphere="atmospheric",
             episode_number=1,
