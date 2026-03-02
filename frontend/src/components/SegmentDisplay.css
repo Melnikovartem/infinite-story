@@ -139,6 +139,7 @@
   color: #95a5a6;
 }
 
+/* Tablet breakpoint (768px and below) */
 @media (max-width: 768px) {
   .segment-display {
     font-size: 14px;
@@ -169,5 +170,69 @@
   .location-info {
     padding: 16px;
     margin-top: 20px;
+    border-left-width: 2px;
+  }
+}
+
+/* Mobile breakpoint (480px and below) */
+@media (max-width: 480px) {
+  .segment-display {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .segment-title {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+
+  .segment-content {
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+
+  .characters-present h4,
+  .location-info h4 {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+
+  .character-state {
+    padding: 8px;
+  }
+
+  .char-name {
+    font-size: 14px;
+  }
+
+  .char-emotion {
+    font-size: 12px;
+  }
+
+  .char-status {
+    font-size: 11px;
+  }
+
+  .characters-present,
+  .location-info {
+    padding: 12px;
+    margin-top: 16px;
+  }
+
+  .location-name {
+    font-size: 14px;
+  }
+
+  .location-desc {
+    font-size: 12px;
+  }
+
+  .location-atmosphere {
+    font-size: 11px;
+  }
+
+  .word-count {
+    margin-top: 16px;
+    font-size: 11px;
   }
 }
