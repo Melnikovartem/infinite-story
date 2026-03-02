@@ -57,6 +57,8 @@ class TestAutoSaveSync:
     def test_auto_save_sync_success(self):
         """Test successful auto-save."""
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id="test_story",
             current_segment_id="segment_1",
             visited_segments=["segment_1"]
@@ -66,13 +68,15 @@ class TestAutoSaveSync:
         assert result is True
         
         # Verify it was saved
-        loaded = SessionState.load_from_file("test_story")
+        loaded = SessionState.load("test_story", "session_test")
         assert loaded is not None
         assert loaded.story_id == "test_story"
     
     def test_auto_save_sync_debounced(self):
         """Test that debounced saves return False."""
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id="test_story",
             current_segment_id="segment_1",
             visited_segments=["segment_1"]
@@ -90,6 +94,8 @@ class TestAutoSaveSync:
     def test_auto_save_sync_updates_timestamp(self):
         """Test that auto-save updates timestamp."""
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id="test_story",
             current_segment_id="segment_1",
             visited_segments=["segment_1"]
@@ -110,6 +116,8 @@ class TestAutoSaveAsync:
     async def test_auto_save_async_success(self):
         """Test successful async auto-save."""
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id="test_story",
             current_segment_id="segment_1",
             visited_segments=["segment_1"]
@@ -119,7 +127,7 @@ class TestAutoSaveAsync:
         assert result is True
         
         # Verify it was saved
-        loaded = SessionState.load_from_file("test_story")
+        loaded = SessionState.load("test_story", "session_test")
         assert loaded is not None
 
 
@@ -137,6 +145,8 @@ class TestAutoSaveInfo:
     def test_get_auto_save_info_after_save(self):
         """Test getting info after a save."""
         session = SessionState(
+            id="session_test",
+            user_id="test_user",
             story_id="test_story",
             current_segment_id="segment_1",
             visited_segments=["segment_1"]
@@ -158,6 +168,8 @@ class TestAutoSaveCleanup:
         # Create multiple saves
         for i in range(3):
             session = SessionState(
+            id="session_test",
+            user_id="test_user",
                 story_id=f"story_{i}",
                 current_segment_id="segment_1",
                 visited_segments=["segment_1"]
