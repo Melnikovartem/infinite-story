@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .story_segment import StorySegment
     from .story_choice import StoryChoice
     from .story_context import StoryContext
+    from .story_segment import SegmentStatus
 
 class Story(StoryBase):
     """A story in the system.
@@ -122,16 +123,25 @@ class Story(StoryBase):
         """
         return self._locations.get(location_id)
         
-    def get_segment(self, segment_id: str) -> Optional['StorySegment']:
-        """Get a segment by ID.
+    def get_segment(self, segment_id: str, include_archived: bool = False) -> Optional['StorySegment']:
+        """Get a segment by ID, respecting archive status.
         
         Args:
             segment_id: The ID of the segment to get
+            include_archived: If False (default), archived segments return None
             
         Returns:
-            The segment, or None if not found
+            The segment, or None if not found or archived (unless include_archived=True)
         """
-        return self._segments.get(segment_id)
+        seg = self._segments.get(segment_id)
+        
+        if seg and not include_archived:
+            # Import locally to avoid circular dependency
+            from .story_segment import SegmentStatus
+            if seg.status == SegmentStatus.ARCHIVED:
+                return None
+        
+        return seg
         
     def get_choice(self, choice_id: str) -> Optional['StoryChoice']:
         """Get a choice by ID.
@@ -143,6 +153,38 @@ class Story(StoryBase):
             The choice, or None if not found
         """
         return self._choices.get(choice_id)
+    
+    def get_available_choices(self, segment_id: str) -> List['StoryChoice']:
+        """Get available choices from a segment, excluding archived destinations.
+        
+        This method returns only choices that lead to non-archived segments.
+        
+        Args:
+            segment_id: The ID of the segment to get choices from
+            
+        Returns:
+            A list of available choices from the segment
+        """
+        seg = self.get_segment(segment_id)
+        if not seg:
+            return []
+        
+        choices = []
+        for choice_id in seg.outgoing_choices if hasattr(seg, 'outgoing_choices') else {}:
+            choice = self._choices.get(choice_id)
+            if not choice:
+                continue
+            
+            # Check if destination is archived
+            if choice.to_segment_id:
+                dest = self.get_segment(choice.to_segment_id, include_archived=False)
+                if dest is None:
+                    # Destination is either missing or archived - skip this choice
+                    continue
+            
+            choices.append(choice)
+        
+        return choices
         
     def get_all_characters(self) -> List['StoryCharacter']:
         """Get all characters in the story.
