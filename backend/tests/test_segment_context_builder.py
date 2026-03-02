@@ -340,7 +340,8 @@ class TestCalculatePacingWeight:
 class TestBuildContext:
     """Test the build_context method - integration of all components."""
     
-    def test_build_context_basic(self, sample_story):
+    @pytest.mark.asyncio
+    async def test_build_context_basic(self, sample_story):
         """Test building context for a basic segment."""
         seg = StorySegment(
             story=sample_story,
@@ -356,7 +357,7 @@ class TestBuildContext:
         )
         
         builder = SegmentContextBuilder(sample_story)
-        context = builder.build_context("seg_1", "Go forward boldly")
+        context = await builder.build_context("seg_1", "Go forward boldly")
         
         assert context['episode_number'] == 2
         assert context['episode_tone'] == "dark_and_mysterious"
@@ -369,7 +370,8 @@ class TestBuildContext:
         assert 'accumulated_changes' in context
         assert 'previous_segments' in context
     
-    def test_build_context_with_parent_chain(self, sample_story):
+    @pytest.mark.asyncio
+    async def test_build_context_with_parent_chain(self, sample_story):
         """Test building context with a parent segment chain."""
         seg1 = StorySegment(
             story=sample_story,
@@ -396,21 +398,23 @@ class TestBuildContext:
         )
         
         builder = SegmentContextBuilder(sample_story)
-        context = builder.build_context("seg_3", "Ask more questions")
+        context = await builder.build_context("seg_3", "Ask more questions")
         
         # Should accumulate all changes
         assert "Started the journey" in context['accumulated_changes']
         assert "Met a stranger" in context['accumulated_changes']
         assert "Learned a secret" in context['accumulated_changes']
     
-    def test_build_context_missing_segment_raises_error(self, sample_story):
+    @pytest.mark.asyncio
+    async def test_build_context_missing_segment_raises_error(self, sample_story):
         """Test that building context with missing segment raises error."""
         builder = SegmentContextBuilder(sample_story)
         
         with pytest.raises(ValueError, match="Segment nonexistent not found"):
-            builder.build_context("nonexistent", "Some choice")
+            await builder.build_context("nonexistent", "Some choice")
     
-    def test_build_context_transition_detection(self, sample_story):
+    @pytest.mark.asyncio
+    async def test_build_context_transition_detection(self, sample_story):
         """Test that context correctly detects episode transitions."""
         seg = StorySegment(
             story=sample_story,
@@ -421,12 +425,13 @@ class TestBuildContext:
         )
         
         builder = SegmentContextBuilder(sample_story)
-        context = builder.build_context("seg_1", "Make a choice")
+        context = await builder.build_context("seg_1", "Make a choice")
         
         assert context['should_transition_episode'] is True
         assert context['pacing_weight'] == 0.9  # From will_transition
     
-    def test_build_context_accumulates_last_five_segments(self, sample_story):
+    @pytest.mark.asyncio
+    async def test_build_context_accumulates_last_five_segments(self, sample_story):
         """Test that context includes up to last 5 previous segments."""
         segments = []
         for i in range(1, 8):
@@ -441,7 +446,7 @@ class TestBuildContext:
             segments.append(seg)
         
         builder = SegmentContextBuilder(sample_story)
-        context = builder.build_context("seg_7", "Do something")
+        context = await builder.build_context("seg_7", "Do something")
         
         # Should have up to 5 previous segment overviews
         # Since _walk_episode_chain returns all segments in episode

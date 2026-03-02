@@ -331,8 +331,6 @@ class StorySegment(StoryBlock):
         
         return overview
 
-
-        
     async def generate_next_scene(
         self,
         connecting_choice: 'StoryChoice',
@@ -341,10 +339,10 @@ class StorySegment(StoryBlock):
         """Generate a new scene based on the current scene and the player's choice.
         
         This method:
-        1. Gets the story context and background
-        2. Gets summaries of previous scenes
+        1. Builds rich context using SegmentContextBuilder (walks full parent chain)
+        2. Gets summaries of previous scenes and arcs
         3. Gets current character and location states
-        4. Generates a new scene based on the choice and context
+        4. Generates a new scene based on the choice and full context
         
         Args:
             connecting_choice: The choice that led to this new scene
@@ -354,18 +352,33 @@ class StorySegment(StoryBlock):
             A new StorySegment instance
         """
         import time
+        from ..engine.segment_context_builder import SegmentContextBuilder
+        from ..utils.prompt_formatter import PromptFormatter
+        
         gen_start_time = time.time()
         
-        # Generate the scene prompt using all available context
+        # Build rich context using full parent chain walking
         logger.info(f"🎬 Starting scene generation for choice: {connecting_choice.text[:50]}...")
-        logger.debug(f"Building prompt for choice: {connecting_choice.text[:50]}...")
+        logger.debug(f"Building context with SegmentContextBuilder (walks full parent chain)")
         
+        context_start = time.time()
+        context_builder = SegmentContextBuilder(self.story, generator)
+        context = await context_builder.build_context(
+            segment_id=self.id,
+            player_choice=connecting_choice.text
+        )
+        context_duration = time.time() - context_start
+        logger.debug(f"Built generation context in {context_duration:.2f}s with full parent chain")
+        
+        # Format the context into a readable prompt
         prompt_start = time.time()
-        prompt_builder = ScenePromptBuilder(self)
-        logger.debug(f"[GEN_SCENE_PROMPT_BUILD] Building prompt with ScenePromptBuilder")
-        user_prompt = prompt_builder.build_prompt(connecting_choice.text)
+        formatter = PromptFormatter()
+        user_prompt = formatter.format_scene_context(
+            context=context,
+            choice_text=connecting_choice.text
+        )
         prompt_duration = time.time() - prompt_start
-        logger.debug(f"Built prompt with {len(user_prompt)} characters in {prompt_duration:.2f}s")
+        logger.debug(f"Formatted prompt with {len(user_prompt)} characters in {prompt_duration:.2f}s")
 
         # Generate the new scene
         logger.info("[GEN_SCENE_GEN_START] ⚙️  Calling generator.generate()")
@@ -406,6 +419,8 @@ class StorySegment(StoryBlock):
             text_blocks=scene_response.text_blocks,
             characters_present=scene_response.characters_present,
             locations_present=scene_response.locations_present,
+            # Link to parent segment for genealogy tracking
+            parent_segment_id=self.id,
             # Inherit arc and episode info from parent segment
             arc_id=self.arc_id,
             episode_number=self.episode_number,

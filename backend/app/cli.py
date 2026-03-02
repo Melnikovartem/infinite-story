@@ -462,15 +462,15 @@ async def _run_story_debug_mode(runner: StoryRunner, generator):
                 break
             
             # Build generation context to show what will be sent to AI
-            context = None
-            try:
-                context_builder = SegmentContextBuilder(runner.story)
-                context = context_builder.build_context(
-                    runner.current_segment.id,
-                    choices[0].text if choices else "unknown"  # This will be updated after choice
-                )
-            except Exception as e:
-                logger.debug(f"Could not build context: {e}")
+             context = None
+             try:
+                 context_builder = SegmentContextBuilder(runner.story)
+                 context = await context_builder.build_context(
+                     runner.current_segment.id,
+                     choices[0].text if choices else "unknown"  # This will be updated after choice
+                 )
+             except Exception as e:
+                 logger.debug(f"Could not build context: {e}")
             
             # Show generation context before each choice
             display_generation_context_story_debug(runner, runner.current_segment, context)
