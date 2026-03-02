@@ -106,6 +106,9 @@ class SegmentContextBuilder:
             should_transition
         )
         
+        # Walk full parent chain to include previous episodes
+        full_parent_chain = self._walk_full_parent_chain(current_segment_id)
+        
         # Build comprehensive context
         context_dict = {
             # ====================================================================
@@ -118,9 +121,14 @@ class SegmentContextBuilder:
             'relationship_changes': self._get_relationship_changes(episode_chain),
             
             # ====================================================================
-            # EPISODE CONTEXT
+            # EPISODE CONTEXT (all episodes in current arc)
             # ====================================================================
             'current_episode': self._get_current_episode_info(current_seg),
+            'episodes_in_arc': self._get_previous_episodes_context(
+                full_parent_chain,
+                current_seg.episode_number,
+                current_seg.arc_id
+            ),
             'recent_episode_recaps': self._get_recent_episode_recaps(
                 current_seg.episode_number,
                 current_seg.arc_id,
@@ -131,17 +139,21 @@ class SegmentContextBuilder:
             # ARC CONTEXT
             # ====================================================================
             'current_arc': self._get_current_arc_info(current_seg.arc_id),
+            'previous_arcs': self._get_previous_arcs_context(
+                current_seg.arc_id,
+                count=10
+            ),
             'recent_arc_recaps': self._get_recent_arc_recaps(count=10),
             
             # ====================================================================
             # SEGMENT CONTEXT
             # ====================================================================
-            'segment_recaps': self._get_segment_recaps(
-                episode_chain,
-                count=10
-            ),
             'recent_segments_full': self._get_recent_segments_full(
                 episode_chain[-3:]
+            ),
+            'segment_recaps': self._get_segment_recaps_with_context(
+                full_parent_chain,
+                count=10
             ),
             
             # ====================================================================
@@ -173,6 +185,20 @@ class SegmentContextBuilder:
             'episode_number': current_seg.episode_number,
             'segment_number_in_episode': current_seg.segment_number_in_episode,
             'user_choice': user_choice,
+            
+            # ====================================================================
+            # BACKWARD COMPATIBILITY: Top-level episode fields
+            # ====================================================================
+            'episode_tone': current_seg.episode_tone,
+            'episode_end_condition': current_seg.episode_end_condition,
+            'protagonist_id': current_seg.protagonist_id,
+            'character_states': current_seg.character_states,
+            'accumulated_changes': accumulated_changes,
+            'previous_segments': [
+                self.story.get_segment(seg_id).get_short_overview()
+                for seg_id in episode_chain[-5:]  # Last 5 scenes
+                if self.story.get_segment(seg_id)
+            ],
         }
         
         # Add arc context if available
@@ -210,7 +236,7 @@ class SegmentContextBuilder:
         return context_dict
     
     def _walk_episode_chain(self, segment_id: str) -> List[str]:
-        """Walk backward from segment to episode start."""
+        """Walk backward from segment to episode start (within same episode only)."""
         chain = []
         current = self.story.get_segment(segment_id)
         if not current:
@@ -231,6 +257,49 @@ class SegmentContextBuilder:
                 break
             
             current = self.story.get_segment(current.parent_segment_id)
+        
+        return chain
+    
+    def _walk_full_parent_chain(self, segment_id: str, max_depth: int = 100) -> List[str]:
+        """Walk backward through ALL parent segments across episode boundaries.
+        
+        This creates a full genealogy of the story, walking up the parent chain
+        from the current segment all the way to the story root, crossing episode
+        boundaries. Useful for getting full story context across episodes.
+        
+        Args:
+            segment_id: The segment to start walking from
+            max_depth: Maximum segments to traverse (prevents infinite loops)
+            
+        Returns:
+            List of all parent segment IDs in chronological order (oldest first)
+        """
+        chain = []
+        current = self.story.get_segment(segment_id)
+        if not current:
+            return chain
+        
+        visited = set()
+        depth = 0
+        
+        while current and depth < max_depth:
+            if current.id in visited:
+                logger.warning(f"Circular reference detected at segment {current.id}")
+                break
+            visited.add(current.id)
+            
+            chain.insert(0, current.id)
+            
+            if not current.parent_segment_id:
+                # Reached the root
+                logger.debug(f"Reached root segment {current.id}")
+                break
+            
+            current = self.story.get_segment(current.parent_segment_id)
+            depth += 1
+        
+        if depth >= max_depth:
+            logger.warning(f"Reached max depth {max_depth} walking parent chain")
         
         return chain
     
@@ -279,6 +348,115 @@ class SegmentContextBuilder:
         
         weight = (seg_num / max_segments) ** 2
         return min(weight, 0.99)
+    
+    def _get_previous_episodes_context(self, full_parent_chain: List[str], current_episode: int, current_arc_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Extract context for all episodes from current arc start to current (including previous episodes).
+        
+        Walks through the full parent chain and identifies all segments that belong
+        to the current arc, organizing them by episode. Includes all episodes from
+        the arc start up to and including the current episode.
+        
+        Args:
+            full_parent_chain: Full list of parent segment IDs (from root to current)
+            current_episode: The current episode number
+            current_arc_id: The current arc ID (to filter episodes)
+            
+        Returns:
+            List of dicts with episode information and episode recaps
+        """
+        episodes_by_number = {}
+        
+        # Group segments by episode
+        for seg_id in full_parent_chain:
+            seg = self.story.get_segment(seg_id)
+            if not seg:
+                continue
+            
+            # Only include segments from the current arc
+            if current_arc_id and seg.arc_id != current_arc_id:
+                continue
+            
+            # Include all episodes in this arc
+            if seg.episode_number <= current_episode:
+                if seg.episode_number not in episodes_by_number:
+                    episodes_by_number[seg.episode_number] = {
+                        'episode_number': seg.episode_number,
+                        'tone': seg.episode_tone,
+                        'end_condition': seg.episode_end_condition,
+                        'protagonist_id': seg.protagonist_id,
+                        'segments': []
+                    }
+                
+                episodes_by_number[seg.episode_number]['segments'].append({
+                    'segment_id': seg.id,
+                    'description': seg.short_description,
+                    'segment_number': seg.segment_number_in_episode,
+                })
+        
+        # Build result with episode recaps
+        result = []
+        for ep_num in sorted(episodes_by_number.keys()):
+            ep_info = episodes_by_number[ep_num]
+            
+            # Try to load episode recap
+            try:
+                from app.models.episode_recap import EpisodeRecap
+                recap_id = f"episode_recap_{ep_num}_{current_arc_id}" if current_arc_id else f"episode_recap_{ep_num}"
+                recap = EpisodeRecap.load(self.story.id, recap_id)
+                if recap:
+                    ep_info['recap'] = {
+                        'key_events': recap.key_events,
+                        'character_developments': recap.character_developments,
+                        'plot_progression': recap.plot_progression,
+                    }
+            except:
+                pass
+            
+            result.append(ep_info)
+        
+        logger.debug(f"Extracted {len(result)} episodes from current arc")
+        return result
+    
+    def _get_previous_arcs_context(self, current_arc_id: Optional[str] = None, count: int = 10) -> List[Dict[str, Any]]:
+        """Get context for previous arcs (up to N).
+        
+        Loads recaps for previous arcs to provide long-form story context.
+        
+        Args:
+            current_arc_id: The current arc ID (to exclude from results)
+            count: Maximum number of previous arcs to include
+            
+        Returns:
+            List of previous arc information with recaps
+        """
+        from app.models.arc_recap import ArcRecap
+        
+        arcs = []
+        all_arcs = self.story.get_all_arcs() if hasattr(self.story, 'get_all_arcs') else []
+        
+        # Get previous arcs (before current)
+        for arc in all_arcs:
+            if current_arc_id and arc.id == current_arc_id:
+                continue
+            
+            try:
+                recap = ArcRecap.load(self.story.id, f"arc_recap_{arc.id}")
+                if recap:
+                    arcs.append({
+                        'arc_id': arc.id,
+                        'name': arc.name if hasattr(arc, 'name') else arc.id,
+                        'premise': recap.arc_premise if hasattr(recap, 'arc_premise') else '',
+                        'resolution': recap.resolution if hasattr(recap, 'resolution') else '',
+                        'major_events': recap.major_events if hasattr(recap, 'major_events') else [],
+                        'character_arcs': recap.character_arcs if hasattr(recap, 'character_arcs') else {},
+                    })
+                    if len(arcs) >= count:
+                        break
+            except:
+                pass
+        
+        logger.debug(f"Extracted {len(arcs)} previous arcs")
+        return arcs
     
     # ========================================================================
     # NEW: Comprehensive Context Builders
@@ -438,6 +616,63 @@ class SegmentContextBuilder:
                 if seg:
                     recaps.append({
                         'segment_id': seg.id,
+                        'description': seg.short_description,
+                        'characters': seg.characters_present,
+                    })
+        
+        return recaps
+    
+    def _get_segment_recaps_with_context(self, full_parent_chain: List[str], count: int = 10) -> List[Dict[str, Any]]:
+        """Get recaps for recent segments from full parent chain, with recap details.
+        
+        Walks the full parent chain and gets the N most recent segments with their
+        full recap information if available.
+        
+        Args:
+            full_parent_chain: Full list of parent segment IDs
+            count: Number of recaps to include
+            
+        Returns:
+            List of segment recaps with details
+        """
+        from app.models.segment_recap import SegmentRecap
+        
+        recaps = []
+        
+        # Get last N segments from full chain
+        for seg_id in full_parent_chain[-count:]:
+            try:
+                recap = SegmentRecap.load(self.story.id, f"segment_recap_{seg_id}")
+                if recap:
+                    recaps.append({
+                        'segment_id': recap.segment_id,
+                        'episode_number': recap.episode_number if hasattr(recap, 'episode_number') else None,
+                        'segment_number': recap.segment_number if hasattr(recap, 'segment_number') else None,
+                        'description': recap.short_description,
+                        'key_events': recap.key_events if hasattr(recap, 'key_events') else [],
+                        'characters': recap.characters_present if hasattr(recap, 'characters_present') else [],
+                        'changes': recap.character_changes if hasattr(recap, 'character_changes') else [],
+                    })
+                else:
+                    # Fallback: create basic recap from segment
+                    seg = self.story.get_segment(seg_id)
+                    if seg:
+                        recaps.append({
+                            'segment_id': seg.id,
+                            'episode_number': seg.episode_number,
+                            'segment_number': seg.segment_number_in_episode,
+                            'description': seg.short_description,
+                            'characters': seg.characters_present,
+                            'changes': seg.change_notes,
+                        })
+            except:
+                # Fallback: create basic recap from segment
+                seg = self.story.get_segment(seg_id)
+                if seg:
+                    recaps.append({
+                        'segment_id': seg.id,
+                        'episode_number': seg.episode_number,
+                        'segment_number': seg.segment_number_in_episode,
                         'description': seg.short_description,
                         'characters': seg.characters_present,
                     })
