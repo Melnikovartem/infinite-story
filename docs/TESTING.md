@@ -109,7 +109,7 @@ Fixtures provide reusable test data and setup/teardown.
 **`sample_story`** - A test story with minimal data
 ```python
 def test_something(sample_story):
-    assert sample_story.id == "test_story_sample"
+    assert sample_story.id == "test_story"
 ```
 
 **`sample_segment`** - A test segment with text blocks and characters
@@ -162,7 +162,7 @@ from conftest import factory_segment, factory_choice, factory_character
 def test_custom_segment(sample_story):
     # Create with defaults
     seg = factory_segment(sample_story)
-    assert seg.id == "seg_factory"
+    assert seg.id == "segment_001"
     
     # Override specific values
     custom = factory_segment(
@@ -368,9 +368,9 @@ pytest tests/ --fixtures | grep fixture_name
 ```
 
 ### Test Data Not Cleaning Up
-**Solution:** Use the `clear_test_data` fixture:
+**Solution:** Use the `clean_data_dir` fixture:
 ```python
-def test_cleanup(clear_test_data):
+def test_cleanup(clean_data_dir):
     # Test runs with clean data
     # Auto-cleans up afterward
     pass
