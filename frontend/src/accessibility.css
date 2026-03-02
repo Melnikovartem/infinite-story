@@ -1,0 +1,302 @@
+/* WCAG 2.1 AA Accessibility Enhancements */
+
+/* Skip to main content link */
+.skip-to-main {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #3498db;
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  z-index: 1000;
+  border-radius: 0 0 4px 0;
+}
+
+.skip-to-main:focus {
+  top: 0;
+}
+
+/* Focus visible improvements for keyboard navigation */
+:focus-visible {
+  outline: 3px solid #3498db;
+  outline-offset: 2px;
+}
+
+/* Remove default browser outline for mouse users only */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: more) {
+  :focus-visible {
+    outline: 4px solid #000;
+    outline-offset: 1px;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline-width: 4px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Better text selection contrast */
+::selection {
+  background-color: #3498db;
+  color: white;
+}
+
+/* Improved color contrast for text */
+p, li, span, div {
+  color: #2c3e50;
+}
+
+/* Link visibility improvements */
+a {
+  color: #3498db;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: #2980b9;
+  text-decoration-thickness: 3px;
+}
+
+a:focus-visible {
+  border-radius: 2px;
+  outline: 3px solid #3498db;
+  outline-offset: 2px;
+}
+
+/* Form label improvements */
+label {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+/* Required field indicator */
+.required::after {
+  content: "*";
+  color: #c0392b;
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+/* Input focus states */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid #3498db;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
+/* Error message styling for accessibility */
+.error-message {
+  color: #c0392b;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+[aria-invalid="true"] {
+  border-color: #c0392b;
+}
+
+/* Loading state accessibility */
+[aria-busy="true"] {
+  opacity: 0.7;
+}
+
+/* Hidden but accessible content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Tooltip accessibility */
+[role="tooltip"] {
+  background-color: #2c3e50;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  max-width: 200px;
+  word-wrap: break-word;
+}
+
+/* Ensure proper heading hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: #2c3e50;
+  line-height: 1.2;
+}
+
+h1 {
+  font-size: 2.5em;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 2em;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+/* Proper list styling */
+ul, ol {
+  margin: 1em 0;
+  padding-left: 2em;
+}
+
+li {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+
+/* Improved code readability */
+code {
+  background-color: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+/* Dialog accessibility */
+dialog {
+  border: none;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Prevent text selection on UI elements */
+button, a[role="button"], [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Ensure interactive elements have sufficient size */
+button, a, input[type="checkbox"], input[type="radio"] {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Better focus visible for all interactive elements */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #3498db;
+  outline-offset: 2px;
+}
+
+/* Accessible tabs */
+[role="tab"] {
+  padding: 12px 16px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+[role="tab"]:hover {
+  border-color: #3498db;
+  background-color: #f0f9ff;
+}
+
+[role="tab"][aria-selected="true"] {
+  border-color: #3498db;
+  font-weight: 600;
+}
+
+[role="tab"][aria-selected="false"] {
+  opacity: 0.7;
+}
+
+/* Accessible table styling */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+th {
+  background-color: #2c3e50;
+  color: white;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+td {
+  border: 1px solid #e0e0e0;
+  padding: 12px;
+}
+
+tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* Status messages for ARIA live regions */
+[role="alert"],
+[aria-live="polite"],
+[aria-live="assertive"] {
+  padding: 12px;
+  margin: 12px 0;
+  border-left: 4px solid #3498db;
+  background-color: #f0f9ff;
+}
+
+[aria-live="assertive"] {
+  border-left-color: #c0392b;
+  background-color: #fef5f5;
+}
+
+/* Color contrast for different states */
+:disabled,
+[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  color: #95a5a6;
+}

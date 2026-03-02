@@ -1,3 +1,6 @@
+/* Import accessibility styles */
+@import './accessibility.css';
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -44,14 +47,33 @@ button {
   font-family: inherit;
   background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color 0.25s, background-color 0.25s, box-shadow 0.25s;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+
 button:hover {
   border-color: #646cff;
 }
-button:focus,
+
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: 3px solid #646cff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(100, 108, 255, 0.2);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: more) {
+  button:focus-visible {
+    outline: 4px solid #000;
+  }
 }
 
 /* Global animations and transitions */
