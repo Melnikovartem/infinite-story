@@ -49,10 +49,25 @@ python -m uvicorn app.main:app --reload
 # Visit: http://localhost:8000/api/docs
 ```
 
-**Frontend Next Steps**:
-- Update `USE_MOCK = false` in frontend API config
-- Test with real backend endpoints
-- All endpoints return consistent response format with success/error fields
+**Frontend Status** ✅ CONNECTED TO REAL API
+- ✅ SET USE_MOCK = false
+- ✅ All API calls use real backend endpoints
+- ✅ Response handling updated for actual API format
+- ✅ Page components updated to use real API
+- ✅ Error handling and loading states active
+
+**Test the Integration**:
+```bash
+# Terminal 1: Start backend
+cd backend && source venv/bin/activate
+python -m uvicorn app.main:app --reload
+
+# Terminal 2: Start frontend
+cd frontend && npm run dev
+
+# Then visit: http://localhost:3000
+# Frontend will fetch stories from http://localhost:8000/api/stories
+```
 
 ---
 
