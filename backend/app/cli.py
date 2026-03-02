@@ -1177,6 +1177,182 @@ def test_arc_generation(
     """Test arc generation with a story."""
     asyncio.run(test_arc_generation_async(story_id, count))
 
+async def test_character_generation_async(story_id: str):
+    """Test character generation for a story."""
+    from app.engine.generators.character_generator import CharacterGenerator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for character generation test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(f"[cyan]Testing character generation for story: {story_id}[/cyan]")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    console.print(f"[green]Loaded story: {story.title}[/green]")
+    console.print(f"[green]Genre: {story.genre}[/green]\n")
+
+    # Initialize character generator
+    char_gen = CharacterGenerator(story, generator)
+
+    # Generate characters
+    console.print("[bold yellow]⏳ Generating initial characters...[/bold yellow]")
+    try:
+        characters = await char_gen.generate_initial_characters(
+            user_input="",
+            count=3
+        )
+
+        console.print(f"[green]✅ Generated {len(characters)} characters successfully![/green]\n")
+        
+        # Display each character
+        for i, char in enumerate(characters, 1):
+            console.print(f"[bold cyan]Character {i}: {char.name if hasattr(char, 'name') else 'Unknown'}[/bold cyan]")
+            if hasattr(char, 'role'):
+                console.print(f"  [yellow]Role:[/yellow] {char.role}")
+            if hasattr(char, 'description'):
+                console.print(f"  [yellow]Description:[/yellow] {char.description[:100]}...")
+            if hasattr(char, 'background'):
+                console.print(f"  [yellow]Background:[/yellow] {char.background[:100]}...")
+            console.print()
+
+    except Exception as e:
+        console.print(f"[red]Error generating characters: {str(e)}[/red]")
+        logger.error(f"Character generation error: {e}", exc_info=True)
+
+@app.command()
+def test_character_generation(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to test with")
+):
+    """Test character generation with a story."""
+    asyncio.run(test_character_generation_async(story_id))
+
+async def test_protagonist_selection_async(story_id: str):
+    """Test protagonist selection for a story."""
+    from app.engine.generators.protagonist_selector import ProtagonistSelector
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for protagonist selection test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(f"[cyan]Testing protagonist selection for story: {story_id}[/cyan]")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    console.print(f"[green]Loaded story: {story.title}[/green]")
+    console.print(f"[green]Genre: {story.genre}[/green]\n")
+
+    # Initialize protagonist selector
+    proto_sel = ProtagonistSelector(generator)
+
+    # Select protagonist
+    console.print("[bold yellow]⏳ Selecting protagonist...[/bold yellow]")
+    try:
+        protagonist = await proto_sel.select_protagonist(
+            story=story,
+            user_input=""
+        )
+
+        if protagonist:
+            console.print("[green]✅ Protagonist selected successfully![/green]\n")
+            
+            console.print("[bold cyan]Selected Protagonist:[/bold cyan]")
+            if hasattr(protagonist, 'name'):
+                console.print(f"  [yellow]Name:[/yellow] {protagonist.name}")
+            if hasattr(protagonist, 'id'):
+                console.print(f"  [yellow]ID:[/yellow] {protagonist.id}")
+            if hasattr(protagonist, 'description'):
+                console.print(f"  [yellow]Description:[/yellow] {protagonist.description[:150]}...")
+            if hasattr(protagonist, 'role'):
+                console.print(f"  [yellow]Role:[/yellow] {protagonist.role}")
+            if hasattr(protagonist, 'background'):
+                console.print(f"  [yellow]Background:[/yellow] {protagonist.background[:150]}...")
+            if hasattr(protagonist, 'arc_goals'):
+                console.print(f"  [yellow]Arc Goals:[/yellow] {protagonist.arc_goals}")
+        else:
+            console.print("[yellow]No protagonist selected[/yellow]")
+
+    except Exception as e:
+        console.print(f"[red]Error selecting protagonist: {str(e)}[/red]")
+        logger.error(f"Protagonist selection error: {e}", exc_info=True)
+
+@app.command()
+def test_protagonist_selection(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to test with")
+):
+    """Test protagonist selection with a story."""
+    asyncio.run(test_protagonist_selection_async(story_id))
+
 @app.command()
 def list_models(
     provider: str = typer.Option(
