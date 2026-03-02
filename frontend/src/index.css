@@ -106,6 +106,39 @@ button:focus-visible {
   animation: pageIn 0.3s ease-in;
 }
 
+/* Responsive typography */
+@media (max-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: 2.2em;
+  }
+
+  button {
+    padding: 0.5em 1em;
+    font-size: 0.95em;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    font-size: 13px;
+  }
+
+  h1 {
+    font-size: 1.8em;
+  }
+
+  button {
+    padding: 0.4em 0.8em;
+    font-size: 0.9em;
+    min-height: 40px;
+  }
+}
+
 @media (prefers-color-scheme: light) {
    :root {
      color: #213547;
