@@ -89,9 +89,59 @@ npm test  # Verify setup
    ```
 
 **Testing specific components:**
-- Character system: `python -m pytest tests/test_character_avatar.py tests/test_character_state_manager.py tests/test_character_context_builder.py -v`
+- Character system: `python -m pytest tests/test_character_avatar.py tests/test_character_state_manager.py tests/test_character_context_builder.py tests/test_character_integration.py -v`
 - Session/progress: `python -m pytest tests/test_api_sessions.py tests/test_api_progress.py -v`
 - Content reports: `python -m pytest tests/test_api_reports.py -v`
+- All tests: `python -m pytest tests/ -v`
+
+### Backend API Endpoints (Phase 2)
+
+**Starting the API server:**
+```bash
+cd backend
+source venv/bin/activate
+python -m uvicorn app.main:app --reload
+# Server runs on http://localhost:8000
+# API docs available at http://localhost:8000/api/docs
+```
+
+**Available endpoints:**
+
+**Health & Status**
+- `GET /api/health` - Health check
+- `GET /api/status` - Server status
+
+**Characters** (NEW - Phase 2)
+- `GET /api/characters/{character_id}?story_id={story_id}` - Get character details + state history
+- `GET /api/stories/{story_id}/characters` - List all characters in a story
+
+**Sessions**
+- `POST /api/sessions/save` - Save current game session
+- `GET /api/sessions/{story_id}` - Load saved session
+- `DELETE /api/sessions/{story_id}` - Delete saved session
+
+**Progress**
+- `GET /api/progress/{story_id}` - Get story progress
+
+**Reports**
+- `POST /api/reports` - Submit content report
+- `GET /api/reports` - List reports (admin)
+- `PUT /api/reports/{report_id}` - Update report (admin)
+
+**Testing endpoints manually:**
+```bash
+# Health check
+curl http://localhost:8000/api/health
+
+# List characters in a story
+curl "http://localhost:8000/api/stories/veil_of_thornreach/characters"
+
+# Get specific character
+curl "http://localhost:8000/api/characters/eira?story_id=veil_of_thornreach"
+
+# View API documentation
+# Open browser: http://localhost:8000/api/docs
+```
 
 ### Frontend Setup
 
