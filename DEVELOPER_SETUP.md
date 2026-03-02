@@ -4,6 +4,7 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 
 ## Table of Contents
 
+0. [Phase 2 Status Update](#phase-2-status-update)
 1. [Quick Start](#quick-start)
 2. [Development Environment Setup](#development-environment-setup)
 3. [Testing Requirements](#testing-requirements)
@@ -13,6 +14,44 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 7. [Daily Development Workflow](#daily-development-workflow)
 8. [Using GitHub CLI (gh)](#using-github-cli-gh)
 9. [Troubleshooting](#troubleshooting)
+
+---
+
+## Phase 2 Status Update
+
+### Backend API ✅ COMPLETE
+**Status**: All core endpoints are now functional!
+
+**What Changed**:
+- ✅ Fixed main.py merge conflict
+- ✅ Integrated all routes (sessions, progress, reports, stories, characters)
+- ✅ Created story/segment API endpoints
+- ✅ All 33 API tests passing
+
+**Available API Endpoints**:
+```
+GET  /api/stories                      - List all stories
+GET  /api/stories/{story_id}           - Get story details
+GET  /api/segments/{segment_id}        - Get segment with choices
+GET  /api/characters/{character_id}    - Get character info
+POST /api/sessions/save                - Save session
+GET  /api/progress/{story_id}          - Get progress
+POST /api/reports                      - Submit content report
+```
+
+**Access API Docs**:
+```bash
+# Start backend
+cd backend && source venv/bin/activate
+python -m uvicorn app.main:app --reload
+
+# Visit: http://localhost:8000/api/docs
+```
+
+**Frontend Next Steps**:
+- Update `USE_MOCK = false` in frontend API config
+- Test with real backend endpoints
+- All endpoints return consistent response format with success/error fields
 
 ---
 
@@ -38,8 +77,10 @@ npm install
 npm test  # Verify setup
 
 # 4. Start developing
-# Backend: cd backend && source venv/bin/activate && python -m pytest tests/
-# Frontend: cd frontend && npm test -- --watch
+# Backend server: cd backend && source venv/bin/activate && python -m uvicorn app.main:app --reload
+# Backend tests: cd backend && source venv/bin/activate && python -m pytest tests/ -v
+# Frontend dev: cd frontend && npm run dev
+# Frontend tests: cd frontend && npm test -- --watch
 ```
 
 ---
@@ -89,58 +130,49 @@ npm test  # Verify setup
    ```
 
 **Testing specific components:**
-- Character system: `python -m pytest tests/test_character_avatar.py tests/test_character_state_manager.py tests/test_character_context_builder.py tests/test_character_integration.py -v`
+- Character system: `python -m pytest tests/test_character_avatar.py tests/test_character_state_manager.py tests/test_character_context_builder.py -v`
 - Session/progress: `python -m pytest tests/test_api_sessions.py tests/test_api_progress.py -v`
 - Content reports: `python -m pytest tests/test_api_reports.py -v`
-- All tests: `python -m pytest tests/ -v`
+- Story endpoints (Phase 2): `python -m pytest tests/test_api_stories.py -v`
 
-### Backend API Endpoints (Phase 2)
+#### Running the API Server (Phase 2+)
 
-**Starting the API server:**
+**Start the FastAPI server** (with auto-reload):
 ```bash
 cd backend
 source venv/bin/activate
 python -m uvicorn app.main:app --reload
-# Server runs on http://localhost:8000
-# API docs available at http://localhost:8000/api/docs
 ```
 
-**Available endpoints:**
+**Access the API**:
+- Server base URL: http://localhost:8000
+- Interactive API docs: http://localhost:8000/api/docs
+- ReDoc documentation: http://localhost:8000/api/redoc
+- Health check: http://localhost:8000/api/health
 
-**Health & Status**
-- `GET /api/health` - Health check
-- `GET /api/status` - Server status
+**API Endpoints Available** (Phase 2):
+```
+Story Management:
+GET  /api/stories                    - List all available stories
+GET  /api/stories/{story_id}         - Get story details with characters/locations
 
-**Characters** (NEW - Phase 2)
-- `GET /api/characters/{character_id}?story_id={story_id}` - Get character details + state history
-- `GET /api/stories/{story_id}/characters` - List all characters in a story
+Segment Navigation:
+GET  /api/segments/{segment_id}      - Get segment content and choices
+POST /api/segments/{segment_id}/next - Generate next scene (AI - Phase 2.5)
 
-**Sessions**
-- `POST /api/sessions/save` - Save current game session
-- `GET /api/sessions/{story_id}` - Load saved session
-- `DELETE /api/sessions/{story_id}` - Delete saved session
+Character Management:
+GET  /api/characters/{char_id}       - Get character details
+GET  /api/characters                 - List story characters
 
-**Progress**
-- `GET /api/progress/{story_id}` - Get story progress
+Session Management:
+POST /api/sessions/save              - Save current session state
+GET  /api/sessions/{story_id}        - Load saved session
+DELETE /api/sessions/{story_id}      - Delete session
 
-**Reports**
-- `POST /api/reports` - Submit content report
-- `GET /api/reports` - List reports (admin)
-- `PUT /api/reports/{report_id}` - Update report (admin)
-
-**Testing endpoints manually:**
-```bash
-# Health check
-curl http://localhost:8000/api/health
-
-# List characters in a story
-curl "http://localhost:8000/api/stories/veil_of_thornreach/characters"
-
-# Get specific character
-curl "http://localhost:8000/api/characters/eira?story_id=veil_of_thornreach"
-
-# View API documentation
-# Open browser: http://localhost:8000/api/docs
+Progress & Reports:
+GET  /api/progress/{story_id}        - Get player progress
+POST /api/reports                    - Submit content report
+GET  /api/reports                    - List reports (admin)
 ```
 
 ### Frontend Setup
