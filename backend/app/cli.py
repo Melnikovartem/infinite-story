@@ -1086,6 +1086,95 @@ def test_story_validation(
     """Test complete story validation pipeline (world, arcs, characters, protagonist)."""
     asyncio.run(test_story_validation_async(story_id))
 
+async def test_arc_generation_async(story_id: str, count: int = 3):
+    """Test arc generation for a story."""
+    from app.engine.generators.arc_generator import ArcGenerator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for arc generation test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(f"[cyan]Testing arc generation for story: {story_id}[/cyan]")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    console.print(f"[green]Loaded story: {story.title}[/green]")
+    console.print(f"[green]Genre: {story.genre}[/green]\n")
+
+    # Initialize arc generator
+    arc_gen = ArcGenerator(story, generator)
+
+    # Generate arcs
+    console.print(f"[bold yellow]⏳ Generating {count} arc outlines...[/bold yellow]")
+    try:
+        arcs = await arc_gen.generate_future_arcs(count=count, user_input="")
+
+        console.print(f"[green]✅ Generated {len(arcs)} arcs successfully![/green]\n")
+        
+        # Display each arc
+        for i, arc in enumerate(arcs, 1):
+            console.print(f"[bold cyan]Arc {i}: {arc.title}[/bold cyan]")
+            console.print(f"  [yellow]Description:[/yellow] {arc.description[:150]}...")
+            console.print(f"  [yellow]Central Conflict:[/yellow] {arc.central_conflict[:100]}...")
+            
+            if arc.themes:
+                console.print(f"  [yellow]Themes:[/yellow] {', '.join(arc.themes[:3])}")
+            
+            if arc.unresolved_mysteries:
+                console.print(f"  [yellow]Mysteries:[/yellow] {len(arc.unresolved_mysteries)} unresolved")
+            
+            if arc.plot_hooks:
+                console.print(f"  [yellow]Hooks:[/yellow] {len(arc.plot_hooks)} story hooks")
+            
+            console.print()
+
+    except Exception as e:
+        console.print(f"[red]Error generating arcs: {str(e)}[/red]")
+        logger.error(f"Arc generation error: {e}", exc_info=True)
+
+@app.command()
+def test_arc_generation(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to test with"),
+    count: int = typer.Option(3, help="Number of arcs to generate")
+):
+    """Test arc generation with a story."""
+    asyncio.run(test_arc_generation_async(story_id, count))
+
 @app.command()
 def list_models(
     provider: str = typer.Option(
