@@ -1158,6 +1158,145 @@ $ gh pr merge 4 --merge
 
 ---
 
+## Phase 2 Integration Testing
+
+### New Test Files Added
+
+Phase 2 introduces comprehensive testing for backend integration:
+
+**Backend Test Files** (`backend/tests/`):
+- `test_integration_phase2.py` - Sessions, progress, and reports integration (14 tests)
+- `test_auto_save_integration.py` - Auto-save functionality with debouncing (12 tests)
+- `test_error_edge_cases.py` - Error handling and boundary conditions (32 tests)
+- `test_end_to_end_game_flow.py` - Complete game flow scenarios (10 tests)
+
+### Running Phase 2 Tests
+
+```bash
+cd backend && source venv/bin/activate
+
+# Run all Phase 2 integration tests
+python -m pytest tests/test_integration_phase2.py -v
+python -m pytest tests/test_auto_save_integration.py -v
+python -m pytest tests/test_error_edge_cases.py -v
+python -m pytest tests/test_end_to_end_game_flow.py -v
+
+# Run all tests together
+python -m pytest tests/test_*integration_phase2.py tests/test_auto_save_integration.py \
+  tests/test_error_edge_cases.py tests/test_end_to_end_game_flow.py -v
+
+# Run with coverage
+python -m pytest tests/ --cov=app -v
+```
+
+### What's Tested in Phase 2
+
+**Integration Testing**:
+- Sessions and progress working together
+- Complete game flow (story → segments → choices → sessions → progress)
+- Multiple players with independent state
+- Auto-save triggering after choices
+- Progress tracking accuracy
+
+**Error Handling**:
+- Invalid session data (missing fields, wrong types)
+- Non-existent sessions/reports/progress
+- Validation errors (short descriptions, invalid types, etc.)
+- Concurrent access and race conditions
+- Boundary conditions (large lists, special characters, unicode)
+
+**Auto-Save Features**:
+- Debouncing (prevents too-frequent saves)
+- Error recovery (continues after save failure)
+- Multi-story independence
+- Cleanup of old saves
+
+**End-to-End Flows**:
+- Basic story playthrough (5-50 scenes)
+- Session resuming from save points
+- Reporting during gameplay
+- Multi-player scenarios
+- Long gaming sessions
+
+### Key Test Patterns
+
+**Testing Sessions**:
+```python
+# Save a session
+response = client.post("/api/sessions/save", json={
+    "story_id": "my_story",
+    "current_segment_id": "segment_001",
+    "visited_segments": ["segment_001"],
+    "scene_counter": 1,
+    "start_time": datetime.now(UTC).isoformat()
+})
+
+# Load it back
+response = client.get("/api/sessions/my_story")
+assert response.json()["found"] is True
+```
+
+**Testing Progress**:
+```python
+# Get progress for story
+response = client.get("/api/progress/my_story")
+progress = response.json()
+assert progress["scene_number"] == 1
+assert "elapsed_seconds" in progress
+```
+
+**Testing Reports**:
+```python
+# Submit a report
+response = client.post("/api/reports", json={
+    "story_id": "my_story",
+    "segment_id": "segment_001",
+    "report_type": "inappropriate_content",
+    "description": "Detailed description of the issue (min 10 chars)"
+})
+
+# List reports
+response = client.get(f"/api/reports?story_id=my_story")
+reports = response.json()["reports"]
+```
+
+### Cleanup and Fixtures
+
+All Phase 2 tests use automatic cleanup fixtures:
+
+```python
+@pytest.fixture(autouse=True)
+def cleanup_test_data():
+    """Clean up test data after each test."""
+    yield
+    # Cleanup happens automatically after test
+```
+
+This prevents test data from interfering with subsequent tests.
+
+### When to Add Tests
+
+Add tests when you:
+1. Add a new API endpoint
+2. Fix a bug (add a test that would have caught it)
+3. Want to verify a new feature works
+4. Need to test edge cases or error scenarios
+
+### Test File Organization
+
+```
+backend/tests/
+├── test_api_*.py              # Individual endpoint tests
+├── test_integration_phase2.py # Integration tests
+├── test_auto_save_integration.py
+├── test_error_edge_cases.py
+├── test_end_to_end_game_flow.py
+├── test_*.py                  # Model/utility tests
+└── conftest.py               # Shared fixtures
+```
+
+---
+
 ## Getting Help
 
 - **Documentation**: See README.md in backend/ and frontend/
