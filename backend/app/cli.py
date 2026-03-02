@@ -45,8 +45,10 @@ def _setup_logging():
             logging.StreamHandler()  # Writes to stderr, which shows through
         ]
     )
-    # Reduce noise from httpx
+    # Reduce noise from verbose libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("h11").setLevel(logging.WARNING)
 
 class RunMode(str, Enum):
     """CLI display modes."""

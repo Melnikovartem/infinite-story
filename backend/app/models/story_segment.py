@@ -398,9 +398,17 @@ class StorySegment(StoryBlock):
             key_items=scene_response.key_items,
             text_blocks=scene_response.text_blocks,
             characters_present=scene_response.characters_present,
-            locations_present=scene_response.locations_present
+            locations_present=scene_response.locations_present,
+            # Inherit arc and episode info from parent segment
+            arc_id=self.arc_id,
+            episode_number=self.episode_number,
+            episode_tone=self.episode_tone,
+            episode_end_condition=self.episode_end_condition,
+            segment_number_in_episode=self.segment_number_in_episode + 1,
+            protagonist_id=self.protagonist_id
         )
         logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
+        logger.debug(f"[GEN_SCENE_ARC_INHERIT] Inherited arc_id={new_segment.arc_id}, episode={new_segment.episode_number}")
 
         # Copy over existing running status from current segment
         logger.debug(f"[GEN_SCENE_COPY_STATUS] Copying character and location statuses")
