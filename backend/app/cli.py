@@ -599,7 +599,7 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
         resume: Resume from previous session if available
         log_level: error (default), warn, or debug
     """
-    
+
     # Setup logging based on mode
     if log_level:
         setup_logging(log_level)
