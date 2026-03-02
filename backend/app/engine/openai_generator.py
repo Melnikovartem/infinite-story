@@ -1,8 +1,11 @@
 import json
+import logging
 from typing import Optional, Dict, Any
 import httpx
 from .generator import TextGenerator
 from ..models.text_types import TextGeneratorResponse
+
+logger = logging.getLogger("infinite_story.engine.openai_generator")
 
 class OpenAIGenerator(TextGenerator):
     """OpenAI-style API implementation of the TextGenerator.
@@ -52,6 +55,12 @@ class OpenAIGenerator(TextGenerator):
             Exception: If the API call fails
         """
         try:
+            logger.debug(f"[OpenAI] Preparing API request to {self.api_base}/v1/chat/completions")
+            logger.debug(f"[OpenAI] Model: {self.model}, Temperature: {self.temperature}, Max tokens: {self.max_tokens}")
+            logger.debug(f"[OpenAI] System prompt length: {len(system_prompt)} chars")
+            logger.debug(f"[OpenAI] User prompt length: {len(user_prompt)} chars")
+            
+            logger.debug("[OpenAI] Sending API request...")
             response = await self.client.post(
                 "/v1/chat/completions",
                 json={
@@ -65,10 +74,20 @@ class OpenAIGenerator(TextGenerator):
                     "response_format": {"type": "json_object"}
                 }
             )
+            logger.debug(f"[OpenAI] API response status: {response.status_code}")
+            
             response.raise_for_status()  # This is not async
-            return response.json()["choices"][0]["message"]["content"]
+            
+            response_json = response.json()
+            content = response_json["choices"][0]["message"]["content"]
+            
+            logger.debug(f"[OpenAI] Response content length: {len(content)} chars")
+            logger.debug(f"[OpenAI] Response preview: {content[:300]}..." if len(content) > 300 else f"[OpenAI] Response: {content}")
+            
+            return content
 
         except Exception as e:
+            logger.error(f"[OpenAI] API call failed: {str(e)}", exc_info=True)
             raise Exception(f"Failed to generate content: {str(e)}")
             
     async def generate(

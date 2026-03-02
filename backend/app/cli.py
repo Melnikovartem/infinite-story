@@ -35,6 +35,19 @@ app = typer.Typer()
 console = Console(force_terminal=True, legacy_windows=False)
 logger = logging.getLogger("infinite_story.cli")
 
+# Configure logging to show debug messages
+def _setup_logging():
+    """Configure logging to display debug messages during generation."""
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()  # Writes to stderr, which shows through
+        ]
+    )
+    # Reduce noise from httpx
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 class RunMode(str, Enum):
     """CLI display modes."""
     IMMERSIVE = "immersive"
@@ -557,17 +570,23 @@ async def _execute_choice(runner: StoryRunner, choice_id: str, generator, mode: 
     else:
         # Generate new segment
         logger.debug(f"[EXEC_CHOICE_GEN_START] Starting generation for choice: {choice.text}")
-        with console.status("[bold yellow]Generating next scene...[/bold yellow]", spinner="dots"):
-            logger.debug(f"[EXEC_CHOICE_GEN_CALL] Calling generate_next_scene()")
+        console.print("[bold yellow]⏳ Generating next scene...[/bold yellow]")
+        logger.debug(f"[EXEC_CHOICE_GEN_CALL] Calling generate_next_scene()")
+        
+        try:
             new_segment = await runner.current_segment.generate_next_scene(choice, generator)
             logger.debug(f"[EXEC_CHOICE_GEN_RECEIVED] Received new segment: {new_segment.id}")
             runner.current_segment = new_segment
             runner.visited_segments.add(new_segment.id)
-            console.print("[green]Scene generated successfully![/green]")
+            console.print("[green]✅ Scene generated successfully![/green]")
             logger.debug(f"[EXEC_CHOICE_GEN_DONE] New segment set as current: {new_segment.id}")
             
             if mode != RunMode.IMMERSIVE:
                 console.print(f"\n[cyan]New segment: {new_segment.id}[/cyan]")
+        except Exception as e:
+            logger.error(f"[EXEC_CHOICE_GEN_ERROR] Generation failed: {str(e)}", exc_info=True)
+            console.print(f"[red]❌ Scene generation failed: {str(e)}[/red]")
+            raise
 
 async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERSIVE, resume: bool = False, log_level: str = "error"):
     """Run a story in one of four modes.
@@ -578,6 +597,7 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
         resume: Resume from previous session if available
         log_level: error (default), warn, or debug
     """
+    
     # Setup logging based on mode
     if log_level:
         setup_logging(log_level)

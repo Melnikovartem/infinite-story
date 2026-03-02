@@ -9,6 +9,8 @@ from app.models.story_choice import StoryChoice
 from app.models.story_character import StoryCharacter, AvatarShape
 from app.models.story_location import StoryLocation
 from app.models.story_context import StoryContext
+from app.models.story_arc import StoryArc
+from app.models.episode_recap import EpisodeRecap
 from app.models.text_types import TextBlock, TextType
 
 logger = logging.getLogger("infinite_story.utils.story_builder")
@@ -316,6 +318,47 @@ class StoryBuilder:
         for choice in self.choices.values():
             choice.save()
         logger.info(f"Saved {len(self.choices)} choices")
+        
+        # Create and save story arc
+        arc_id = f"arc_1"
+        story_arc = StoryArc(
+            story_id=self.story.id,
+            id=arc_id,
+            title=f"Arc 1: {self.story.title}",
+            description=f"The beginning of {self.story.title}",
+            episode_ids=["episode_1"],
+            episode_count=1,
+            start_segment_id=self.story.start_segment_id,
+            current_segment_id=max(
+                self.segments.keys(),
+                key=lambda k: len(self.segments[k].id)
+            ) if self.segments else self.story.start_segment_id,
+            premise=f"Explore the world of {self.story.title}",
+            narrative_direction="The story unfolds..."
+        )
+        story_arc.save()
+        logger.info(f"Created story arc: {arc_id}")
+        
+        # Update segments with arc reference
+        for segment in self.segments.values():
+            if segment.arc_id is None:
+                segment.arc_id = arc_id
+                segment.save()
+        logger.info("Updated segments with arc references")
+        
+        # Create and save first episode recap
+        episode_recap = EpisodeRecap(
+            story_id=self.story.id,
+            id="episode_1",
+            episode_number=1,
+            arc_id=arc_id,
+            title=f"Episode 1: {self.story.title}",
+            summary=self.story.description,
+            key_themes=["beginning", "discovery"],
+            tone="mysterious"
+        )
+        episode_recap.save()
+        logger.info("Created first episode recap")
         
         logger.info(f"✅ Story '{self.story.id}' saved successfully!")
         return self.story.id
