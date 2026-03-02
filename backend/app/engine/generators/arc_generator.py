@@ -1,7 +1,7 @@
 """Arc generator for creating future arc outlines."""
 
 import logging
-from typing import List, Dict
+from typing import List, Dict, Any
 import uuid
 
 from app.models.story import Story

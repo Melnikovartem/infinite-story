@@ -1,7 +1,7 @@
 """Character generator for creating and parsing characters."""
 
 import logging
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Any
 import re
 import uuid
 
