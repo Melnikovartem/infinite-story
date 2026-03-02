@@ -68,6 +68,8 @@
   word-break: break-word;
   max-width: 100%;
   animation: fadeIn 0.3s ease-in-out;
+  font-family: inherit;
+  position: relative;
 }
 
 .choice-button:hover:not(:disabled) {
@@ -81,6 +83,12 @@
   background-color: #d6f0ff;
   border-color: #2980b9;
   transform: translateY(0) translateX(2px);
+}
+
+.choice-button:focus-visible {
+  outline: 3px solid #3498db;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
 }
 
 .choice-button:disabled {
@@ -127,6 +135,7 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   animation: fadeIn 0.3s ease-in-out;
+  font-family: inherit;
 }
 
 .expand-button:hover {
@@ -135,6 +144,13 @@
   background-color: #ecf7ff;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(52, 152, 219, 0.15);
+}
+
+.expand-button:focus-visible {
+  outline: 3px solid #3498db;
+  outline-offset: 1px;
+  border-style: solid;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
 }
 
 .all-choices {
