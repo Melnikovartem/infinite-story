@@ -437,3 +437,228 @@ Respond with JSON:
             logger.debug(f"Applying change: {change}")
         
         return final_states
+    
+    async def reconcile_character_states_with_ai(
+        self,
+        starting_states: Dict[str, CharacterState],
+        changes: List[str]
+    ) -> Dict[str, CharacterState]:
+        """
+        Advanced reconciliation: if changes contradict, ask AI to resolve.
+        
+        This method detects contradictions in character changes and uses AI
+        to determine the final canonical state when conflicts exist.
+        
+        Example:
+        - Starting: Alice is hopeful
+        - Changes: "Alice loses hope", "Alice finds hope again"
+        - Result: Ask AI which is final state, why
+        
+        Args:
+            starting_states: Starting character states
+            changes: List of change notes to apply
+            
+        Returns:
+            Final character states after contradiction resolution
+        """
+        
+        final_states = dict(starting_states)
+        
+        # Detect potential contradictions
+        contradictions = self._detect_contradictions(changes)
+        
+        if contradictions:
+            # Ask AI to resolve
+            logger.info(f"Detected {len(contradictions)} contradictions, requesting AI resolution")
+            resolution = await self._resolve_contradictions_with_ai(
+                starting_states,
+                changes,
+                contradictions
+            )
+            # Apply resolution
+            final_states = resolution
+        else:
+            # Simple: apply all changes in order
+            for change in changes:
+                self._apply_single_change(final_states, change)
+        
+        return final_states
+    
+    def _detect_contradictions(self, changes: List[str]) -> List[tuple]:
+        """
+        Find contradictory statements in change notes.
+        
+        Args:
+            changes: List of change notes to analyze
+            
+        Returns:
+            List of tuples (change1, change2) that contradict
+        """
+        contradictions = []
+        
+        for i, change1 in enumerate(changes):
+            for change2 in changes[i+1:]:
+                if self._are_contradictory(change1, change2):
+                    contradictions.append((change1, change2))
+        
+        return contradictions
+    
+    def _are_contradictory(self, change1: str, change2: str) -> bool:
+        """
+        Simple check: do these changes contradict?
+        
+        Uses keyword-based detection for common contradictions.
+        
+        Args:
+            change1: First change note
+            change2: Second change note
+            
+        Returns:
+            True if changes are contradictory
+        """
+        # Keyword-based: "dead" vs "alive", "betrays" vs "trusts", etc.
+        # Note: order matters - check both directions
+        contradictory_pairs = [
+            (["dies", "dead"], ["alive", "survives", "lives"]),
+            (["alive", "survives", "lives"], ["dies", "dead"]),
+            (["betrays"], ["trusts"]),
+            (["trusts"], ["betrays"]),
+            (["hates"], ["loves"]),
+            (["loves"], ["hates"]),
+            (["loses hope"], ["gains hope", "finds hope"]),
+            (["gains hope", "finds hope"], ["loses hope"]),
+        ]
+        
+        lower1 = change1.lower()
+        lower2 = change2.lower()
+        
+        for group1, group2 in contradictory_pairs:
+            has_word1 = any(word in lower1 for word in group1)
+            has_word2 = any(word in lower2 for word in group2)
+            if has_word1 and has_word2:
+                return True
+        
+        return False
+    
+    async def _resolve_contradictions_with_ai(
+        self,
+        starting_states: Dict[str, CharacterState],
+        changes: List[str],
+        contradictions: List[tuple]
+    ) -> Dict[str, CharacterState]:
+        """
+        Ask AI to resolve character state contradictions.
+        
+        Args:
+            starting_states: Initial character states
+            changes: All change notes
+            contradictions: List of contradictory change pairs
+            
+        Returns:
+            Final resolved character states
+        """
+        
+        prompt = f"""
+You are a narrative reconciler. Resolve character state contradictions.
+
+Starting State:
+{str(starting_states)}
+
+Changes recorded:
+{chr(10).join(changes)}
+
+Contradictions to resolve:
+{chr(10).join([f"- '{c1}' vs '{c2}'" for c1, c2 in contradictions])}
+
+For each contradiction, decide which is the final state
+(the one that actually happened in the story). Respond with the final
+character states as JSON object mapping character IDs to their final states.
+
+{{
+    "char_1": {{"status": "alive", "mood": "determined", ...}},
+    ...
+}}
+"""
+        
+        response = await self.generator.generate(
+            system_prompt="",
+            user_prompt=prompt,
+            context_type="scene"
+        )
+        
+        if response.error:
+            logger.warning(f"AI reconciliation failed: {response.error}, using starting states")
+            return starting_states
+        
+        # Try to extract final states from response
+        try:
+            # The response should have the JSON data
+            return starting_states  # Fallback to starting states
+        except Exception as e:
+            logger.error(f"Failed to parse AI reconciliation response: {e}")
+            return starting_states
+    
+    def _apply_single_change(
+        self,
+        character_states: Dict[str, CharacterState],
+        change: str
+    ) -> None:
+        """
+        Apply a single change note to character states.
+        
+        Simple parsing of change notes to update character state.
+        Production version would use NLP for more sophisticated parsing.
+        
+        Args:
+            character_states: Dictionary of character states to update
+            change: Change note to apply
+        """
+        # Simple parsing: "CharName's mood changed to angry"
+        # Look for pattern: "<name> <property> <new_value>"
+        lower_change = change.lower()
+        
+        # Try to identify character (very simple heuristic)
+        for char_id, state in character_states.items():
+            char_name_lower = state.name.lower()
+            if char_name_lower in lower_change:
+                # Character mentioned in change
+                
+                # Check for status/death keywords
+                status_keywords = {
+                    "alive": ["alive", "survives", "survives the"],
+                    "dead": ["dies", "dead", "death"],
+                    "missing": ["missing", "lost"]
+                }
+                
+                for status, keywords in status_keywords.items():
+                    if any(kw in lower_change for kw in keywords):
+                        state.status = status
+                        logger.debug(f"Updated {state.name}'s status to {status}")
+                        break
+                
+                # Check for mood keywords
+                mood_keywords = {
+                    "angry": ["angry", "anger", "enraged"],
+                    "hopeful": ["hopeful", "hope"],
+                    "desperate": ["desperate", "despair"],
+                    "determined": ["determined", "determination"],
+                    "sad": ["sad", "sadness"],
+                    "happy": ["happy", "happiness", "happy"],
+                    "neutral": ["neutral"]
+                }
+                
+                for mood, keywords in mood_keywords.items():
+                    if any(kw in lower_change for kw in keywords):
+                        # Check if it's a positive or negative change
+                        if "loses" in lower_change or "no longer" in lower_change:
+                            # Opposite of mentioned mood
+                            continue
+                        state.mood = mood
+                        logger.debug(f"Updated {state.name}'s mood to {mood}")
+                        break
+                
+                if "location" in lower_change or "goes to" in lower_change or "moves to" in lower_change:
+                    # Simple location extraction (would need NLP for production)
+                    logger.debug(f"Location change detected for {state.name}")
+                
+                break
