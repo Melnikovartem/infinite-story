@@ -5,6 +5,9 @@
   font-size: 13px;
   color: #7f8c8d;
   flex-shrink: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .counter-item {
@@ -31,8 +34,17 @@
 
 @media (max-width: 768px) {
   .progress-counter {
-    font-size: 12px;
+    font-size: 11px;
     flex-wrap: wrap;
     gap: 6px;
+    white-space: normal;
+  }
+
+  .counter-item .label {
+    font-size: 10px;
+  }
+
+  .counter-item .value {
+    font-size: 12px;
   }
 }
