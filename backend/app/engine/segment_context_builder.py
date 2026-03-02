@@ -114,6 +114,8 @@ class SegmentContextBuilder:
             'all_characters': self._get_all_character_summaries(),
             'extended_characters': self._get_extended_character_info(episode_chain[-3:]),
             'character_changes_this_episode': accumulated_changes,
+            'character_relationships': self._get_character_relationships(episode_chain),
+            'relationship_changes': self._get_relationship_changes(episode_chain),
             
             # ====================================================================
             # EPISODE CONTEXT
@@ -141,6 +143,27 @@ class SegmentContextBuilder:
             'recent_segments_full': self._get_recent_segments_full(
                 episode_chain[-3:]
             ),
+            
+            # ====================================================================
+            # WORLD STATE & LOCATIONS
+            # ====================================================================
+            'location_states': self._get_location_states(episode_chain),
+            'world_state_changes': self._get_world_state_changes(episode_chain),
+            
+            # ====================================================================
+            # THEME & MYSTERY TRACKING
+            # ====================================================================
+            'themes_explored': self._get_themes_explored(episode_chain),
+            'theme_depth': self._get_theme_depth(episode_chain),
+            'mysteries_tracking': self._get_mysteries_tracking(current_seg.arc_id),
+            'new_mysteries_introduced': self._get_new_mysteries_introduced(episode_chain),
+            
+            # ====================================================================
+            # STORY MOMENTUM METRICS
+            # ====================================================================
+            'story_momentum': self._calculate_story_momentum(episode_chain),
+            'tension_level': self._calculate_tension_level(episode_chain),
+            'pacing_trend': self._calculate_pacing_trend(episode_chain),
             
             # ====================================================================
             # NAVIGATION & SIGNALS
@@ -437,3 +460,311 @@ class SegmentContextBuilder:
                 })
         
         return full_segments
+    
+    # =========================================================================
+    # NEW: CHARACTER RELATIONSHIP TRACKING
+    # =========================================================================
+    
+    def _get_character_relationships(self, segment_chain: List[str]) -> Dict[str, Dict[str, str]]:
+        """Get current character relationships and their status.
+        
+        Returns mapping of character pairs and their relationship type.
+        """
+        relationships = {}
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.character_states:
+                # Extract relationship info from character states if available
+                for char_id, state in seg.character_states.items():
+                    if isinstance(state, dict) and 'relationships' in state:
+                        if char_id not in relationships:
+                            relationships[char_id] = {}
+                        relationships[char_id].update(state['relationships'])
+        
+        return relationships
+    
+    def _get_relationship_changes(self, segment_chain: List[str]) -> List[Dict[str, str]]:
+        """Track how character relationships have changed during episode.
+        
+        Returns list of relationship changes extracted from change_notes.
+        """
+        changes = []
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.change_notes:
+                # Look for relationship-related change notes
+                for note in seg.change_notes:
+                    if any(keyword in note.lower() for keyword in ['relationship', 'trust', 'betrayed', 'allied', 'enemy']):
+                        changes.append({
+                            'segment_id': seg_id,
+                            'change': note
+                        })
+        
+        return changes
+    
+    # =========================================================================
+    # NEW: LOCATION & WORLD STATE TRACKING
+    # =========================================================================
+    
+    def _get_location_states(self, segment_chain: List[str]) -> Dict[str, Dict[str, str]]:
+        """Get current state of all locations mentioned in episode.
+        
+        Returns mapping of location_id -> {status, last_seen, description}.
+        """
+        locations = {}
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                # Add locations from segment
+                for loc_id in seg.locations_present if hasattr(seg, 'locations_present') else []:
+                    loc = self.story.get_location(loc_id)
+                    if loc:
+                        locations[loc_id] = {
+                            'name': loc.name,
+                            'description': loc.description if hasattr(loc, 'description') else '',
+                            'last_seen_segment': seg_id,
+                            'status': 'accessible'  # Could be expanded with more states
+                        }
+        
+        return locations
+    
+    def _get_world_state_changes(self, segment_chain: List[str]) -> List[str]:
+        """Get changes to world state (locations, environment, objects).
+        
+        Extracted from segment change_notes.
+        """
+        changes = []
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.change_notes:
+                # Look for world-state related changes
+                for note in seg.change_notes:
+                    if any(keyword in note.lower() for keyword in ['location', 'environment', 'destroyed', 'built', 'changed', 'fire', 'door', 'wall']):
+                        changes.append(f"[Seg {seg_id}] {note}")
+        
+        return changes
+    
+    # =========================================================================
+    # NEW: THEME & MYSTERY TRACKING
+    # =========================================================================
+    
+    def _get_themes_explored(self, segment_chain: List[str]) -> Dict[str, int]:
+        """Get count of how many times each theme appeared.
+        
+        Returns mapping of theme -> count.
+        """
+        theme_counts = {}
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and hasattr(seg, 'episode_selected_themes'):
+                for theme in seg.episode_selected_themes:
+                    theme_counts[theme] = theme_counts.get(theme, 0) + 1
+        
+        return theme_counts
+    
+    def _get_theme_depth(self, segment_chain: List[str]) -> Dict[str, str]:
+        """Get depth of exploration for each theme.
+        
+        Maps theme -> exploration level (introduced/developing/resolved/returning).
+        """
+        theme_depth = {}
+        first_appearance = {}
+        theme_segments = {}
+        
+        for i, seg_id in enumerate(segment_chain):
+            seg = self.story.get_segment(seg_id)
+            if seg and hasattr(seg, 'episode_selected_themes'):
+                for theme in seg.episode_selected_themes:
+                    if theme not in first_appearance:
+                        first_appearance[theme] = i
+                    theme_segments[theme] = theme_segments.get(theme, 0) + 1
+        
+        # Determine depth based on appearance frequency and position
+        for theme, count in theme_segments.items():
+            if count == 1:
+                theme_depth[theme] = 'introduced'
+            elif count <= 3:
+                theme_depth[theme] = 'developing'
+            elif count > 3:
+                theme_depth[theme] = 'deeply_explored'
+        
+        return theme_depth
+    
+    def _get_mysteries_tracking(self, arc_id: Optional[str]) -> Dict[str, str]:
+        """Get current status of arc mysteries.
+        
+        Returns mapping of mystery -> status (unresolved/being_investigated/resolved).
+        """
+        mysteries = {}
+        
+        if arc_id:
+            try:
+                from app.models.story_arc import StoryArc
+                arc = StoryArc.load(self.story.id, arc_id)
+                if arc and arc.unresolved_mysteries:
+                    for mystery in arc.unresolved_mysteries:
+                        mysteries[mystery] = 'unresolved'
+            except:
+                pass
+        
+        return mysteries
+    
+    def _get_new_mysteries_introduced(self, segment_chain: List[str]) -> List[str]:
+        """Get new mysteries/questions introduced in this episode.
+        
+        Extracted from segment change_notes and episode text.
+        """
+        new_mysteries = []
+        mystery_keywords = ['mystery', 'question', 'unknown', 'puzzle', 'secret', 'hidden', 'discover', 'revealed']
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.change_notes:
+                for note in seg.change_notes:
+                    if any(keyword in note.lower() for keyword in mystery_keywords):
+                        new_mysteries.append(note)
+        
+        return new_mysteries
+    
+    # =========================================================================
+    # NEW: STORY MOMENTUM METRICS
+    # =========================================================================
+    
+    def _calculate_story_momentum(self, segment_chain: List[str]) -> Dict[str, Any]:
+        """Calculate story momentum metrics.
+        
+        Returns: {
+            'direction': 'escalating'/'stable'/'declining',
+            'intensity': 0.0-1.0,
+            'segment_count': int,
+            'average_change_rate': float
+        }
+        """
+        if not segment_chain:
+            return {'direction': 'stable', 'intensity': 0.0, 'segment_count': 0, 'average_change_rate': 0.0}
+        
+        change_rates = []
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.change_notes:
+                change_rates.append(len(seg.change_notes))
+        
+        avg_rate = sum(change_rates) / len(change_rates) if change_rates else 0
+        
+        # Determine direction based on trend
+        if len(change_rates) > 1:
+            recent_rate = sum(change_rates[-3:]) / min(3, len(change_rates))
+            early_rate = sum(change_rates[:3]) / min(3, len(change_rates))
+            if recent_rate > early_rate * 1.2:
+                direction = 'escalating'
+            elif recent_rate < early_rate * 0.8:
+                direction = 'declining'
+            else:
+                direction = 'stable'
+        else:
+            direction = 'stable'
+        
+        return {
+            'direction': direction,
+            'intensity': min(1.0, avg_rate / 5.0),  # Normalize to 0-1
+            'segment_count': len(segment_chain),
+            'average_change_rate': avg_rate
+        }
+    
+    def _calculate_tension_level(self, segment_chain: List[str]) -> Dict[str, Any]:
+        """Calculate current tension/conflict level in story.
+        
+        Returns: {
+            'level': 'low'/'medium'/'high'/'critical',
+            'score': 0.0-1.0,
+            'conflict_count': int,
+            'resolution_count': int
+        }
+        """
+        conflict_keywords = ['conflict', 'battle', 'danger', 'threat', 'attack', 'death', 'betrayal', 'fear', 'anger']
+        resolution_keywords = ['resolve', 'peace', 'victory', 'reconcile', 'trust', 'calm', 'safe', 'relief']
+        
+        conflicts = 0
+        resolutions = 0
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and seg.change_notes:
+                for note in seg.change_notes:
+                    note_lower = note.lower()
+                    if any(keyword in note_lower for keyword in conflict_keywords):
+                        conflicts += 1
+                    if any(keyword in note_lower for keyword in resolution_keywords):
+                        resolutions += 1
+        
+        # Calculate tension score
+        net_tension = conflicts - resolutions
+        tension_score = min(1.0, max(0.0, net_tension / 10.0))
+        
+        if tension_score < 0.2:
+            level = 'low'
+        elif tension_score < 0.5:
+            level = 'medium'
+        elif tension_score < 0.8:
+            level = 'high'
+        else:
+            level = 'critical'
+        
+        return {
+            'level': level,
+            'score': tension_score,
+            'conflict_count': conflicts,
+            'resolution_count': resolutions
+        }
+    
+    def _calculate_pacing_trend(self, segment_chain: List[str]) -> Dict[str, Any]:
+        """Calculate pacing trend (accelerating/steady/decelerating).
+        
+        Returns: {
+            'trend': 'accelerating'/'steady'/'decelerating',
+            'score': 0.0-1.0,
+            'recent_pace': float,
+            'early_pace': float
+        }
+        """
+        segment_lengths = []
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                text_length = len(seg.short_description or '')
+                segment_lengths.append(text_length)
+        
+        if len(segment_lengths) < 2:
+            return {
+                'trend': 'steady',
+                'score': 0.5,
+                'recent_pace': 0.0,
+                'early_pace': 0.0
+            }
+        
+        early_pace = sum(segment_lengths[:3]) / min(3, len(segment_lengths))
+        recent_pace = sum(segment_lengths[-3:]) / min(3, len(segment_lengths))
+        
+        if recent_pace > early_pace * 1.2:
+            trend = 'accelerating'
+        elif recent_pace < early_pace * 0.8:
+            trend = 'decelerating'
+        else:
+            trend = 'steady'
+        
+        # Normalize score
+        max_pace = max(early_pace, recent_pace)
+        score = recent_pace / max_pace if max_pace > 0 else 0.5
+        
+        return {
+            'trend': trend,
+            'score': min(1.0, score),
+            'recent_pace': recent_pace,
+            'early_pace': early_pace
+        }
