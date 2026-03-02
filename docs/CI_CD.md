@@ -1,557 +1,385 @@
-# CI/CD Pipeline Documentation - ISE v2
-
-This document describes the automated testing and deployment pipeline for Infinite Story Engine v2.
+# CI/CD Pipeline Documentation
 
 ## Overview
 
-The CI/CD pipeline runs on every push and pull request, ensuring code quality and preventing regressions.
+The Infinite Story Engine uses GitHub Actions for continuous integration and continuous deployment (CI/CD). This ensures code quality, test coverage, and reliable deployments.
 
-**Pipeline Goals:**
-- Automated testing on every change
-- Code quality enforcement
-- Coverage tracking
-- Fast feedback to developers
-- Reliable deployments
-
-## Pipeline Workflow
+## Pipeline Architecture
 
 ```
-Push/PR → Lint → Type Check → Tests → Coverage → Results
-                ↓
-           All pass? → Can merge
-           Any fail? → Block merge, notify developer
+Developer Pushes Code
+    ↓
+GitHub Actions Triggered
+    ├─ Test (pytest with coverage)
+    ├─ Lint (black, flake8, isort)
+    ├─ Type Check (mypy)
+    └─ Security (basic checks)
+    ↓
+All Checks Pass?
+    ├─ Yes → PR can merge to master
+    └─ No → PR blocked, developer fixes
+    ↓
+Merge to Master
+    ↓
+Deployment (Manual or Automatic)
 ```
 
-## GitHub Actions Workflows
+## Workflows
 
-### Test Suite (`test.yml`)
+### 1. Test Workflow (`.github/workflows/test.yml`)
 
-Runs on every push and PR to `main` and `develop` branches.
+Runs on every push and pull request.
 
-**Triggers:**
-- Push to main/develop
-- Pull request to main/develop
-- Manual trigger
+**Matrix Testing:**
+- Python 3.12
+- Python 3.13
 
 **Steps:**
 1. Checkout code
-2. Set up Python (3.12, 3.13)
+2. Set up Python environment
 3. Install dependencies
-4. Lint with flake8
-5. Format check with black
-6. Run pytest
-7. Upload coverage
-8. Type check with mypy
+4. Run linting (flake8) - non-blocking
+5. Format check (black) - non-blocking
+6. Run tests with coverage (pytest)
+7. Upload coverage to Codecov
+8. Type check with mypy - non-blocking
 
-**Matrix:** Tests run on Python 3.12 and 3.13
+**Requirements:**
+- ✅ All tests must pass
+- ⚠️ Linting warnings non-blocking (but visible)
+- ⚠️ Type check warnings non-blocking
 
-**Time:** ~5 minutes
+**Build Step:**
+- Triggered only on `main`/`master` branches
+- Requires test job to pass
+- Runs basic import checks
 
-```yaml
-# .github/workflows/test.yml
-name: Test Suite
+### 2. Code Quality Workflow (`.github/workflows/lint.yml`)
 
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12", "3.13"]
-    
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      
-      - name: Install dependencies
-        run: |
-          cd backend
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-      
-      - name: Lint
-        run: |
-          cd backend
-          flake8 app tests
-      
-      - name: Format check
-        run: |
-          cd backend
-          black --check app tests
-      
-      - name: Run tests
-        run: |
-          cd backend
-          pytest tests/ -v --cov=app --cov-report=xml
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-```
-
-### Code Quality (`lint.yml`)
-
-Runs code formatting and linting checks.
-
-**Triggers:**
-- Push to any branch
-- Pull request
+Runs on every push and pull request for code quality checks.
 
 **Steps:**
-1. Set up Python
-2. Run black (formatting)
-3. Run isort (import sorting)
-4. Run flake8 (linting)
-5. Commit changes (auto-fix)
+1. Code formatting (black)
+2. Import sorting (isort)
+3. Linting (flake8)
+4. Type checking (mypy)
 
-```yaml
-# .github/workflows/lint.yml
-name: Code Quality
+**Result:**
+- Non-blocking warnings
+- Helps maintain consistency
+- Automated fixes possible (future)
 
-on: [push, pull_request]
+## Running Tests Locally
 
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.13"
-      
-      - name: Install tools
-        run: |
-          pip install black isort flake8
-      
-      - name: Format code
-        run: |
-          black backend/app backend/tests
-          isort backend/app backend/tests
-      
-      - name: Lint
-        run: |
-          flake8 backend/app backend/tests
-      
-      - name: Commit changes
-        run: |
-          git config user.email "ci@github.com"
-          git config user.name "CI Bot"
-          git add -A
-          git commit -m "chore: auto-format code" || true
-          git push || true
-```
-
-## Local Testing Before Push
-
-Run these locally before pushing:
+Before pushing, test locally:
 
 ```bash
-# Install dev requirements
-pip install -r requirements-dev.txt
+cd backend
 
-# Run all checks
-pytest tests/ -v --cov=app
+# Run all tests
+pytest tests/ -v
+
+# With coverage
+pytest tests/ --cov=app --cov-report=term-missing
+
+# Lint check
 black --check app tests
-isort --check-only app tests
 flake8 app tests
+isort --check-only app tests
+
+# Type check
 mypy app --ignore-missing-imports
 ```
 
-Or use the pre-commit hook:
+## Deployment
+
+### Manual Deployment
 
 ```bash
-# Create .git/hooks/pre-commit
-#!/bin/bash
-set -e
+# 1. Deploy to staging
+cd backend/scripts
+./deploy.sh staging
+
+# 2. Test in staging
+# ... run tests/smoke tests ...
+
+# 3. Deploy to production
+./deploy.sh production
+
+# 4. Monitor health
+python health-check.py
+```
+
+### Rollback
+
+If deployment fails:
+
+```bash
+cd backend/scripts
+
+# List available backups
+ls -d .infinite_story_data_backup_*
+
+# Rollback to specific backup
+./rollback.sh .infinite_story_data_backup_20260302_140000
+```
+
+## Health Checks
+
+### Automated Health Checks
+
+Run after deployment:
+
+```bash
 cd backend
-
-echo "Running linting..."
-black --check app tests || exit 1
-isort --check-only app tests || exit 1
-flake8 app tests || exit 1
-
-echo "Running tests..."
-pytest tests/ -q || exit 1
-
-echo "✅ All checks passed"
+python3 scripts/health-check.py -v
 ```
 
-Make executable:
+### Manual Health Checks
+
+**Check imports:**
 ```bash
-chmod +x .git/hooks/pre-commit
+python3 -c "from app.models.story import Story; print('OK')"
 ```
 
-## Pull Request Checks
-
-### Required Checks
-
-Before merging, these must pass:
-- ✅ All tests pass
-- ✅ Code coverage maintained (>80%)
-- ✅ No linting errors
-- ✅ Type checks pass
-- ✅ Code review approved
-
-### PR Workflow
-
-1. **Create PR** → Triggers test suite
-2. **Review feedback** → Address comments
-3. **Passing checks** → Shows ✅ green checkmark
-4. **Approval** → Code owner approves
-5. **Merge** → PR merges to main
-
-### Status Checks
-
-GitHub shows status on PR:
-
-```
-✅ All checks have passed
-  └─ Lint / lint (3.13)          ✅ passed
-  └─ Test Suite / test (3.12)    ✅ passed
-  └─ Test Suite / test (3.13)    ✅ passed
-  └─ Code Quality               ✅ passed
-```
-
-If any fail:
-
-```
-❌ Some checks didn't pass
-  └─ Test Suite / test (3.12)    ❌ failed
-       View details
-```
-
-## Coverage Tracking
-
-### Coverage Goals
-
-- **Overall:** >80%
-- **New code:** 100%
-- **Critical paths:** >90%
-
-### View Coverage
-
-After tests run, coverage report is generated:
-
+**Check data access:**
 ```bash
-# Local coverage
-pytest tests/ --cov=app --cov-report=html
-open htmlcov/index.html
+python3 -c "
+from app.models.story import Story
+s = Story(id='test', title='Test', genre='Test', user_id='test', start_segment_id='s1')
+print(f'Story created: {s.id}')
+"
+```
 
-# Upload to Codecov
-codecov --token=<token>
+**Check API:**
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/docs
 ```
 
 ## Performance Baselines
 
-Performance tests establish baselines to prevent regressions:
+### Establishing Baselines
 
-```bash
-pytest tests/test_performance.py -v --benchmark-only
+Performance benchmarks are recorded in CI:
+
+```
+Test Name                          Min      Max      Mean     Median
+test_story_creation_speed          1.2ms    2.5ms    1.5ms    1.4ms
+test_segment_creation_speed        0.8ms    1.5ms    1.0ms    0.9ms
+test_context_building_speed        20ms     45ms     30ms     28ms
+test_segment_save_load_speed       50ms     110ms    70ms     65ms
 ```
 
-Tracked metrics:
-- Segment creation time
-- Context building time
-- Generation latency
-- Memory usage
-- Query performance
+### Detecting Regressions
 
-## Branch Strategy
+Performance test failures trigger alerts:
+- If segment creation > 10ms
+- If context building > 50ms
+- If save/load > 100ms
+- If generation > 5s
 
-### Main Branch
-- Always deployable
-- All checks must pass
-- Code review required
-- No direct pushes
+## Debugging CI Failures
 
-### Develop Branch
-- Integration branch
-- All checks must pass
-- Staging tests required
+### View Workflow Logs
 
-### Feature Branches
-- `feature/description`
-- Local testing only
-- PR to develop first
+1. Go to GitHub repository
+2. Click "Actions" tab
+3. Select failed workflow
+4. Click job for details
+5. Expand logs
 
-## Deployment Pipeline
+### Common Failures
 
-### Staging Deployment
+**Tests fail:**
+- Check test output in logs
+- Run locally: `pytest tests/ -v`
+- Fix and push again
 
-Triggered manually or on:
-- Merge to develop
-- After tests pass
-- Requires approval
+**Coverage low:**
+- Add missing tests
+- Check `coverage.xml` report
+- Target > 80% coverage
 
-```bash
-cd backend
-./scripts/deploy.sh staging
+**Lint warnings:**
+- Run black: `black app tests`
+- Run isort: `isort app tests`
+- Fix manually if needed
+
+**Type check fails:**
+- Add type hints to functions
+- Check mypy output
+- May be non-blocking depending on config
+
+## Configuration
+
+### Environment Variables (if needed)
+
+Create `.env.local` for local development:
+```
+OPENROUTER_API_KEY=your_key
 ```
 
-### Production Deployment
+CI uses GitHub Secrets:
+- Set in repository settings
+- Available as environment variables
+- Not logged or displayed
 
-Only from main branch:
-- Manual trigger
-- Requires 2 approvals
-- Tests must pass
-- Staging must be verified
+### Test Configuration
 
-```bash
-cd backend
-./scripts/deploy.sh production
+`backend/pytest.ini`:
+```ini
+[pytest]
+asyncio_mode = strict
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+markers =
+    asyncio
+    integration
+    performance
+    slow
 ```
 
-## Notification Settings
+## Integration with Version Control
 
-### Slack Integration
+### Branch Strategy
 
-Configure Slack notifications:
+- `develop`: Development branch, all tests must pass
+- `master`/`main`: Production branch, only releases
+- Feature branches: `feature/*`, all tests before PR
+
+### PR Requirements
+
+Before merging to master:
+- ✅ All tests pass
+- ✅ Coverage maintained
+- ✅ No lint errors
+- ✅ Code review approval
+
+### Auto-merge (if enabled)
+
+Can configure GitHub to auto-merge if:
+- All checks pass
+- Dismisses stale reviews
+- Requires at least 1 approval
+
+## Monitoring
+
+### Build Status Badge
+
+Add to README:
+
+```markdown
+[![Test Suite](https://github.com/your-repo/workflows/Test%20Suite/badge.svg)](https://github.com/your-repo/actions)
+[![Code Quality](https://github.com/your-repo/workflows/Code%20Quality/badge.svg)](https://github.com/your-repo/actions)
+```
+
+### Coverage Badge
+
+Add to README:
+
+```markdown
+[![Coverage](https://codecov.io/gh/your-repo/branch/master/graph/badge.svg)](https://codecov.io/gh/your-repo)
+```
+
+## Customization
+
+### Adding New Workflows
+
+Create `.github/workflows/custom.yml`:
 
 ```yaml
-# Add to workflow
-- name: Notify on failure
-  if: failure()
-  uses: slackapi/slack-github-action@v1
-  with:
-    webhook-url: ${{ secrets.SLACK_WEBHOOK }}
-    payload: |
-      {
-        "text": "❌ Build failed for ${{ github.ref }}",
-        "blocks": [
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "*Build Failed*\nRepo: ${{ github.repository }}\nBranch: ${{ github.ref }}"
-            }
-          }
-        ]
-      }
+name: Custom Workflow
+on: [push, pull_request]
+jobs:
+  custom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: echo "Custom job"
 ```
 
-### Email Notifications
+### Modifying Test Matrix
 
-GitHub settings → Notifications → Email
-
-Default: On push failures and pull request reviews
-
-## Troubleshooting CI/CD
-
-### Tests Fail in CI but Pass Locally
-
-**Causes:**
-- Different Python version
-- Environment variables not set
-- Missing test data
-
-**Solutions:**
-```bash
-# Test with same Python version
-pyenv install 3.12
-pyenv shell 3.12
-pytest tests/ -v
-
-# Check environment variables
-echo $PYTHONPATH
-
-# Verify test data
-ls -la backend/tests/fixtures/
-```
-
-### Coverage Drop Detected
-
-**Causes:**
-- New code not tested
-- Test removal
-- Coverage threshold lowered
-
-**Solutions:**
-```bash
-# View coverage report
-pytest tests/ --cov=app --cov-report=html
-open htmlcov/index.html
-
-# Add tests for uncovered code
-# Focus on critical paths first
-
-# Check current coverage
-pytest tests/ --cov=app --cov-report=term-missing | grep -E "^TOTAL|missing"
-```
-
-### Linting Fails
-
-**Causes:**
-- Code style issues
-- Import ordering
-- Naming conventions
-
-**Solutions:**
-```bash
-# Auto-fix formatting
-black backend/app backend/tests
-
-# Auto-fix imports
-isort backend/app backend/tests
-
-# Fix remaining issues
-flake8 backend/app backend/tests --show-source
-```
-
-### Type Checking Fails
-
-**Causes:**
-- Missing type hints
-- Incompatible types
-- Generic types
-
-**Solutions:**
-```bash
-# Run mypy locally
-mypy backend/app --ignore-missing-imports
-
-# Add type hints
-# def process(data: str) -> dict:
-
-# Suppress warnings if needed
-# type: ignore
-```
-
-## Dashboard and Monitoring
-
-### GitHub Actions Dashboard
-
-View all workflows:
-1. Go to Actions tab
-2. Select workflow
-3. View run details
-4. Check logs for failures
-
-### Coverage Dashboard
-
-Codecov dashboard shows:
-- Coverage trends over time
-- File-by-file coverage
-- Diff coverage for PRs
-- Historical data
-
-### Performance Dashboard
-
-Track performance benchmarks:
-```bash
-# View benchmark results
-pytest tests/test_performance.py --benchmark-only --benchmark-json=results.json
-
-# Compare to baseline
-pytest-benchmark compare
-```
-
-## Security Scanning
-
-### Dependency Scanning
-
-Automated checks for vulnerable dependencies:
-
-```bash
-# Local check
-pip install safety
-safety check
-
-# Or with pip-audit
-pip install pip-audit
-pip-audit
-```
-
-### Code Scanning
-
-Configure GitHub code scanning:
-1. Settings → Code security → Code scanning
-2. Enable with CodeQL
-3. Review alerts
-
-## Best Practices
-
-1. **Keep CI fast** - Optimize slow tests
-2. **Fail fast** - Run lint before tests
-3. **Parallel execution** - Use matrix for multiple versions
-4. **Cache dependencies** - Speed up installs
-5. **Clear logs** - Remove debug output
-6. **Document changes** - Update CI docs with config changes
-7. **Monitor alerts** - Review failed runs promptly
-8. **Automate everything** - No manual steps in merge process
-
-## Performance Optimization
-
-### Speed Up CI
-
-```yaml
-# Cache dependencies
-- uses: actions/cache@v3
-  with:
-    path: ~/.cache/pip
-    key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-
-# Run tests in parallel
-pytest tests/ -n auto
-
-# Only run affected tests
-pytest tests/ --lf  # Last failed
-pytest tests/ --ff  # First failed
-```
-
-### Matrix Strategy
-
-Test multiple configurations efficiently:
+Edit `.github/workflows/test.yml`:
 
 ```yaml
 strategy:
   matrix:
-    python-version: ["3.12", "3.13"]
-    os: [ubuntu-latest, macos-latest]
+    python-version: ["3.12", "3.13", "3.14"]
 ```
 
-## Maintenance
+### Conditional Steps
 
-### Update Dependencies
-
-Monthly:
-```bash
-pip install --upgrade pip setuptools
-pip list --outdated
-pip install --upgrade -r requirements.txt
+```yaml
+- name: Deploy to Production
+  if: github.ref == 'refs/heads/master'
+  run: ./deploy.sh production
 ```
 
-### Review Workflows
+## Troubleshooting
 
-Quarterly:
-- Check for deprecated actions
-- Update action versions
-- Review coverage thresholds
-- Optimize execution time
+### Workflow Won't Start
 
-### Archive Old Artifacts
+- Check `.github/workflows/` exists
+- Ensure YAML syntax is valid
+- Check branch name matches `on.push.branches`
 
-GitHub Actions artifacts have storage limits:
-```bash
-# Delete old artifacts
-gh run list --status completed --limit 100 | \
-  awk '{print $1}' | \
-  xargs -I {} gh run delete {}
+### Timeout Issues
+
+Increase timeout in workflow:
+```yaml
+timeout-minutes: 30
 ```
 
-## Documentation
+### Cache Issues
 
-- [GitHub Actions docs](https://docs.github.com/en/actions)
-- [Codecov documentation](https://docs.codecov.io/)
-- [pytest documentation](https://docs.pytest.org/)
-- [Black code formatter](https://black.readthedocs.io/)
+Clear GitHub Actions cache in repository settings.
 
----
+### Credential Issues
 
-**Need help? Check workflow logs in Actions tab → select failed run → view logs**
+- Use GitHub Secrets for sensitive data
+- Set in repository Settings → Secrets
+- Reference as `${{ secrets.NAME }}`
+
+## Best Practices
+
+1. **Test Locally First**
+   - Run tests before pushing
+   - Check linting before PR
+
+2. **Keep Tests Fast**
+   - Unit tests: < 1s
+   - Integration: < 5s
+   - Total: < 2 minutes
+
+3. **Meaningful Commits**
+   - Reference issue in commit message
+   - Describe what and why
+   - Keep commits atomic
+
+4. **Review Before Merge**
+   - At least one approval
+   - Run tests one final time
+   - Verify performance metrics
+
+5. **Monitor Deployments**
+   - Check health after deploy
+   - Have rollback plan ready
+   - Monitor in production
+
+## Next Steps
+
+- Review `.github/workflows/` files
+- Test locally with provided scripts
+- Set up GitHub Secrets if needed
+- Monitor first deployment
+
+## References
+
+- [GitHub Actions Docs](https://docs.github.com/actions)
+- [pytest Documentation](https://docs.pytest.org/)
+- [pytest-benchmark](https://pytest-benchmark.readthedocs.io/)
+- [Coverage.py](https://coverage.readthedocs.io/)
