@@ -212,6 +212,14 @@ def _display_context_from_dict(context: Dict[str, Any]) -> None:
     if full_segments:
         console.print(f"\n[cyan]Full Text Available For:[/cyan] Last {len(full_segments)} segments")
         console.print(f"  [dim](Used for conversation continuity)[/dim]")
+        
+        # Display the actual full text of recent segments
+        for seg in full_segments[-3:]:  # Show last 3
+            seg_id = seg.get('segment_id', 'unknown')
+            seg_text = seg.get('text', '')
+            if seg_text:
+                console.print(f"\n[bold cyan]--- Full Text of Segment {seg_id} ---[/bold cyan]")
+                console.print(f"[white]{seg_text}[/white]")
     
     console.print()
     
