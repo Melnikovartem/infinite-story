@@ -8,12 +8,13 @@ Welcome to the Infinite Story Engine team! This guide covers everything you need
 1. [Quick Start](#quick-start)
 2. [Development Environment Setup](#development-environment-setup)
 3. [Testing Requirements](#testing-requirements)
-4. [Branching & PR Workflow](#branching--pr-workflow)
-5. [Commit Message Format](#commit-message-format)
-6. [Code Standards](#code-standards)
-7. [Daily Development Workflow](#daily-development-workflow)
-8. [Using GitHub CLI (gh)](#using-github-cli-gh)
-9. [Troubleshooting](#troubleshooting)
+4. [Phase 2: Integration & Real API](#phase-2-integration--real-api)
+5. [Branching & PR Workflow](#branching--pr-workflow)
+6. [Commit Message Format](#commit-message-format)
+7. [Code Standards](#code-standards)
+8. [Daily Development Workflow](#daily-development-workflow)
+9. [Using GitHub CLI (gh)](#using-github-cli-gh)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -404,6 +405,112 @@ describe('CharacterAvatar', () => {
 - ✅ All tests pass
 - ✅ New code has test coverage
 - ✅ No test failures introduced
+
+---
+
+## Phase 2: Integration & Real API
+
+**Phase 2** focuses on integrating all components with the real backend API and polishing the user experience.
+
+### What's Changed
+
+1. **Backend API Integration**
+   - Main API now running on `http://localhost:8000`
+   - Real endpoints for stories, segments, characters, sessions, progress, reports
+   - Swagger docs available at `http://localhost:8000/api/docs`
+
+2. **Frontend API Connection**
+   - Frontend connected to real backend (no more mock data)
+   - Toggle in `frontend/src/services/api.ts`: `USE_MOCK = false`
+   - All API calls now go to real backend
+
+3. **Frontend Polish** (Dev 5 focus)
+   - Responsive design for mobile (320px), tablet (768px), desktop (1200px+)
+   - Smooth animations and transitions
+   - WCAG 2.1 AA accessibility compliance
+   - Performance optimizations with GPU acceleration
+   - Touch-friendly UI (44px+ min touch targets)
+
+### Dev 5 Phase 2 Deliverables
+
+**CSS/Styling Improvements**:
+- `frontend/src/accessibility.css` - WCAG 2.1 AA compliance (302 lines)
+- `frontend/src/performance.css` - GPU-accelerated animations (270 lines)
+- Enhanced component CSS files for responsive design
+- Global styles with proper focus-visible states
+
+**Key Features Added**:
+- ✅ Task 6.2: Real data styling (word-wrap, overflow handling)
+- ✅ Task 6.3: Smooth animations (0.3-0.4s fade-ins, hover effects)
+- ✅ Task 6.4: Responsive design (mobile-first approach)
+- ✅ Task 6.6: Accessibility (WCAG 2.1 AA, keyboard navigation, ARIA)
+- ✅ Task 6.7: Performance (GPU acceleration, CSS containment)
+
+### New Frontend Files
+
+```
+frontend/src/
+├── accessibility.css          # WCAG 2.1 AA compliance rules
+├── performance.css            # GPU acceleration & rendering optimization
+└── components/
+    ├── ChoiceDisplay.tsx      # Updated with ARIA labels
+    └── *.css                  # Enhanced with animations & responsive design
+```
+
+### Testing Phase 2
+
+**Frontend Tests**:
+```bash
+cd frontend
+npm test                        # Run all tests (74 passing)
+npm test -- --watch           # Watch mode for development
+npm test -- --coverage        # Coverage report
+```
+
+**Backend Tests**:
+```bash
+cd backend
+source venv/bin/activate
+python -m pytest tests/ -v    # All backend tests
+python -m pytest tests/test_integration_phase2.py -v  # Integration tests
+```
+
+### Phase 2 Workflow
+
+1. **Create feature branch**: `git checkout -b feature/phase2-task-name`
+2. **Make changes** with proper commits: `[DEV-5] task description`
+3. **Test locally**: Run full test suite
+4. **Push and create PR**: `gh pr create --title "..." --body "..."`
+5. **Merge when ready**: `gh pr merge --merge` (no review needed)
+6. **Clean up**: `git branch -d feature/...`
+
+### Phase 2 Branch Examples
+
+```bash
+feature/phase2-real-data-styling
+feature/phase2-animations
+feature/phase2-responsive-design
+feature/phase2-accessibility
+feature/phase2-performance
+```
+
+### API Integration Updates
+
+**Switching Frontend to Real API**:
+```typescript
+// frontend/src/services/api.ts
+const USE_MOCK = false  // Set to false for real API
+const api = USE_MOCK ? mockApi : realApi
+```
+
+**Backend Running**:
+```bash
+cd backend
+source venv/bin/activate
+python -m pytest tests/test_integration_phase2.py -v
+# Or start the server:
+uvicorn app.main:app --reload
+```
 
 ---
 
