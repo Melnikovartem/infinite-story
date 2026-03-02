@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Story } from '../types'
+import type { Story } from '../types'
 import * as api from '../services/api'
 import './StoryListPage.css'
 

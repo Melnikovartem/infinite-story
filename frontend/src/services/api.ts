@@ -118,19 +118,20 @@ const realApi = {
       throw error
     }
   },
-  loadSession: async (storyId: string) => {
-    try {
-      const response = await fetch(`http://localhost:8000/api/sessions/${storyId}`)
-      const json = await response.json()
-      if (json.success && json.data) {
-        return json.data
-      }
-      return { found: false }
-    } catch (error) {
-      console.error('loadSession error:', error)
-      return { found: false }
-    }
-  },
+   loadSession: async (storyId: string) => {
+     try {
+       const response = await fetch(`http://localhost:8000/api/sessions/${storyId}`)
+       const json = await response.json()
+       // Backend returns {found: boolean, session: SessionData | null}
+       if (json.found && json.session) {
+         return json.session
+       }
+       return { found: false }
+     } catch (error) {
+       console.error('loadSession error:', error)
+       return { found: false }
+     }
+   },
   deleteSession: async (storyId: string) => {
     try {
       const response = await fetch(`http://localhost:8000/api/sessions/${storyId}`, { method: 'DELETE' })

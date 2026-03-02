@@ -3,13 +3,22 @@
   border-radius: 8px;
   margin-top: 20px;
   padding: 0;
+  min-height: auto;
+}
+
+.top-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ecf0f1;
 }
 
 .back-button {
   background: none;
   color: #3498db;
   font-weight: 600;
-  margin-bottom: 20px;
   padding: 8px 12px;
   transition: color 0.2s ease;
 }
@@ -109,8 +118,6 @@
 .story-actions {
   display: flex;
   gap: 12px;
-  padding-top: 40px;
-  border-top: 1px solid #ecf0f1;
 }
 
 .action-button {

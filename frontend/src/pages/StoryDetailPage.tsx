@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { StoryDetail } from '../types'
+import type { StoryDetail } from '../types'
 import * as api from '../services/api'
-import CharacterAvatar from '../components/CharacterAvatar'
+import { CharacterAvatar } from '../components/CharacterAvatar'
 import './StoryDetailPage.css'
 
 export default function StoryDetailPage() {
@@ -72,9 +72,21 @@ export default function StoryDetailPage() {
   return (
     <div className="page story-detail-page">
       <div className="container">
-        <button className="back-button" onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <div className="top-actions">
+          <button className="back-button" onClick={() => navigate('/')}>
+            ← Back
+          </button>
+          <div className="story-actions">
+            <button className="action-button primary" onClick={handleStartNew}>
+              Start New Game
+            </button>
+            {hasSession && (
+              <button className="action-button" onClick={handleResume}>
+                Resume Game
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="story-header">
           <h2>{story.title}</h2>
@@ -111,18 +123,7 @@ export default function StoryDetailPage() {
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="story-actions">
-          <button className="action-button primary" onClick={handleStartNew}>
-            Start New Game
-          </button>
-          {hasSession && (
-            <button className="action-button" onClick={handleResume}>
-              Resume Game
-            </button>
-          )}
-        </div>
+         </div>
       </div>
     </div>
   )

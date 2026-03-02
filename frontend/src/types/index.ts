@@ -37,25 +37,32 @@ export interface TextBlock {
 export interface StorySegment {
   id: string;
   story_id: string;
-  title: string;
-  content: string;
+  short_description?: string;
+  title?: string;
+  content?: string;
   text_blocks: TextBlock[];
-  character_states: Record<string, CharacterState & { name: string }>;
-  location_state: LocationState;
-  is_generated: boolean;
-  created_at: string;
-  word_count: number;
+  character_states?: Record<string, CharacterState & { name: string }>;
+  location_state?: LocationState;
+  is_generated?: boolean;
+  created_at?: string;
+  word_count?: number;
+  atmosphere?: string;
+  time_of_day?: string;
+  weather?: string;
+  characters_present?: string[];
+  locations_present?: string[];
 }
 
 export interface StoryChoice {
   id: string;
-  story_id: string;
+  story_id?: string;
   from_segment_id: string;
-  to_segment_id: string;
+  to_segment_id: string | null;
   choice_text: string;
-  popularity_score: number;
-  is_custom: boolean;
-  created_at: string;
+  popularity_score?: number;
+  is_custom?: boolean;
+  created_at?: string;
+  generated?: boolean;
 }
 
 export interface StoryContext {
@@ -82,10 +89,11 @@ export interface Story {
   title: string;
   description: string;
   author?: string;
-  start_segment_id: string;
-  character_count: number;
+  genre?: string;
+  start_segment_id?: string;
+  character_count?: number;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export interface SessionState {
@@ -106,4 +114,35 @@ export interface PlayerState {
   character_states: Record<string, CharacterState & { name: string }>;
   loading: boolean;
   error: string | null;
+}
+
+export interface StoryDetail extends Story {
+  author: string;
+  genre?: string;
+  characters: StoryCharacter[];
+  locations: StoryLocation[];
+}
+
+export interface SceneCounter {
+  total: number;
+  current: number;
+}
+
+export interface ChoicesResponse {
+  top_2: StoryChoice[];
+  all: StoryChoice[];
+}
+
+export interface SegmentResponse {
+  segment: StorySegment;
+  choices: ChoicesResponse;
+}
+
+export interface GenerationResponse {
+  segment: StorySegment;
+  choices: StoryChoice[];
+}
+
+export interface StoryListResponse {
+  stories: Story[];
 }

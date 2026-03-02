@@ -1,11 +1,12 @@
-import { StorySegment } from '../types'
+import React from 'react'
+import type { StorySegment } from '../types'
 import './SegmentDisplay.css'
 
 interface SegmentDisplayProps {
   segment: StorySegment
 }
 
-export default function SegmentDisplay({ segment }: SegmentDisplayProps) {
+export const SegmentDisplay: React.FC<SegmentDisplayProps> = ({ segment }) => {
   return (
     <div className="segment-display">
       <h2 className="segment-title">{segment.title}</h2>
