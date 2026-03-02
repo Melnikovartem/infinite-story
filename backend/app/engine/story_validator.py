@@ -302,9 +302,7 @@ class StoryValidator:
         """Generate world context with fundamental truths and worldbuilding."""
         generator = WorldGenerator(self.generator)
         context = await generator.generate_world_context(
-            story_id=self.story.id,
-            story_title=self.story.title,
-            story_description=self.story.description,
+            story=self.story,
             user_input=""  # TODO: Could come from user
         )
         return context

@@ -462,15 +462,15 @@ async def _run_story_debug_mode(runner: StoryRunner, generator):
                 break
             
             # Build generation context to show what will be sent to AI
-             context = None
-             try:
-                 context_builder = SegmentContextBuilder(runner.story)
-                 context = await context_builder.build_context(
-                     runner.current_segment.id,
-                     choices[0].text if choices else "unknown"  # This will be updated after choice
-                 )
-             except Exception as e:
-                 logger.debug(f"Could not build context: {e}")
+            context = None
+            try:
+                context_builder = SegmentContextBuilder(runner.story)
+                context = await context_builder.build_context(
+                    runner.current_segment.id,
+                    choices[0].text if choices else "unknown"  # This will be updated after choice
+                )
+            except Exception as e:
+                logger.debug(f"Could not build context: {e}")
             
             # Show generation context before each choice
             display_generation_context_story_debug(runner, runner.current_segment, context)
@@ -946,6 +946,145 @@ def test_world_generation(
 ):
     """Test world generation with a story."""
     asyncio.run(test_world_generation_async(story_id, user_input))
+
+async def test_story_validation_async(story_id: str):
+    """Test complete story validation pipeline."""
+    from app.engine.story_validator import StoryValidator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+        logger.info("Configuration loaded successfully")
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration for story validation test"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+
+    # Initialize generator
+    if config.generator.provider == "openrouter":
+        generator = OpenRouterGenerator(
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens,
+            site_url=config.generator.site_url,
+            site_name=config.generator.site_name,
+            auto_fallback=True
+        )
+    else:
+        generator = OpenAIGenerator(
+            api_base=config.generator.base_url,
+            api_key=config.generator.api_key,
+            model=config.generator.model,
+            temperature=config.generator.temperature,
+            max_tokens=config.generator.max_tokens
+        )
+
+    console.print(f"[cyan]Testing story validation for: {story_id}[/cyan]\n")
+
+    # Load story
+    logger.info(f"Loading story: {story_id}")
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found![/red]")
+        return
+
+    console.print(f"[green]✓ Loaded story: {story.title}[/green]")
+    console.print(f"[green]✓ Genre: {story.genre}[/green]")
+    console.print(f"[green]✓ Start segment: {story.start_segment_id}[/green]\n")
+
+    # Run validation
+    console.print("[bold yellow]⏳ Running story validation pipeline...[/bold yellow]\n")
+    
+    try:
+        validator = StoryValidator(story, generator)
+        report = await validator.validate_and_repair()
+
+        # Display results
+        console.print("[bold cyan]Validation Results:[/bold cyan]")
+        
+        # Story Description
+        status = report['validation_results'].get('story_description', {})
+        status_icon = "✅" if status.get('valid') else "⚠️"
+        console.print(f"\n{status_icon} [bold]Story Description:[/bold]")
+        console.print(f"   Valid: {status.get('valid')}")
+        if status.get('generated'):
+            console.print(f"   Generated: Yes")
+        
+        # World Description
+        status = report['validation_results'].get('world_description', {})
+        status_icon = "✅" if status.get('valid') else "⚠️"
+        console.print(f"\n{status_icon} [bold]World Description:[/bold]")
+        console.print(f"   Valid: {status.get('valid')}")
+        if status.get('generated'):
+            console.print(f"   Generated: Yes")
+            if status.get('fundamental_truths'):
+                console.print(f"   Fundamental Truths: {len(status['fundamental_truths'])}")
+        
+        # Arcs
+        status = report['validation_results'].get('arcs', {})
+        status_icon = "✅" if status.get('valid') else "⚠️"
+        console.print(f"\n{status_icon} [bold]Story Arcs:[/bold]")
+        console.print(f"   Valid: {status.get('valid')}")
+        if status.get('arcs'):
+            console.print(f"   Total arcs: {len(status['arcs'])}")
+            for i, arc in enumerate(status['arcs'], 1):
+                arc_title = arc.get('title', 'Unnamed Arc')
+                console.print(f"     {i}. {arc_title}")
+        if status.get('generated'):
+            console.print(f"   Generated: Yes")
+        
+        # Characters
+        status = report['validation_results'].get('characters', {})
+        status_icon = "✅" if status.get('valid') else "⚠️"
+        console.print(f"\n{status_icon} [bold]Characters:[/bold]")
+        console.print(f"   Valid: {status.get('valid')}")
+        if status.get('characters'):
+            console.print(f"   Total characters: {len(status['characters'])}")
+            for char in status['characters'][:5]:  # Show first 5
+                console.print(f"     • {char.get('name', 'Unknown')} ({char.get('role', 'N/A')})")
+            if len(status['characters']) > 5:
+                console.print(f"     ... and {len(status['characters']) - 5} more")
+        if status.get('generated'):
+            console.print(f"   Generated: Yes")
+        
+        # Protagonist
+        status = report['validation_results'].get('protagonist', {})
+        status_icon = "✅" if status.get('valid') else "⚠️"
+        console.print(f"\n{status_icon} [bold]Protagonist:[/bold]")
+        console.print(f"   Valid: {status.get('valid')}")
+        if status.get('protagonist'):
+            proto = status['protagonist']
+            console.print(f"   Name: {proto.get('name', 'Unknown')}")
+            console.print(f"   Role: {proto.get('role', 'N/A')}")
+            if proto.get('arc_goals'):
+                console.print(f"   Arc Goals: {proto.get('arc_goals')}")
+        if status.get('generated'):
+            console.print(f"   Generated: Yes")
+        
+        # Summary
+        console.print(f"\n[bold cyan]Summary:[/bold cyan]")
+        console.print(f"Generated: {', '.join(report['generated'])}")
+        if report.get('errors'):
+            console.print(f"\n[yellow]Errors:[/yellow]")
+            for error in report['errors']:
+                console.print(f"  • {error}")
+
+    except Exception as e:
+        console.print(f"[red]Error during validation: {str(e)}[/red]")
+        logger.error(f"Validation error: {e}", exc_info=True)
+
+@app.command()
+def test_story_validation(
+    story_id: str = typer.Option("veil_of_thornreach", help="Story ID to validate")
+):
+    """Test complete story validation pipeline (world, arcs, characters, protagonist)."""
+    asyncio.run(test_story_validation_async(story_id))
 
 @app.command()
 def list_models(
