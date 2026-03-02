@@ -1215,7 +1215,7 @@ async def test_character_generation_async(story_id: str):
             max_tokens=config.generator.max_tokens
         )
 
-    console.print(f"[cyan]Testing character generation for story: {story_id}[/cyan]")
+    console.print(f"[cyan]Testing character parsing for story: {story_id}[/cyan]")
 
     # Load story
     logger.info(f"Loading story: {story_id}")
@@ -1227,33 +1227,41 @@ async def test_character_generation_async(story_id: str):
     console.print(f"[green]Loaded story: {story.title}[/green]")
     console.print(f"[green]Genre: {story.genre}[/green]\n")
 
-    # Initialize character generator
-    char_gen = CharacterGenerator(story, generator)
-
-    # Generate characters
-    console.print("[bold yellow]⏳ Generating initial characters...[/bold yellow]")
+    # Load all components first
+    from app.engine.story_runner import StoryRunner
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    console.print(f"[bold yellow]⏳ Parsing characters from existing segments...[/bold yellow]")
+    
     try:
-        characters = await char_gen.generate_initial_characters(
-            user_input="",
-            count=3
-        )
-
-        console.print(f"[green]✅ Generated {len(characters)} characters successfully![/green]\n")
+        # Initialize character generator
+        char_gen = CharacterGenerator(story, generator)
         
-        # Display each character
-        for i, char in enumerate(characters, 1):
-            console.print(f"[bold cyan]Character {i}: {char.name if hasattr(char, 'name') else 'Unknown'}[/bold cyan]")
-            if hasattr(char, 'role'):
-                console.print(f"  [yellow]Role:[/yellow] {char.role}")
-            if hasattr(char, 'description'):
-                console.print(f"  [yellow]Description:[/yellow] {char.description[:100]}...")
-            if hasattr(char, 'background'):
-                console.print(f"  [yellow]Background:[/yellow] {char.background[:100]}...")
-            console.print()
+        # Parse characters from existing segments
+        characters = await char_gen.parse_characters_from_segments()
+
+        if characters:
+            console.print(f"[green]✅ Parsed {len(characters)} characters from segments![/green]\n")
+            
+            # Display each character
+            for i, char in enumerate(characters[:5], 1):  # Show first 5
+                console.print(f"[bold cyan]Character {i}: {char.name if hasattr(char, 'name') else 'Unknown'}[/bold cyan]")
+                if hasattr(char, 'role'):
+                    console.print(f"  [yellow]Role:[/yellow] {char.role}")
+                if hasattr(char, 'description'):
+                    desc = char.description if isinstance(char.description, str) else str(char.description)
+                    console.print(f"  [yellow]Description:[/yellow] {desc[:100]}...")
+                console.print()
+            
+            if len(characters) > 5:
+                console.print(f"... and {len(characters) - 5} more characters")
+        else:
+            console.print("[yellow]No characters parsed from segments[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]Error generating characters: {str(e)}[/red]")
-        logger.error(f"Character generation error: {e}", exc_info=True)
+        console.print(f"[red]Error parsing characters: {str(e)}[/red]")
+        logger.error(f"Character parsing error: {e}", exc_info=True)
 
 @app.command()
 def test_character_generation(
@@ -1312,15 +1320,19 @@ async def test_protagonist_selection_async(story_id: str):
     console.print(f"[green]Loaded story: {story.title}[/green]")
     console.print(f"[green]Genre: {story.genre}[/green]\n")
 
+    # Load all components first
+    from app.engine.story_runner import StoryRunner
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+
     # Initialize protagonist selector
-    proto_sel = ProtagonistSelector(generator)
+    proto_sel = ProtagonistSelector(story, generator)
 
     # Select protagonist
     console.print("[bold yellow]⏳ Selecting protagonist...[/bold yellow]")
     try:
-        protagonist = await proto_sel.select_protagonist(
-            story=story,
-            user_input=""
+        protagonist = await proto_sel.select_or_develop_protagonist(
+            user_choice=None
         )
 
         if protagonist:
