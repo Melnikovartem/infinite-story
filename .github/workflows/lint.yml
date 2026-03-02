@@ -1,0 +1,42 @@
+name: Code Quality
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+      
+      - name: Install linting tools
+        run: |
+          pip install flake8 black isort mypy
+      
+      - name: Run black
+        run: |
+          cd backend
+          black app tests
+      
+      - name: Run isort
+        run: |
+          cd backend
+          isort app tests
+      
+      - name: Run flake8
+        run: |
+          cd backend
+          flake8 app tests
+      
+      - name: Commit changes (if any)
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add -A
+          git commit -m "chore: auto-format code" || true
+          git push || true
