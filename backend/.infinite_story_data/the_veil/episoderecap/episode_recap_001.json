@@ -1,0 +1,23 @@
+{
+  "id": "episode_recap_001",
+  "story_id": "the_veil",
+  "episode_number": 1,
+  "arc_id": "arc_001",
+  "title": "Episode 1: Tense and foreboding",
+  "summary": "The first episode of the story begins.",
+  "starting_character_states": {},
+  "ending_character_states": {},
+  "segment_ids": [
+    "segment_001"
+  ],
+  "choice_ids": [],
+  "key_themes": [
+    "adventure",
+    "mystery"
+  ],
+  "tone": "tense_and_foreboding",
+  "generated_at": "2026-03-02T10:49:24.121601+00:00",
+  "generator_model": "v1-migration",
+  "created_at": "2026-03-02T10:49:24.121601+00:00",
+  "updated_at": "2026-03-02T10:49:24.121601+00:00"
+}
