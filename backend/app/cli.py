@@ -436,6 +436,64 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         opening_segment.text_blocks = [text_block]
         story.add_segment(opening_segment)
         
+        # Generate choices for opening segment
+        console.print("\n[bold yellow]⏳ Step 6: Generating choices for opening scene...[/bold yellow]")
+        
+        from app.models.story_choice import StoryChoice
+        import uuid
+        
+        try:
+            # Generate 2-3 choices for the opening
+            choice_prompt = f"""Create 2-3 compelling choices for the opening scene of this story:
+
+Story: {title}
+World: {world_context.fundamental_truths[0] if world_context.fundamental_truths else 'A mysterious world'}
+Opening Scene: {opening_text[:300]}...
+
+Generate realistic story choices that:
+- Branch the narrative in different directions
+- Let players engage with the world
+- Create meaningful consequences
+- Move the story forward
+
+Format as a simple list of 2-3 choices, each 1-2 sentences."""
+            
+            choices_response = await generator.generate(
+                system_prompt="You are a narrative designer creating compelling story choices that feel natural and consequential.",
+                user_prompt=choice_prompt,
+                context_type="scene"
+            )
+            
+            choices_text = choices_response.content if hasattr(choices_response, 'content') else str(choices_response)
+            
+            # Parse choices from response (simple line-by-line parsing)
+            choice_lines = [line.strip() for line in choices_text.split('\n') if line.strip() and not line.startswith('#')]
+            
+            # Create choice objects
+            choices_list = []
+            for i, choice_text in enumerate(choice_lines[:3]):  # Max 3 choices
+                choice_id = f"choice_{uuid.uuid4().hex[:8]}"
+                
+                # Create a follow-up segment for each choice
+                follow_segment_id = f"segment_{uuid.uuid4().hex[:8]}"
+                
+                choice = StoryChoice(
+                    id=choice_id,
+                    story_id=story_id,
+                    story=story,
+                    from_segment_id="opening",
+                    to_segment_id=follow_segment_id,
+                    text=choice_text
+                )
+                
+                story.add_choice(choice)
+                choices_list.append(choice)
+            
+            console.print(f"[green]✅ Generated {len(choices_list)} choices for opening scene![/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Choice generation skipped: {str(e)[:50]}[/yellow]")
+            choices_list = []
+        
         # Set start segment
         story.start_segment_id = "opening"
         
@@ -451,6 +509,8 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         if protagonist:
             protagonist.save()
         opening_segment.save()
+        for choice in choices_list:
+            choice.save()
         
         console.print(Panel(
             f"""[green]✅ AI-Powered Story Created Successfully![/green]
@@ -464,16 +524,16 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
 • {len(arcs)} Story Arcs
 • {len(characters)} Characters
 • Protagonist: {protagonist.name if protagonist and hasattr(protagonist, 'name') else 'TBD'}
-• Opening Scene
+• Opening Scene with {len(choices_list)} choices
 
 [yellow]🚀 Next Steps:[/yellow]
-1. Add choices to the opening scene
-2. Generate more scenes for the first arc
-3. Refine characters and arcs
+1. Generate more scenes for the first arc
+2. Refine characters and arcs
+3. Add more choices to future scenes
 4. Play and explore the story
 
 [bold]📖 Play it now:[/bold]
-python -m app.cli run-story {story_id}""",
+./run.sh {story_id}""",
             title="🎉 Success! World Created!",
             border_style="green"
         ))
