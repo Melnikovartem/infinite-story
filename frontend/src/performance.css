@@ -1,0 +1,270 @@
+/* Performance Optimization - GPU Acceleration & Efficient Rendering */
+
+/* Enable GPU acceleration for animations and transforms */
+.segment-display,
+.choice-button,
+.character-avatar,
+.expand-button {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Use transform instead of position for better performance */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Optimize the fade-in animation with GPU acceleration */
+@keyframes fadeInGPU {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Use transform and opacity for hover states (no layout thrashing) */
+.choice-button {
+  transform: translate3d(0, 0, 0);
+}
+
+.choice-button:hover:not(:disabled) {
+  transform: translate3d(4px, -2px, 0);
+}
+
+.choice-button:active:not(:disabled) {
+  transform: translate3d(2px, 0, 0);
+}
+
+/* Lazy-load images only when needed */
+img {
+  loading: lazy;
+}
+
+/* Optimize scrolling with containment */
+.all-choices {
+  contain: layout style paint;
+  overflow-anchor: none;
+}
+
+/* Virtualize long lists by limiting paint area */
+.choice-display {
+  contain: layout style;
+}
+
+/* Avoid layout recalculation for frequently changing elements */
+[aria-busy="true"] {
+  will-change: opacity;
+}
+
+/* Use CSS containment for dialog overlays */
+dialog,
+.modal-overlay {
+  contain: strict;
+}
+
+/* Minimize repaints on text changes */
+.choice-text,
+.choice-popularity {
+  contain: layout style;
+}
+
+/* Optimize button transitions */
+button {
+  will-change: auto;
+}
+
+button:hover,
+button:active,
+button:focus-visible {
+  will-change: transform, box-shadow;
+}
+
+/* Remove will-change after interaction */
+button:not(:hover):not(:active):not(:focus-visible) {
+  will-change: auto;
+}
+
+/* Optimize character avatar rendering */
+.character-avatar {
+  contain: layout style paint;
+}
+
+/* Use font-display for better performance */
+@font-face {
+  font-display: swap;
+}
+
+/* Reduce main thread work with lower priority animations */
+@media (prefers-reduced-motion: no-preference) {
+  .choice-button {
+    animation: fadeInGPU 0.3s ease-in-out;
+  }
+}
+
+/* Optimize layout for paint performance */
+:root {
+  overflow: hidden;
+}
+
+html {
+  overflow: auto;
+  overflow-y: scroll;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Prevent unnecessary repaints */
+body * {
+  outline-width: 0;
+}
+
+body *:focus-visible {
+  outline-width: 3px;
+}
+
+/* Optimize scrollbar rendering */
+.all-choices {
+  scrollbar-width: thin;
+  scrollbar-color: #bdc3c7 #f5f5f5;
+}
+
+.all-choices::-webkit-scrollbar {
+  width: 8px;
+}
+
+.all-choices::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+.all-choices::-webkit-scrollbar-thumb {
+  background: #bdc3c7;
+  border-radius: 4px;
+}
+
+.all-choices::-webkit-scrollbar-thumb:hover {
+  background: #95a5a6;
+}
+
+/* Use CSS Grid and Flexbox efficiently */
+.top-choices {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: auto;
+}
+
+/* Minimize cascading calculations */
+.layout {
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/* Optimize for different screen sizes */
+@media (max-width: 768px) {
+  /* Reduce paint areas on mobile */
+  .segment-display {
+    contain: layout style;
+  }
+
+  /* Minimize animations on low-end mobile devices */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+
+  /* Optimize touch targets for mobile */
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+}
+
+/* Bundle CSS for faster parsing */
+.choice-button,
+.expand-button,
+.segment-display {
+  line-height: 1.4;
+}
+
+/* Use static overflow instead of dynamic */
+.all-choices {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Optimize text rendering */
+p, span, div, button, a {
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Prevent jank from repaints */
+.choice-button:disabled {
+  pointer-events: none;
+}
+
+/* Use background-attachment: fixed for better scroll performance */
+body {
+  background-attachment: scroll;
+}
+
+/* Optimize shadow rendering (expensive operation) */
+.choice-button:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.2);
+  /* Use transform for position changes instead of box-shadow movement */
+  transform: translate3d(4px, -2px, 0);
+}
+
+/* Cache computed layout values */
+.choice-display,
+.top-choices,
+.all-choices {
+  box-sizing: border-box;
+}
+
+/* Minimize layout shift (Cumulative Layout Shift) */
+button,
+a,
+input,
+textarea,
+select {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+/* Optimize font loading */
+body {
+  font-feature-settings: "kern" 1;
+  font-kerning: auto;
+}
+
+/* Reduce reflow by batching style changes */
+@supports (contain: layout) {
+  .choice-button,
+  .segment-display,
+  .character-avatar {
+    contain: content;
+  }
+}
