@@ -1,0 +1,18 @@
+{
+  "id": "arc_001",
+  "story_id": "the_veil",
+  "title": "The Opening Arc",
+  "description": "The beginning of the narrative.",
+  "episode_ids": [
+    "episode_recap_001"
+  ],
+  "episode_count": 1,
+  "start_segment_id": "segment_001",
+  "current_segment_id": "segment_001",
+  "premise": "A story unfolds.",
+  "narrative_direction": "Forward",
+  "is_compressed": false,
+  "compression_result": null,
+  "created_at": "2026-03-02T10:49:24.121761+00:00",
+  "updated_at": "2026-03-02T10:49:24.121761+00:00"
+}
