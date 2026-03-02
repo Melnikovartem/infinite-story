@@ -62,15 +62,16 @@ if '$STORY_NAME' not in story_ids:
 # Check if the Python command failed
 if [ $? -ne 0 ]; then
     if [ "$STORY_NAME" = "veil_of_thornreach" ]; then
-        print_warning "Story '$STORY_NAME' does not exist! Running save_story.py..."
-        if ! python scripts/save_story.py > /dev/null 2>&1; then
-            print_error "Failed to create story using save_story.py!"
-            python scripts/save_story.py  # Show error output
+        print_warning "Story '$STORY_NAME' does not exist! Setting up example stories..."
+        if ! python scripts/setup_example_stories.py > /dev/null 2>&1; then
+            print_error "Failed to create example stories!"
+            python scripts/setup_example_stories.py  # Show error output
             exit 1
         fi
-        print_message "Story created successfully!"
+        print_message "Example stories created successfully!"
     else
         print_error "Story '$STORY_NAME' does not exist!"
+        print_message "Use 'python -m app.cli create-story' to create a new story"
         exit 1
     fi
 fi

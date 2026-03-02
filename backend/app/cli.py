@@ -96,6 +96,163 @@ def select_story(stories: List[dict]) -> Optional[dict]:
     return next((s for s in stories if str(s.get("id", "")) == selected_id), None)
 
 @app.command()
+def create_story(
+    story_id: str = typer.Argument(..., help="Unique identifier for the story (e.g., my_story)"),
+    title: str = typer.Option(..., "--title", help="Display title of the story"),
+    description: str = typer.Option(..., "--description", help="Long description of the story"),
+    genre: str = typer.Option("Unknown", "--genre", help="Genre (e.g., Fantasy, Sci-Fi, Mystery)"),
+):
+    """Create a new story interactively.
+    
+    This guides you through creating a new story with worldbuilding, characters, locations, and opening scene.
+    
+    Example:
+        python -m app.cli create-story my_story --title "My Story" --description "A tale..." --genre Fantasy
+    """
+    from app.utils.story_builder import StoryBuilder
+    
+    # Check if story already exists
+    existing = Story.load(story_id, story_id)
+    if existing:
+        console.print(f"[red]Story '{story_id}' already exists![/red]")
+        if not typer.confirm("Do you want to overwrite it?"):
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+        # Delete existing story
+        existing.delete()
+        console.print(f"[yellow]Deleted existing story '{story_id}'[/yellow]")
+    
+    console.print(Panel(
+        f"[bold cyan]Creating new story: {title}[/bold cyan]\n[yellow]Genre: {genre}[/yellow]",
+        title="Story Creator",
+        border_style="cyan"
+    ))
+    
+    try:
+        builder = StoryBuilder(story_id, title, description, genre)
+        
+        # Worldbuilding
+        console.print("\n[bold cyan]Step 1: Worldbuilding[/bold cyan]")
+        console.print("Enter 3-5 fundamental truths about your world (enter empty line when done):")
+        fundamental_truths = []
+        for i in range(5):
+            truth = Prompt.ask(f"Truth {i+1}", default="")
+            if not truth:
+                break
+            fundamental_truths.append(truth)
+        
+        if fundamental_truths:
+            worldbuilding_desc = Prompt.ask("Brief worldbuilding description")
+            builder.add_worldbuilding(
+                fundamental_truths=fundamental_truths,
+                worldbuilding={"description": worldbuilding_desc}
+            )
+            console.print(f"[green]✓ Added {len(fundamental_truths)} world truths[/green]")
+        
+        # Characters
+        console.print("\n[bold cyan]Step 2: Characters[/bold cyan]")
+        console.print("Create 2-4 main characters (enter empty name to finish):")
+        for i in range(4):
+            char_name = Prompt.ask(f"Character {i+1} name", default="")
+            if not char_name:
+                break
+            
+            char_id = f"char_{i+1}"
+            char_desc = Prompt.ask("Brief description")
+            char_bg = Prompt.ask("Background/motivation")
+            
+            builder.add_character(
+                char_id=char_id,
+                name=char_name,
+                description=char_desc,
+                background=char_bg
+            )
+            console.print(f"[green]✓ Added character '{char_name}'[/green]")
+        
+        # Locations
+        console.print("\n[bold cyan]Step 3: Locations[/bold cyan]")
+        console.print("Create 2-3 main locations (enter empty name to finish):")
+        for i in range(3):
+            loc_name = Prompt.ask(f"Location {i+1} name", default="")
+            if not loc_name:
+                break
+            
+            loc_id = f"loc_{i+1}"
+            loc_desc = Prompt.ask("Description")
+            
+            builder.add_location(
+                loc_id=loc_id,
+                name=loc_name,
+                description=loc_desc
+            )
+            console.print(f"[green]✓ Added location '{loc_name}'[/green]")
+        
+        # Opening Scene
+        console.print("\n[bold cyan]Step 4: Opening Scene[/bold cyan]")
+        opening_title = Prompt.ask("Scene title", default="The Story Begins")
+        console.print("Enter the opening narrative (press Enter twice to finish):")
+        
+        lines = []
+        empty_count = 0
+        while empty_count < 2:
+            line = Prompt.ask("", default="")
+            if not line:
+                empty_count += 1
+            else:
+                empty_count = 0
+                lines.append(line)
+        
+        opening_content = "\n".join(lines)
+        if opening_content.strip():
+            builder.add_opening_segment(
+                segment_id="opening",
+                title=opening_title,
+                content=opening_content,
+                atmosphere="mysterious",
+                episode_number=1
+            )
+            console.print("[green]✓ Added opening scene[/green]")
+        
+        # Opening Choices
+        console.print("\n[bold cyan]Step 5: Opening Choices[/bold cyan]")
+        console.print("Create 2-3 choices for the opening scene (enter empty text to finish):")
+        for i in range(3):
+            choice_text = Prompt.ask(f"Choice {i+1}", default="")
+            if not choice_text:
+                break
+            
+            choice_id = f"choice_{i+1}"
+            builder.add_choice(
+                choice_id=choice_id,
+                from_segment_id="opening",
+                text=choice_text,
+                to_segment_id=None  # Will be AI-generated
+            )
+            console.print(f"[green]✓ Added choice '{choice_text}'[/green]")
+        
+        # Validate at least one choice exists
+        opening_seg = builder.segments.get("opening")
+        if not opening_seg or not opening_seg.outgoing_choices:
+            console.print("[red]Error: Opening scene must have at least one choice![/red]")
+            return
+        
+        # Save
+        console.print("\n[bold cyan]Saving story...[/bold cyan]")
+        with console.status("[bold yellow]Writing to disk...[/bold yellow]", spinner="dots"):
+            story_id = builder.save()
+        
+        console.print(Panel(
+            f"[green]✅ Story '{title}' created successfully![/green]\n\n[cyan]Story ID: {story_id}[/cyan]\n\nPlay it with:[/cyan]\n[bold]python -m app.cli run-story {story_id}[/bold]",
+            title="Success",
+            border_style="green"
+        ))
+        logger.info(f"Story created: {story_id}")
+    
+    except Exception as e:
+        console.print(f"[red]Error creating story: {e}[/red]")
+        logger.error(f"Story creation failed: {e}", exc_info=True)
+
+@app.command()
 def list_stories():
     """List all available stories."""
     story_ids = Story.list_stories()
