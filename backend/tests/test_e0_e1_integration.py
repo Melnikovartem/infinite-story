@@ -21,7 +21,7 @@ from app.models.story import Story
 from app.models.story_segment import StorySegment, SegmentStatus
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
-from app.models.story_choice import StoryChoice, ChoiceStatus
+from app.models.story_choice import StoryChoice
 from app.models.text_types import TextBlock, TextType
 
 
