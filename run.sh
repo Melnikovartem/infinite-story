@@ -7,6 +7,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Function to print colored messages
@@ -22,8 +23,59 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Set default story name if not provided
-STORY_NAME="${1:-veil_of_thornreach}"
+print_help() {
+    echo -e "${CYAN}Infinite Story Engine${NC}"
+    echo ""
+    echo "Usage: ./run.sh [COMMAND] [OPTIONS]"
+    echo ""
+    echo "Commands:"
+    echo "  run-story [story_id]          Play a story (default command)"
+    echo "  create-story [id]             Create a new story interactively"
+    echo "  list-stories                  List all available stories"
+    echo "  delete-story [story_id]       Delete a story"
+    echo "  clear-state [story_id]        Reset story to beginning"
+    echo "  test-generation [story_id]    Test AI generation on a story"
+    echo ""
+    echo "Options for run-story:"
+    echo "  --mode [immersive|debug]      Display mode (default: immersive)"
+    echo "  --resume                      Resume from previous session"
+    echo ""
+    echo "Examples:"
+    echo "  ./run.sh                                    # Play default story"
+    echo "  ./run.sh my_story --mode debug              # Play with debug output"
+    echo "  ./run.sh my_story --resume                  # Resume previous session"
+    echo "  ./run.sh create-story my_story --title \"My Story\" --description \"...\" --genre \"Fantasy\""
+    echo "  ./run.sh list-stories                       # List all stories"
+    echo ""
+}
+
+# Show help if requested
+if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ]; then
+    print_help
+    exit 0
+fi
+
+# Determine if first arg is a command or story name
+COMMAND="run-story"
+STORY_NAME="veil_of_thornreach"
+REMAINING_ARGS=()
+
+if [ $# -gt 0 ]; then
+    case "$1" in
+        run-story|create-story|list-stories|delete-story|clear-state|test-generation)
+            COMMAND="$1"
+            shift
+            REMAINING_ARGS=("$@")
+            ;;
+        *)
+            # Assume first arg is story name for run-story
+            STORY_NAME="$1"
+            shift
+            REMAINING_ARGS=("$@")
+            ;;
+    esac
+fi
+
 VENV_DIR="$SCRIPT_DIR/backend/venv"
 REQUIREMENTS_FILE="$SCRIPT_DIR/backend/requirements.txt"
 
@@ -49,43 +101,78 @@ else
     print_warning "Requirements file not found at $REQUIREMENTS_FILE"
 fi
 
-# Check if story exists
-print_message "Checking if story '$STORY_NAME' exists..."
 cd "$SCRIPT_DIR/backend"
-python -c "
+
+# Enable unbuffered output to prevent hanging on terminal I/O
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="$SCRIPT_DIR/backend"
+
+# Handle run-story command specifically (check if story exists)
+if [ "$COMMAND" = "run-story" ]; then
+    print_message "Checking if story '$STORY_NAME' exists..."
+    python -c "
 from app.models.story import Story
 story_ids = Story.list_stories()
 if '$STORY_NAME' not in story_ids:
     exit(1)
 "
-
-# Check if the Python command failed
-if [ $? -ne 0 ]; then
-    if [ "$STORY_NAME" = "veil_of_thornreach" ]; then
-        print_warning "Story '$STORY_NAME' does not exist! Setting up example stories..."
-        if ! python scripts/setup_example_stories.py > /dev/null 2>&1; then
-            print_error "Failed to create example stories!"
-            python scripts/setup_example_stories.py  # Show error output
+    
+    # Check if the Python command failed
+    if [ $? -ne 0 ]; then
+        if [ "$STORY_NAME" = "veil_of_thornreach" ]; then
+            print_warning "Story '$STORY_NAME' does not exist! Setting up example stories..."
+            if ! python scripts/setup_example_stories.py > /dev/null 2>&1; then
+                print_error "Failed to create example stories!"
+                python scripts/setup_example_stories.py  # Show error output
+                exit 1
+            fi
+            print_message "Example stories created successfully!"
+        else
+            print_error "Story '$STORY_NAME' does not exist!"
+            print_message "Use './run.sh list-stories' to see available stories"
+            print_message "Use './run.sh create-story my_story --title \"Title\" --description \"...\" --genre \"Genre\"' to create a new story"
             exit 1
         fi
-        print_message "Example stories created successfully!"
-    else
-        print_error "Story '$STORY_NAME' does not exist!"
-        print_message "Use 'python -m app.cli create-story' to create a new story"
-        exit 1
     fi
+    
+    # Run the story with remaining arguments
+    print_message "Starting the story CLI..."
+    python -u -m app.cli run-story "$STORY_NAME" "${REMAINING_ARGS[@]}"
+else
+    # Run other commands directly
+    case "$COMMAND" in
+        create-story)
+            print_message "Creating new story..."
+            python -u -m app.cli create-story "${REMAINING_ARGS[@]}"
+            ;;
+        list-stories)
+            print_message "Listing available stories..."
+            python -u -m app.cli list-stories
+            ;;
+        delete-story)
+            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
+                print_error "Please specify a story ID to delete"
+                exit 1
+            fi
+            print_message "Deleting story '$STORY_NAME'..."
+            python -u -m app.cli delete-story "$STORY_NAME"
+            ;;
+        clear-state)
+            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
+                STORY_NAME="${REMAINING_ARGS[0]:-veil_of_thornreach}"
+            fi
+            print_message "Clearing state for story '$STORY_NAME'..."
+            python -u -m app.cli clear-state "$STORY_NAME"
+            ;;
+        test-generation)
+            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
+                STORY_NAME="${REMAINING_ARGS[0]:-veil_of_thornreach}"
+            fi
+            print_message "Testing generation for story '$STORY_NAME'..."
+            python -u -m app.cli test-generation "$STORY_NAME"
+            ;;
+    esac
 fi
 
-# Run the CLI with proper terminal handling
-print_message "Starting the story CLI..."
-cd "$SCRIPT_DIR/backend"  # Go to backend directory
-
-# Enable unbuffered output to prevent hanging on terminal I/O
-export PYTHONUNBUFFERED=1
-
-# Run with stdin/stdout properly connected to terminal
-# Pass the story name if provided
-PYTHONPATH="$SCRIPT_DIR/backend" python -u -m app.cli run-story "$STORY_NAME"
-
 # Deactivate virtual environment
-deactivate 
+deactivate
