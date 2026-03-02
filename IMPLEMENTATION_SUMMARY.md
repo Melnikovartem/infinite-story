@@ -1,403 +1,314 @@
-# Implementation Summary - Infinite Story Engine
+# Implementation Summary: Shared Graph with Narrative Overlays
 
-## Overview
+## Three Documents Overview
 
-Successfully implemented a **fully functional infinite interactive storytelling engine** with AI-powered scene generation, custom choices, and persistent state management.
+### 1. **VISION.md** — What & Why
+- **Audience**: Everyone (designers, developers, users)
+- **Purpose**: Understand the philosophy and design
+- **Contains**:
+  - Core concept and mental model
+  - Key design decisions with rationale
+  - Comparison to other systems
+  - User experience descriptions
+  - Known limitations and future enhancements
 
----
-
-## 🎯 Phase 1 - Core Infrastructure (COMPLETED)
-
-### 1. Configuration Management ✅
-
-**Files Created:**
-- `backend/app/config.py` - Centralized configuration using Pydantic
-- `backend/.env.example` - Template for environment variables
-
-**Features:**
-- Environment-based configuration with `.env` support
-- API key management (OpenAI)
-- Model selection (default: `gpt-4o-mini`)
-- Temperature and token limit controls
-- Graceful error handling for missing configuration
-
-**Usage:**
-```bash
-cp backend/.env.example backend/.env
-# Edit .env with your OpenAI API key
-```
-
-### 2. Async CLI with AI Integration ✅
-
-**File Modified:** `backend/app/cli.py`
-
-**Key Changes:**
-- Converted from synchronous to async/await pattern
-- Integrated `OpenAIGenerator` with configuration
-- Added loading spinners during AI generation
-- Comprehensive error handling with user-friendly messages
-
-**Core Game Loop:**
-```python
-# Detects choices with no destination
-if selected_choice.to_segment_id:
-    # Navigate to existing segment
-    runner.make_choice(selected_choice.id)
-else:
-    # Generate new scene with AI
-    new_segment = await segment.generate_next_scene(choice, generator)
-```
-
-### 3. Custom Choice Implementation ✅
-
-**Features:**
-- Users can write their own choice text
-- System creates new `StoryChoice` objects dynamically
-- AI generates appropriate next scenes based on custom input
-- Validates choice length (max 200 characters)
-
-**Code:**
-```python
-# Create custom choice from user input
-custom_choice = StoryChoice(
-    story=runner.story,
-    id=f"custom_choice_{count}_{uuid}",
-    from_segment_id=current_segment.id,
-    to_segment_id=None,  # AI will generate next segment
-    text=user_input
-)
-```
+**Start here if you want to understand the "why."**
 
 ---
 
-## 🎯 Phase 2 - Enhanced Features (COMPLETED)
+### 2. **ARCHITECTURE_V2.md** — How (Technical)
+- **Audience**: Engineers
+- **Purpose**: Technical implementation details
+- **Contains**:
+  - System overview diagram
+  - Data models (Segment, Choice, Episode, etc.)
+  - Generation pipeline flow
+  - Episode recap generation
+  - Arc compression system
+  - CLI implementation (both modes)
+  - Storage structure
+  - Performance considerations
+  - Error handling
+  - Testing strategy
 
-### 4. Story State Persistence ✅
-
-**File Modified:** `backend/app/engine/story_runner.py`
-
-**New Methods:**
-- `save_state()` - Saves current position and visited segments
-- `load_state()` - Restores previous session
-- `clear_state()` - Deletes saved state
-- `start_from_segment(segment_id)` - Start from any segment
-
-**State File Structure:**
-```json
-{
-  "current_segment_id": "segment_2_a3f4b2c8",
-  "visited_segments": ["segment_1", "segment_2_a3f4b2c8"]
-}
-```
-
-**Auto-Save Triggers:**
-- After every AI-generated scene
-- Manual save (option 5 in menu)
-
-**Benefits:**
-- Sessions automatically resume on restart
-- No progress lost if app crashes
-- Users can explore different paths without losing main progress
-
-### 5. Unique ID Generation ✅
-
-**File Modified:** `backend/app/models/story_segment.py`
-
-**Implementation:**
-```python
-# Segment IDs: segment_{count}_{uuid_hex}
-segment_id = f"segment_{segment_count + 1}_{uuid.uuid4().hex[:8]}"
-
-# Choice IDs: choice_{count}_{uuid_hex}
-choice_id = f"choice_{choice_count + 1}_{uuid.uuid4().hex[:8]}"
-```
-
-**Benefits:**
-- Prevents ID collisions across branches
-- Supports multiple concurrent story paths
-- Enables parallel story exploration
-
-### 6. Resume Functionality ✅
-
-**CLI Integration:**
-- Automatically detects saved state on startup
-- Prompts user about resuming
-- Loads all components before resuming
-- Falls back to start if no saved state exists
-
-**User Experience:**
-```
-Resuming from saved state...
-Resumed at segment: A mysterious room reveals its secrets
-```
+**Start here if you're implementing or debugging.**
 
 ---
 
-## 📊 System Architecture
+### 3. **REIMPLEMENTATION_PLAN.md** — How To Build
+- **Audience**: Engineers
+- **Purpose**: Step-by-step implementation roadmap
+- **Contains**:
+  - 7 phases of work (1-5 weeks total)
+  - Specific files to create/modify
+  - Code examples for each phase
+  - Testing requirements
+  - Risk analysis
+  - Success criteria
+  - Rollout strategy
 
-### Data Flow
-
-```
-User Input → CLI → StoryRunner → Story Graph
-                ↓
-         AI Generation (if needed)
-                ↓
-         New Segment + Choices
-                ↓
-         Auto-Save State
-```
-
-### AI Generation Pipeline
-
-```
-1. Context Building:
-   - Story worldbuilding & fundamental truths
-   - Previous 10 segments
-   - Character running states (history)
-   - Location running states
-   - Choice text
-
-2. API Call:
-   - OpenAIGenerator.generate()
-   - System prompt with JSON schema
-   - User prompt with full context
-
-3. Response Processing:
-   - Parse JSON to SceneTextGeneratorResponse
-   - Create StorySegment with text blocks
-   - Generate 2 new choices
-   - Update character/location states
-
-4. Persistence:
-   - Save new segment
-   - Save new choices
-   - Update connecting choice
-   - Auto-save runner state
-```
-
-### Storage Structure
-
-```
-.infinite_story_data/
-└── {story_id}/
-    ├── runner_state.json          # Session state (NEW)
-    ├── story/
-    │   └── {story_id}.json
-    ├── storysegment/
-    │   ├── opening_scene.json
-    │   └── segment_2_a3f4b2c8.json  # AI-generated (NEW)
-    ├── storychoice/
-    │   ├── choice_1.json
-    │   └── choice_5_f2e8d1c4.json   # AI-generated (NEW)
-    ├── storycharacter/
-    ├── storylocation/
-    └── storycontext/
-```
+**Start here if you're planning the work.**
 
 ---
 
-## 🎮 User Features
+## Quick Concept Reference
 
-### Menu Options
-
-1. **Select from top 2 choices** - Quick access to most popular paths
-2. **View all choices** - See every available option
-3. **Show all options** - Expanded view (if >2 choices)
-4. **Write custom choice** - User-generated actions with AI response
-5. **Save and exit** - Preserve progress for later
-6. **Exit without saving** - End session without saving
-
-### AI Generation Indicators
+### The System in One Image
 
 ```
-[bold yellow]Generating next scene...[/bold yellow]
+User picks unexplored choice
+    ↓
+[Check if episode should end]
+    ↓
+[Generate new segment OR recap + new episode]
+    ↓
+[Save immutable segment to shared graph]
+    ↓
+[Move user cursor to new segment]
+    ↓
+[After ~15 episodes: compress arc, pick mainline]
+    ↓
+[Next arc starts from mainline frontier]
 ```
 
-Uses Rich `console.status()` with spinner animation.
+### Key Terms
 
-### Error Handling
-
-- Missing API key → Clear error with setup instructions
-- Generation failure → User-friendly message, can retry
-- Invalid configuration → Validation errors with hints
-- State loading failure → Falls back to fresh start
+| Term | Meaning |
+|------|---------|
+| **Segment** | Immutable node in the graph. Generated once, shared by all users. |
+| **Choice** | Edge in the graph. Points to segment or null (unexplored). |
+| **Episode** | ~20 segment chain with shared tone/end_condition. Context baked into segments. |
+| **Arc** | ~15 episodes. Compressed to pick mainline, archive rest. |
+| **User Session** | Just a cursor: current_segment + visited_segments. |
+| **Character State** | Snapshot at episode start + accumulated changes. Reconciled at recap. |
+| **Episode Recap** | Generated at episode end. Summarizes what happened, outputs new character snapshot. |
+| **Arc Compression** | Every ~15 episodes, pick canonical branch, hide others. World timeline stabilizes. |
 
 ---
 
-## 🔧 Technical Improvements
+## Implementation Phases (Quick)
 
-### Dependencies Added
-```
-python-dotenv>=1.0.0  # For .env file support
-```
+| Phase | Work | Duration | Priority |
+|-------|------|----------|----------|
+| **1** | Enhance models (Segment, Choice, Episode, Arc, UserSession) | 1 week | Critical |
+| **2** | Generation pipeline (context builder, traverse_or_generate) | 1 week | Critical |
+| **3** | Episode system (recap generator, character reconciliation) | 1 week | Critical |
+| **4** | Arc compression (branch selection, archiving) | 1 week | Important |
+| **5** | CLI (two modes: gameplay & exploration) | 1 week | Important |
+| **6** | Testing (unit, integration, simulation) | 1-2 weeks | Essential |
+| **7** | Docs & finalization | 1 week | After |
 
-### Code Quality
-- Type hints throughout
-- Async/await for I/O operations
-- Pydantic validation for configuration
-- UUID-based ID generation for uniqueness
-- JSON persistence with proper serialization
-
-### Performance
-- Lazy loading of story components
-- State caching in memory
-- Efficient graph traversal for history
-- Minimal disk I/O (write on demand)
+**Total: 4-5 weeks** (can be faster with parallel work)
 
 ---
 
-## 📝 Documentation Updates
+## Migration Path
 
-### Files Updated
+### Current System → New System
 
-1. **CLAUDE.md**
-   - Added configuration section
-   - Added state persistence section
-   - Updated known issues (marked completed items)
-   - Added running instructions
+**Old:**
+```
+infinite branching tree
+per-user segment generation
+no episode/arc structure
+simple character states
+unlimited growth
+```
 
-2. **backend/README.md**
-   - Complete quick start guide
-   - Configuration options
-   - Playing a story guide
-   - Auto-save feature documentation
-   - Development instructions
-   - Troubleshooting section
+**New:**
+```
+shared immutable graph
+one generation per segment
+episodes (tone/pacing)
+arcs (compression/mainline)
+snapshot + running log for characters
+bounded by compression every 15 episodes
+```
 
-### New Documentation
+### Migration Strategy
 
-- `.env.example` - Clear template with explanatory comments
-- Inline code comments explaining key algorithms
+1. Create new branch `v2-segment-graph`
+2. Implement all phases (1-5 weeks)
+3. Migrate existing story data (using migration script)
+4. Test thoroughly (phase 6)
+5. Merge to main, remove old code
+6. Deploy
+
+**Why not feature flags?** This is a major refactor. Simpler to own it completely rather than maintain two systems in parallel.
 
 ---
 
-## 🎯 Testing & Validation
+## Rollout Checklist
 
-### What's Ready to Test
+- [ ] Phase 1: Models enhanced
+- [ ] Phase 2: Generation pipeline working
+- [ ] Phase 3: Episode system generating recaps
+- [ ] Phase 4: Arc compression working
+- [ ] Phase 5: CLI updated, both modes working
+- [ ] Phase 6: All tests passing
+- [ ] Existing story migrated without data loss
+- [ ] Performance acceptable (<500ms segment load)
+- [ ] Migration script tested
+- [ ] Docs updated
+- [ ] Demo to stakeholders
+- [ ] Deploy to production
 
-1. **Story Creation**: Use `scripts/save_story.py` as template
-2. **Basic Flow**: Run story, make choices, navigate
-3. **AI Generation**: Write custom choice, see AI response
-4. **State Persistence**: Save, exit, restart, resume
-5. **Error Cases**: Missing config, invalid choices, etc.
+---
 
-### Test Commands
+## Key Files to Create/Modify
 
-```bash
-# List available stories
-cd backend
-PYTHONPATH=. python -m app.cli list-stories
+### New Files
 
-# Run interactive story
-PYTHONPATH=. python -m app.cli run-story
+```
+backend/app/engine/
+  ├── segment_context_builder.py (episode context, pacing)
+  ├── episode_recap_generator.py (recap generation)
+  ├── arc_compressor.py (mainline selection)
 
-# Or use convenience script
-cd ..
-./run.sh
+backend/app/models/
+  ├── episode_recap.py (recap model)
+  ├── story_arc.py (arc model)
+
+backend/app/
+  ├── cli_display.py (gameplay + exploration modes)
+  ├── cli_dev_commands.py (dev tools)
+
+backend/scripts/
+  ├── migrate_v1_to_v2.py (data migration)
+
+backend/tests/
+  ├── test_segment_graph.py (new tests)
+  ├── test_episode_system.py (new tests)
+  ├── test_migration.py (new tests)
+```
+
+### Modified Files
+
+```
+backend/app/models/
+  ├── story_segment.py (add episode context, states)
+  ├── story_choice.py (add status field)
+  ├── session_state.py (simplify to cursor)
+
+backend/app/engine/
+  ├── story_runner.py (add traverse_or_generate)
+  ├── generator.py (enhance for recaps)
+
+backend/app/
+  ├── cli.py (two modes, new loop)
+  ├── config.py (CLI mode settings)
+
+backend/
+  ├── requirements.txt (if new dependencies)
 ```
 
 ---
 
-## 🚀 What's Working Now
+## Success Criteria
 
-✅ **Complete end-to-end story flow**
-- Load story → Display scene → Show choices → Navigate/Generate → Repeat
-
-✅ **AI-powered infinite branching**
-- Custom choices trigger AI generation
-- Rich context from story history
-- Structured JSON responses
-- Automatic choice creation
-
-✅ **Session management**
-- Auto-save after generation
-- Auto-resume on restart
-- Manual save option
-- Clear state management
-
-✅ **User experience**
-- Clean CLI with Rich formatting
-- Loading indicators
-- Error messages with guidance
-- Multiple choice display modes
+✅ **All existing story data migrates without loss**
+✅ **Can traverse shared segment graph**
+✅ **Episode transitions work seamlessly**
+✅ **Character state accumulates through episodes**
+✅ **Recaps generate coherent titles/summaries**
+✅ **Arc compression picks reasonable mainlines**
+✅ **All new tests pass**
+✅ **CLI works in both modes**
+✅ **Performance acceptable (<500ms)**
 
 ---
 
-## 📌 Next Steps (Future Enhancements)
+## Open Questions for Team
 
-### Phase 3 - Optional Improvements
-
-1. **Episode System**
-   - Prevent infinite tree depth
-   - Create "chapter" breaks
-   - Summarize previous episodes
-
-2. **Web Frontend**
-   - React-based UI
-   - Visual story graph
-   - Image generation integration
-
-3. **Analytics**
-   - Track popular paths
-   - Choice click counts
-   - Story progression metrics
-
-4. **Multi-User Support**
-   - User accounts
-   - Shared stories
-   - Collaborative branching
-
-5. **Advanced AI**
-   - Multiple LLM support
-   - Fine-tuned models
-   - Prompt templates system
-   - Character consistency checks
+1. **Difficulty**: How hard are episode transitions and recaps?
+2. **Feasibility**: Arc compression is complex. Worth doing now or defer?
+3. **UX**: Should gameplay mode hide episode transitions completely or show subtle banners?
+4. **Migration**: Do we need to preserve old branches during migration, or start fresh?
+5. **Compression**: Who decides mainline — AI only, or with community input?
 
 ---
 
-## 💡 Key Learnings
+## Reading Order
 
-### Architecture Decisions
-
-1. **JSON Storage**: Simple, debuggable, version-controllable
-2. **Graph Structure**: Flexible for branching narratives
-3. **Pydantic Models**: Type safety + validation
-4. **State Separation**: Runner state separate from story data
-
-### Best Practices Applied
-
-1. **Async/Await**: Proper async handling for I/O
-2. **Error Handling**: Graceful degradation
-3. **User Feedback**: Clear messages at every step
-4. **Auto-Save**: Never lose user progress
-5. **UUID + Counter**: Guaranteed unique IDs
+1. **Start with VISION.md** if you're new
+2. **Reference ARCHITECTURE_V2.md** while coding
+3. **Follow REIMPLEMENTATION_PLAN.md** day-to-day
 
 ---
 
-## 🎉 Success Metrics
+## Key Insights
 
-- ✅ Core game loop fully functional
-- ✅ AI integration working end-to-end
-- ✅ Custom choices implemented
-- ✅ State persistence operational
-- ✅ Error handling comprehensive
-- ✅ Documentation complete
-- ✅ User experience polished
+### Why This Design?
 
-**The infinite story engine is production-ready for testing!**
+Traditional systems either:
+- **Books**: Fixed, no uniqueness
+- **CYOA**: Branching, but permament
+- **Procedural**: Unique, but incoherent
+- **MMO stories**: Shared, but rigid
+
+**Our system:**
+- Fixed world (shared)
+- Branching journeys (per-user)
+- Guided narrative (episodes/arcs)
+- Coherent story (immutable segments)
+- Stable state (compression)
+
+### Why Immutable Segments?
+
+Prevents:
+- Narrative fragmentation (same location has same state for all)
+- Duplication (no re-generation)
+- Inconsistency (segment text doesn't change)
+
+Enables:
+- Sharing (same segment for all who pick same choice)
+- Coherence (real world with real paths)
+- Debugging (trace issues to generation context)
+
+### Why Episode Transitions at Generation Time?
+
+Prevents:
+- Per-user episode state (no duplication)
+- Episode containers (no new data structure)
+
+Enables:
+- Seamless transitions (no UI interruption)
+- Branch variants (4a, 4b, 4c)
+- Flexibility (episodes follow the graph structure)
+
+### Why Compression?
+
+Prevents:
+- Combinatorial explosion (2^15 paths = 32K branches)
+- Infinite growth (world becomes unplayable)
+
+Enables:
+- Narrative closure (arc has an ending)
+- World stability (next arc has stable starting point)
+- Intentional "jitter" (gods choosing reality)
 
 ---
 
-## 📞 Getting Help
+## Glossary
 
-For issues or questions:
-
-1. Check `backend/README.md` for troubleshooting
-2. Review CLAUDE.md for architecture details
-3. Examine test files for usage examples
-4. Check `.env.example` for configuration options
+**Segment** - A scene. Immutable once generated.
+**Choice** - A decision point. Points to a segment or unexplored.
+**Episode** - ~20 segments with shared tone/pacing/end_condition. Context baked into segments.
+**Arc** - ~15 episodes. Has an arc compression event.
+**Compression** - Every ~15 episodes, pick canonical branch, archive others.
+**Recap** - Summary generated at episode end.
+**Running Log** - Accumulated changes within an episode.
+**Snapshot** - Character states at episode start.
+**Pacing Weight** - 0.0-1.0 value indicating where we are in episode.
+**User Session** - Cursor on the graph (current_segment + visited).
+**Mainline** - The canonical path selected during compression.
 
 ---
 
-*Generated: 2025-10-14*
-*Status: ✅ Phase 1 & 2 Complete - Ready for Testing*
+## For Questions
+
+Refer to the specific docs:
+- **"Why this design?"** → VISION.md
+- **"How do I implement X?"** → ARCHITECTURE_V2.md
+- **"What's the task this week?"** → REIMPLEMENTATION_PLAN.md
+- **"What's the term?"** → This document (glossary)
