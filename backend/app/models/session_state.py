@@ -1,59 +1,51 @@
-"""Session state management for story progress tracking."""
+"""Session state management for story progress tracking (v2: minimal)."""
 
 from datetime import datetime, UTC
 from typing import List, Optional, Any
 import json
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
+from app.models.story_base import StoryBase
 
 
-class SessionState(BaseModel):
-    """Represents a player's current game session.
+class SessionState(StoryBase):
+    """Represents a player's minimal game session state.
     
-    This model tracks the player's progress through a story including:
-    - Current location in the story
-    - Visited segments
-    - Scene counter for progress display
-    - Time tracking (start and last update)
+    v2 simplification: tracks only the journey path. All other state
+    (character states, episode info, protagonist data) lives on segments
+    and episode recaps.
+    
+    This model tracks:
+    - Current position in the story graph
+    - Visited segments (the path taken)
+    - Visited choices (decisions made)
     """
     
     story_id: str = Field(..., description="ID of the story being played")
+    user_id: str = Field(..., description="ID of the user playing")
     current_segment_id: str = Field(..., description="ID of the current segment")
+    
+    # Journey so far (minimal tracking)
     visited_segments: List[str] = Field(
         default_factory=list,
         description="List of segment IDs visited in order"
     )
-    scene_counter: int = Field(
-        default=1,
-        ge=0,
-        description="Current scene number (0-indexed or 1-indexed based on visited_segments length)"
-    )
-    start_time: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        description="When the session started"
-    )
-    last_updated: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        description="When the session was last updated"
+    visited_choices: List[str] = Field(
+        default_factory=list,
+        description="List of choice IDs made in order"
     )
     
     def __init__(self, **data: Any):
-        """Initialize a SessionState instance.
-        
-        Validates that current_segment_id is in visited_segments or is the first segment.
-        """
+        """Initialize a SessionState instance."""
         super().__init__(**data)
         # Ensure current segment is tracked
         if self.current_segment_id not in self.visited_segments:
-            if not self.visited_segments:
-                self.visited_segments.append(self.current_segment_id)
-            else:
-                self.visited_segments.append(self.current_segment_id)
+            self.visited_segments.append(self.current_segment_id)
     
     @field_validator('visited_segments')
     @classmethod
     def validate_visited_segments(cls, v: List[str]) -> List[str]:
-        """Validate that visited_segments is a non-empty list of unique segment IDs."""
+        """Validate that visited_segments is a list of unique segment IDs."""
         if not isinstance(v, list):
             raise ValueError("visited_segments must be a list")
         
@@ -67,47 +59,27 @@ class SessionState(BaseModel):
         
         return unique_segments
     
-    def add_segment(self, segment_id: str) -> None:
-        """Add a visited segment to the session.
+    def add_visited(self, segment_id: str, choice_id: Optional[str] = None) -> None:
+        """Add a visited segment and optional choice.
         
         Args:
-            segment_id: ID of the segment to add
+            segment_id: ID of the segment visited
+            choice_id: Optional ID of the choice that led here
         """
         if segment_id not in self.visited_segments:
             self.visited_segments.append(segment_id)
+        if choice_id and choice_id not in self.visited_choices:
+            self.visited_choices.append(choice_id)
+    
+    def move_to(self, segment_id: str) -> None:
+        """Move to a new segment, tracking the visit.
+        
+        Args:
+            segment_id: ID of the segment to move to
+        """
         self.current_segment_id = segment_id
-        self.scene_counter = len(self.visited_segments)
-        self.last_updated = datetime.now(UTC)
-    
-    def get_elapsed_seconds(self) -> int:
-        """Calculate elapsed time in seconds.
-        
-        Returns:
-            Number of seconds since session started
-        """
-        elapsed = datetime.now(UTC) - self.start_time
-        return int(elapsed.total_seconds())
-    
-    def get_elapsed_formatted(self) -> str:
-        """Format elapsed time as human-readable string.
-        
-        Returns:
-            Formatted time string (e.g., "2h 15m 30s")
-        """
-        seconds = self.get_elapsed_seconds()
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        
-        parts = []
-        if hours > 0:
-            parts.append(f"{hours}h")
-        if minutes > 0:
-            parts.append(f"{minutes}m")
-        if secs > 0 or not parts:
-            parts.append(f"{secs}s")
-        
-        return " ".join(parts)
+        self.add_visited(segment_id)
+        self.updated_at = datetime.now(UTC)
     
     def to_dict(self) -> dict:
         """Convert session state to dictionary for serialization.

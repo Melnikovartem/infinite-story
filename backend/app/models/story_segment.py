@@ -1,4 +1,5 @@
-from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
+from typing import List, Optional, Dict, Tuple, Any, TYPE_CHECKING
+from enum import Enum
 import logging
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("infinite_story.models.story_segment")
 
+
+class SegmentStatus(str, Enum):
+    """Status of a story segment during generation and use."""
+    UNEXPLORED = "unexplored"      # Not yet generated
+    GENERATING = "generating"      # In progress
+    GENERATED = "generated"        # Ready
+    ARCHIVED = "archived"          # Replaced by compression
+
 class CharacterStatus(BaseModel):
     """Status of a character in a story segment."""
     character_id: str
@@ -28,7 +37,7 @@ class StorySegment(StoryBlock):
     """A segment in a story.
     
     This represents a segment of the story with text blocks, character statuses,
-    and location statuses.
+    and location statuses, enhanced with episode context and state tracking.
     """
 
     # Core Scene Information
@@ -49,6 +58,80 @@ class StorySegment(StoryBlock):
     characters_running_status: List[CharacterStatus] = Field(default_factory=list)
     locations_running_status: List[LocationStatus] = Field(default_factory=list)
     
+    # -- Parent/History Tracking (E0-1) --
+    parent_segment_id: Optional[str] = Field(
+        None,
+        description="Which segment came before this one"
+    )
+    parent_choice_id: Optional[str] = Field(
+        None,
+        description="Which choice led to this segment"
+    )
+    
+    # -- Episode Context (E0-1) --
+    arc_id: Optional[str] = Field(
+        None,
+        description="Which story arc this segment belongs to"
+    )
+    episode_number: int = Field(
+        1,
+        description="Which episode (1-indexed)"
+    )
+    episode_tone: Optional[str] = Field(
+        None,
+        description="Tone tag for this episode (e.g., 'dark_and_mysterious')"
+    )
+    episode_end_condition: Optional[str] = Field(
+        None,
+        description="What should happen at end of episode"
+    )
+    segment_number_in_episode: int = Field(
+        1,
+        description="Position within episode (1-indexed, max ~20)"
+    )
+    pacing_weight: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="How close to episode end (0.0=start, 1.0=end)"
+    )
+    
+    # -- Character & Location State (E0-1) --
+    protagonist_id: Optional[str] = Field(
+        None,
+        description="Main character this episode"
+    )
+    character_states: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="State snapshot of each character at this segment"
+    )
+    change_notes: List[str] = Field(
+        default_factory=list,
+        description="Lightweight notes about character/location changes"
+    )
+    
+    # -- Episode Completion Signals (E0-1) --
+    end_condition_proximity: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="How close (0.0=far, 1.0=end condition met)"
+    )
+    protagonist_alive: bool = Field(
+        True,
+        description="Is the protagonist still alive (for death endings)"
+    )
+    triggers_episode_transition: bool = Field(
+        False,
+        description="Should this segment end the episode and start a new one"
+    )
+    
+    # -- Immutability (E0-1) --
+    status: SegmentStatus = Field(
+        default=SegmentStatus.UNEXPLORED,
+        description="State of this segment"
+    )
+    
     # Non-Stored Information
     # Pointers to choices
     incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead to this segment
@@ -63,6 +146,16 @@ class StorySegment(StoryBlock):
         """
         super().__init__(**data)
         self.story.add_segment(self)
+    
+    @property
+    def is_locked(self) -> bool:
+        """Segment cannot be modified after generation."""
+        return self.status == SegmentStatus.GENERATED
+    
+    def validate_locked(self) -> None:
+        """Raise error if locked."""
+        if self.is_locked:
+            raise ValueError(f"Segment {self.id} is locked after generation and cannot be modified")
     
     def add_incoming_choice(self, choice: StoryChoice) -> None:
         """Add a choice that leads to this segment."""

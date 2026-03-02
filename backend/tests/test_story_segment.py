@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, UTC
 from app.models.story import Story
-from app.models.story_segment import StorySegment, CharacterStatus, LocationStatus
+from app.models.story_segment import StorySegment, CharacterStatus, LocationStatus, SegmentStatus
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_choice import StoryChoice
@@ -149,4 +149,192 @@ def test_story_segment_save_and_load(story_segment, story):
     assert loaded_segment.short_description == story_segment.short_description
     assert len(loaded_segment.text_blocks) == len(story_segment.text_blocks)
     assert len(loaded_segment.characters) == len(story_segment.characters)
-    assert len(loaded_segment.locations) == len(story_segment.locations) 
+    assert len(loaded_segment.locations) == len(story_segment.locations)
+
+
+# E0-1 Tests: Enhanced StorySegment with episode/arc context
+class TestSegmentStatusEnum:
+    """Tests for SegmentStatus enum."""
+    
+    def test_segment_status_values(self):
+        """Test that SegmentStatus enum has correct values."""
+        assert SegmentStatus.UNEXPLORED.value == "unexplored"
+        assert SegmentStatus.GENERATING.value == "generating"
+        assert SegmentStatus.GENERATED.value == "generated"
+        assert SegmentStatus.ARCHIVED.value == "archived"
+    
+    def test_segment_status_from_string(self):
+        """Test creating SegmentStatus from string values."""
+        status = SegmentStatus("generated")
+        assert status == SegmentStatus.GENERATED
+
+
+class TestSegmentEnhancedFields:
+    """Tests for E0-1 enhanced segment fields."""
+    
+    def test_segment_creation_with_defaults(self, story):
+        """Segment created with E0-1 defaults."""
+        segment = StorySegment(
+            story=story,
+            id="seg_1",
+            short_description="A test segment",
+            story_id=story.id
+        )
+        
+        assert segment.episode_number == 1
+        assert segment.status == SegmentStatus.UNEXPLORED
+        assert segment.character_states == {}
+        assert segment.change_notes == []
+        assert segment.protagonist_alive is True
+        assert segment.triggers_episode_transition is False
+        assert segment.pacing_weight == 0.0
+        assert segment.end_condition_proximity == 0.0
+    
+    def test_segment_episode_context(self, story):
+        """Test segment with episode context."""
+        segment = StorySegment(
+            story=story,
+            id="seg_2",
+            short_description="Episode start",
+            story_id=story.id,
+            arc_id="arc_001",
+            episode_number=2,
+            episode_tone="dark_and_mysterious",
+            episode_end_condition="protagonist discovers the truth",
+            segment_number_in_episode=3
+        )
+        
+        assert segment.arc_id == "arc_001"
+        assert segment.episode_number == 2
+        assert segment.episode_tone == "dark_and_mysterious"
+        assert segment.episode_end_condition == "protagonist discovers the truth"
+        assert segment.segment_number_in_episode == 3
+    
+    def test_segment_character_state_tracking(self, story):
+        """Test segment with character state snapshot."""
+        char_states = {
+            "char_1": {"mood": "hopeful", "location": "castle", "alive": True},
+            "char_2": {"mood": "angry", "location": "forest", "alive": True}
+        }
+        
+        segment = StorySegment(
+            story=story,
+            id="seg_3",
+            short_description="State snapshot",
+            story_id=story.id,
+            character_states=char_states,
+            change_notes=["Character 1 learned a secret", "Character 2 fled"]
+        )
+        
+        assert segment.character_states == char_states
+        assert len(segment.change_notes) == 2
+        assert "secret" in segment.change_notes[0]
+    
+    def test_segment_pacing_weight_validation(self, story):
+        """Test pacing weight is constrained to 0.0-1.0."""
+        # Valid values
+        for weight in [0.0, 0.5, 1.0]:
+            segment = StorySegment(
+                story=story,
+                id=f"seg_pace_{int(weight*10)}",
+                short_description="Pacing test",
+                story_id=story.id,
+                pacing_weight=weight
+            )
+            assert segment.pacing_weight == weight
+    
+    def test_segment_parent_tracking(self, story):
+        """Test parent segment and choice tracking."""
+        segment = StorySegment(
+            story=story,
+            id="seg_child",
+            short_description="Child segment",
+            story_id=story.id,
+            parent_segment_id="seg_parent",
+            parent_choice_id="choice_001"
+        )
+        
+        assert segment.parent_segment_id == "seg_parent"
+        assert segment.parent_choice_id == "choice_001"
+
+
+class TestSegmentImmutability:
+    """Tests for immutability lock after generation."""
+    
+    def test_segment_is_locked_property(self, story):
+        """Test is_locked property."""
+        segment = StorySegment(
+            story=story,
+            id="seg_lock_1",
+            short_description="Lock test",
+            story_id=story.id
+        )
+        
+        assert segment.is_locked is False
+        assert segment.status == SegmentStatus.UNEXPLORED
+        
+        # Mark as generated
+        segment.status = SegmentStatus.GENERATED
+        assert segment.is_locked is True
+    
+    def test_segment_validate_locked_raises_error(self, story):
+        """Cannot modify generated segment."""
+        segment = StorySegment(
+            story=story,
+            id="seg_lock_2",
+            short_description="Lock validation test",
+            story_id=story.id
+        )
+        
+        # Should not raise when unexplored
+        segment.validate_locked()  # No error
+        
+        # Mark as generated and test
+        segment.status = SegmentStatus.GENERATED
+        with pytest.raises(ValueError, match="locked after generation"):
+            segment.validate_locked()
+
+
+class TestSegmentSerialization:
+    """Tests for save/load with new fields."""
+    
+    def test_segment_serialization_with_episode_fields(self, story):
+        """Save and load segment with episode context."""
+        original = StorySegment(
+            story=story,
+            id="seg_serial_1",
+            short_description="Serialization test",
+            story_id=story.id,
+            episode_number=2,
+            arc_id="arc_001",
+            pacing_weight=0.5,
+            character_states={"char_1": {"mood": "sad"}},
+            protagonist_id="char_1"
+        )
+        
+        original.save()
+        loaded = StorySegment.load(story.id, "seg_serial_1", story=story)
+        
+        assert loaded is not None
+        assert loaded.episode_number == 2
+        assert loaded.arc_id == "arc_001"
+        assert loaded.pacing_weight == 0.5
+        assert loaded.character_states == {"char_1": {"mood": "sad"}}
+        assert loaded.protagonist_id == "char_1"
+    
+    def test_segment_serialization_with_status(self, story):
+        """Save and load segment with status enum."""
+        segment = StorySegment(
+            story=story,
+            id="seg_serial_2",
+            short_description="Status serialization",
+            story_id=story.id,
+            status=SegmentStatus.GENERATED
+        )
+        
+        segment.save()
+        loaded = StorySegment.load(story.id, "seg_serial_2", story=story)
+        
+        assert loaded is not None
+        assert loaded.status == SegmentStatus.GENERATED
+        assert loaded.is_locked is True 
