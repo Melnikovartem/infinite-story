@@ -277,21 +277,38 @@ async def _run_story_debug_mode(runner: StoryRunner, generator):
         display_generation_result_story_debug,
         prompt_choice_story_debug
     )
+    from app.engine.segment_context_builder import SegmentContextBuilder
     
     try:
         while runner.is_running:
             if runner.current_segment:
                 display_segment_story_debug(runner.current_segment)
             
-            # Show generation context before each choice
-            display_generation_context_story_debug(runner, runner.current_segment)
-            
             choices = runner.get_available_choices()
             if not choices:
                 console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
                 break
             
+            # Build generation context to show what will be sent to AI
+            context = None
+            try:
+                context_builder = SegmentContextBuilder(runner.story)
+                context = context_builder.build_context(
+                    runner.current_segment.id,
+                    choices[0].text if choices else "unknown"  # This will be updated after choice
+                )
+            except Exception as e:
+                logger.debug(f"Could not build context: {e}")
+            
+            # Show generation context before each choice
+            display_generation_context_story_debug(runner, runner.current_segment, context)
+            
             choice_id = prompt_choice_story_debug(runner.current_segment, choices)
+            
+            # Update context with actual chosen text
+            if context:
+                choice_text = next((c.text for c in choices if c.id == choice_id), "unknown")
+                context['user_choice'] = choice_text
             
             try:
                 await _execute_choice(runner, choice_id, generator, mode=RunMode.STORY_DEBUG)
@@ -306,9 +323,9 @@ async def _run_story_debug_mode(runner: StoryRunner, generator):
                 console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
                 continue
             
-            # Show result
+            # Show result with context info
             if runner.current_segment:
-                display_generation_result_story_debug(runner.current_segment)
+                display_generation_result_story_debug(runner.current_segment, context)
             
             runner.save_state()
     
