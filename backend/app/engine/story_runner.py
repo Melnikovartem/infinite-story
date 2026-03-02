@@ -10,17 +10,21 @@ from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
+from ..models.episode_recap import EpisodeRecap
 from ..engine.segment_context_builder import SegmentContextBuilder
+from ..engine.episode_recap_generator import EpisodeRecapGenerator
 
 logger = logging.getLogger("infinite_story.engine.story_runner")
 
 class StoryRunner:
     """Manages the runtime state of a story and handles the game loop."""
 
-    def __init__(self, story: Story):
+    def __init__(self, story: Story, generator=None):
         self.story = story
         self.current_segment: Optional[StorySegment] = None
         self.visited_segments: Set[str] = set()  # Set of segment IDs we've visited
+        self.generator = generator  # Optional TextGenerator for AI-based generation
+        self.current_arc_id: Optional[str] = None  # Track current arc for new segments
     
     @property
     def is_running(self) -> bool:
@@ -41,6 +45,11 @@ class StoryRunner:
         logger.debug(f"Current segment set to '{self.current_segment.id}': {self.current_segment.short_description}")
         # Mark the start segment as visited
         self.visited_segments.add(self.story.start_segment_id)
+        
+        # Initialize current arc from the start segment (E2-5)
+        if self.current_segment.arc_id:
+            self.current_arc_id = self.current_segment.arc_id
+            logger.debug(f"Set current arc to {self.current_arc_id}")
         
     def get_available_choices(self) -> List[StoryChoice]:
         """Get the choices available in the current segment, sorted by logged clicks then click count."""
@@ -294,6 +303,11 @@ class StoryRunner:
 
         self.current_segment = segment
         self.visited_segments.add(segment_id)
+        
+        # Initialize current arc from the segment (E2-5)
+        if segment.arc_id:
+            self.current_arc_id = segment.arc_id
+            logger.debug(f"Set current arc to {self.current_arc_id}")
     
     # ========================================================================
     # E1-2: Generation Pipeline
@@ -391,6 +405,39 @@ class StoryRunner:
             # For now, this creates a placeholder segment
             # In real implementation, would call: response = await self.generator.generate(...)
             
+            # Check if this segment transitions to a new episode
+            should_transition = context['should_transition_episode']
+            
+            # Determine episode number and context for new episode
+            next_episode_number = context['episode_number']
+            next_episode_tone = context['episode_tone']
+            next_episode_end_condition = context['episode_end_condition']
+            next_segment_number = context['segment_number_in_episode'] + 1
+            
+            # If transitioning to new episode, generate new episode context via E2-2
+            if should_transition and self.generator and self.current_arc_id:
+                try:
+                    recap_generator = EpisodeRecapGenerator(self.story, self.generator)
+                    # Get previous episode recap for continuity
+                    prev_recap = EpisodeRecap.load(
+                        self.story.id, 
+                        f"recap_{self.story.id}_ep{context['episode_number']}_{self.current_arc_id}"
+                    ) if context['episode_number'] > 0 else None
+                    
+                    # Generate new episode context (E2-2)
+                    new_ep_context = await recap_generator.generate_new_episode_context(
+                        self.current_arc_id,
+                        prev_recap
+                    )
+                    
+                    next_episode_number = context['episode_number'] + 1
+                    next_episode_tone = new_ep_context.get('tone_tags', [context['episode_tone']])[0]
+                    next_episode_end_condition = new_ep_context.get('end_condition', '')
+                    next_segment_number = 1  # Reset segment counter for new episode
+                    logger.info(f"Generated new episode context for episode {next_episode_number}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate new episode context: {e}, using defaults")
+            
             # Create segment with all fields from context
             segment_id = f"seg_{uuid.uuid4().hex[:12]}"
             new_segment = StorySegment(
@@ -398,17 +445,18 @@ class StoryRunner:
                 id=segment_id,
                 short_description="A scene in the story",  # Would come from AI response
                 text_blocks=[],  # Would come from AI response
-                episode_number=context['episode_number'],
-                episode_tone=context['episode_tone'],
-                episode_end_condition=context['episode_end_condition'],
-                segment_number_in_episode=context['segment_number_in_episode'] + 1,
+                arc_id=self.current_arc_id,  # Pass arc_id to child segment (E2-5)
+                episode_number=next_episode_number,
+                episode_tone=next_episode_tone,
+                episode_end_condition=next_episode_end_condition,
+                segment_number_in_episode=next_segment_number,
                 pacing_weight=context['pacing_weight'],
                 protagonist_id=context['protagonist_id'],
                 parent_segment_id=self.current_segment.id,
                 character_states=context.get('character_states', {}),
                 change_notes=context.get('accumulated_changes', []),
                 end_condition_proximity=0.0,  # Would come from AI response
-                triggers_episode_transition=context['should_transition_episode'],
+                triggers_episode_transition=False,  # New segment doesn't trigger transition yet
                 status=SegmentStatus.GENERATED,
             )
             logger.debug(f"Created segment {segment_id}")
