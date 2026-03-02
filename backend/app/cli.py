@@ -464,6 +464,8 @@ async def _run_story_debug_mode(runner: StoryRunner, generator):
             # Build generation context to show what will be sent to AI
             context = None
             try:
+                # Don't pass generator here - story_debug mode should display EXISTING context only,
+                # not auto-generate missing data (which would be slow and block the UI)
                 context_builder = SegmentContextBuilder(runner.story)
                 context = await context_builder.build_context(
                     runner.current_segment.id,
