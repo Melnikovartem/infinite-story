@@ -73,9 +73,9 @@ def _display_context_from_dict(context: Dict[str, Any]) -> None:
     """Display context using the actual context dictionary from SegmentContextBuilder."""
     
     # ========================================================================
-    # NAVIGATION SIGNALS
+    # NAVIGATION SIGNALS (Brief Overview)
     # ========================================================================
-    console.print("[bold magenta]NAVIGATION SIGNALS[/bold magenta]")
+    console.print("[bold magenta]═══ NAVIGATION SIGNALS ═══[/bold magenta]")
     nav_table = Table(show_header=False)
     nav_table.add_row("[cyan]Episode #:[/cyan]", f"[yellow]{context.get('episode_number', 'N/A')}[/yellow]")
     nav_table.add_row("[cyan]Segment in Episode:[/cyan]", f"[yellow]{context.get('segment_number_in_episode', 'N/A')}/20[/yellow]")
@@ -86,14 +86,194 @@ def _display_context_from_dict(context: Dict[str, Any]) -> None:
     console.print()
     
     # ========================================================================
-    # CHARACTER CONTEXT
+    # ARC CONTEXT - Complete Arc Information
     # ========================================================================
-    console.print("[bold magenta]CHARACTER CONTEXT[/bold magenta]")
+    _display_arc_context(context)
+    
+    # ========================================================================
+    # EPISODE CONTEXT - Complete Episode Information
+    # ========================================================================
+    _display_episode_context(context)
+    
+    # ========================================================================
+    # SEGMENT CONTEXT - Complete Segment Information
+    # ========================================================================
+    _display_segment_context(context)
+    
+    # ========================================================================
+    # CHARACTER CONTEXT - All character info
+    # ========================================================================
+    _display_character_context(context)
+    
+    # ========================================================================
+    # GENERATION STRATEGY
+    # ========================================================================
+    _display_generation_strategy(context)
+
+
+def _display_arc_context(context: Dict[str, Any]) -> None:
+    """Display complete arc information with all available fields."""
+    console.print("[bold cyan]╔════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║  ARC CONTEXT                           ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════╝[/bold cyan]\n")
+    
+    # Arc definitions
+    arc_premise = context.get('arc_premise', 'N/A')
+    arc_conflict = context.get('central_conflict', 'N/A')
+    arc_tone = context.get('arc_tone', 'N/A')
+    arc_themes = context.get('arc_themes', [])
+    
+    arc_table = Table(show_header=False, padding=(0, 1))
+    arc_table.add_row("[cyan]Premise:[/cyan]", f"[white]{arc_premise}[/white]")
+    arc_table.add_row("[cyan]Central Conflict:[/cyan]", f"[white]{arc_conflict}[/white]")
+    arc_table.add_row("[cyan]Tone:[/cyan]", f"[white]{arc_tone}[/white]")
+    if arc_themes:
+        arc_table.add_row("[cyan]Themes:[/cyan]", f"[white]{', '.join(arc_themes)}[/white]")
+    console.print(arc_table)
+    
+    # Character arc goals and resolutions
+    char_goals = context.get('character_arc_goals', {})
+    if char_goals:
+        console.print("\n[cyan]Character Arc Goals:[/cyan]")
+        for char_id, goal in char_goals.items():
+            console.print(f"  • [green]{char_id}[/green]: {goal}")
+    
+    # Mysteries tracking
+    mysteries = context.get('unresolved_mysteries', [])
+    if mysteries:
+        console.print("\n[cyan]Unresolved Mysteries:[/cyan]")
+        for mystery in mysteries:
+            console.print(f"  ? [yellow]{mystery}[/yellow]")
+    
+    # Theme depth
+    theme_depth = context.get('theme_depth', {})
+    if theme_depth:
+        console.print("\n[cyan]Theme Exploration Depth:[/cyan]")
+        for theme, depth in theme_depth.items():
+            console.print(f"  • [magenta]{theme}[/magenta]: {depth}")
+    
+    console.print()
+
+
+def _display_episode_context(context: Dict[str, Any]) -> None:
+    """Display complete episode information with all available fields."""
+    console.print("[bold cyan]╔════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║  EPISODE CONTEXT                       ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════╝[/bold cyan]\n")
+    
+    current_ep = context.get('current_episode', {})
+    if current_ep:
+        ep_table = Table(show_header=False, padding=(0, 1))
+        ep_table.add_row("[cyan]Episode #:[/cyan]", f"[yellow]{current_ep.get('number', 'N/A')}[/yellow]")
+        ep_table.add_row("[cyan]Title:[/cyan]", f"[yellow]{current_ep.get('title', 'N/A')}[/yellow]")
+        ep_table.add_row("[cyan]Tone:[/cyan]", f"[white]{current_ep.get('tone', 'N/A')}[/white]")
+        ep_table.add_row("[cyan]Focus:[/cyan]", f"[white]{context.get('episode_focus', 'N/A')}[/white]")
+        ep_table.add_row("[cyan]End Condition:[/cyan]", f"[white]{current_ep.get('end_condition', 'N/A')}[/white]")
+        console.print(ep_table)
+    
+    # Episode summary
+    if current_ep and current_ep.get('summary'):
+        console.print("\n[cyan]Episode Summary:[/cyan]")
+        console.print(f"[white]{current_ep.get('summary', '')}[/white]")
+    
+    # Selected themes
+    themes = context.get('episode_selected_themes', [])
+    if themes:
+        console.print(f"\n[cyan]Selected Themes:[/cyan] [white]{', '.join(themes)}[/white]")
+    
+    # Story hooks
+    hooks = context.get('story_hooks', [])
+    if hooks:
+        console.print("\n[cyan]Story Hooks to Explore:[/cyan]")
+        for hook in hooks:
+            console.print(f"  • [yellow]{hook}[/yellow]")
+    
+    # Themes explored
+    themes_explored = context.get('themes_explored', [])
+    if themes_explored:
+        console.print(f"\n[cyan]Themes Explored So Far:[/cyan] [white]{', '.join(themes_explored)}[/white]")
+    
+    # Recent episode recaps
+    recent_eps = context.get('recent_episode_recaps', [])
+    if recent_eps:
+        console.print("\n[cyan]Recent Episode Recaps:[/cyan]")
+        for ep_recap in recent_eps:
+            ep_num = ep_recap.get('episode_number', ep_recap.get('number', '?'))
+            ep_title = ep_recap.get('title', 'N/A')
+            console.print(f"  • Episode {ep_num}: [bold]{ep_title}[/bold]")
+            if ep_recap.get('summary'):
+                console.print(f"      [dim]{ep_recap.get('summary', '')[:150]}...[/dim]")
+    
+    console.print()
+
+
+def _display_segment_context(context: Dict[str, Any]) -> None:
+    """Display complete segment information with text and all fields."""
+    console.print("[bold cyan]╔════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║  SEGMENT CONTEXT                       ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════╝[/bold cyan]\n")
+    
+    # Recent full segment texts with complete context
+    full_segments = context.get('recent_segments_full', [])
+    if full_segments:
+        console.print(f"[cyan]Full Text of Last {len(full_segments)} Segments:[/cyan]\n")
+        
+        for i, seg in enumerate(full_segments[-3:], 1):  # Show last 3
+            seg_id = seg.get('segment_id', 'unknown')
+            seg_text = seg.get('text', '')
+            seg_recap = seg.get('recap', {})
+            
+            console.print(f"[bold cyan]-- Segment {i}: {seg_id} --[/bold cyan]")
+            
+            # Segment metadata
+            if seg_recap:
+                meta_table = Table(show_header=False, padding=(0, 1))
+                if seg_recap.get('episode_number'):
+                    meta_table.add_row("[dim]Episode:[/dim]", f"{seg_recap.get('episode_number')}")
+                if seg_recap.get('segment_number_in_episode'):
+                    meta_table.add_row("[dim]Segment #:[/dim]", f"{seg_recap.get('segment_number_in_episode')}")
+                if seg_recap.get('short_description'):
+                    meta_table.add_row("[dim]Description:[/dim]", f"{seg_recap.get('short_description')}")
+                console.print(meta_table)
+            
+            # Full text
+            if seg_text:
+                console.print(f"\n[white]{seg_text}[/white]\n")
+            
+            # Key events
+            if seg_recap and seg_recap.get('key_events'):
+                console.print("[dim]Key Events:[/dim]")
+                for event in seg_recap.get('key_events', []):
+                    console.print(f"  • {event}")
+            
+            # Characters present
+            if seg_recap and seg_recap.get('characters_present'):
+                console.print(f"[dim]Characters:[/dim] {', '.join(seg_recap.get('characters_present', []))}")
+            
+            console.print()
+    
+    # Segment recaps
+    recaps = context.get('segment_recaps', [])
+    if recaps:
+        console.print(f"[cyan]Recent Segment Recaps (Last 10):[/cyan]")
+        for recap in recaps:
+            seg_id = recap.get('segment_id', 'unknown')
+            seg_desc = recap.get('short_description', recap.get('description', 'N/A'))
+            console.print(f"  • [yellow]{seg_id}[/yellow]: {seg_desc[:80]}")
+    
+    console.print()
+
+
+def _display_character_context(context: Dict[str, Any]) -> None:
+    """Display comprehensive character information and state changes."""
+    console.print("[bold cyan]╔════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║  CHARACTER CONTEXT                     ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════╝[/bold cyan]\n")
     
     # All characters summary
     all_chars = context.get('all_characters', {})
     if all_chars:
-        console.print("\n[cyan]All Characters (Summary):[/cyan]")
+        console.print("[cyan]All Characters (Summary):[/cyan]")
         char_table = Table(show_header=True, header_style="dim cyan")
         char_table.add_column("ID", style="cyan", width=15)
         char_table.add_column("Name", style="white", width=20)
@@ -109,140 +289,66 @@ def _display_context_from_dict(context: Dict[str, Any]) -> None:
     # Extended character info for active ones
     extended_chars = context.get('extended_characters', {})
     if extended_chars:
-        console.print("\n[cyan]Extended Characters (Last 3 Segments):[/cyan]")
+        console.print("\n[cyan]Extended Character Details (Last 3 Segments):[/cyan]")
         for char_id, char_info in extended_chars.items():
             console.print(f"\n  [bold green]{char_info.get('name', char_id)}[/bold green]")
-            console.print(f"    [dim]Background:[/dim] {char_info.get('background', 'N/A')[:80]}")
+            console.print(f"    [dim]Background:[/dim] {char_info.get('background', 'N/A')}")
             console.print(f"    [dim]Goal:[/dim] {char_info.get('current_goal', 'N/A')}")
             console.print(f"    [dim]Emotion:[/dim] {char_info.get('emotional_state', 'N/A')}")
+            console.print(f"    [dim]Status:[/dim] {char_info.get('status', 'N/A')}")
+            console.print(f"    [dim]Loyalty:[/dim] {char_info.get('loyalty', 'N/A')}")
+    
+    # Character relationships
+    relationships = context.get('character_relationships', {})
+    if relationships:
+        console.print("\n[cyan]Character Relationships:[/cyan]")
+        for char_id, rels in relationships.items():
+            if rels:
+                console.print(f"  [green]{char_id}[/green]:")
+                for other_char, rel_desc in rels.items():
+                    console.print(f"    → [yellow]{other_char}[/yellow]: {rel_desc}")
     
     # Changes this episode
     changes = context.get('character_changes_this_episode', [])
     if changes:
-        console.print("\n[cyan]Changes This Episode:[/cyan]")
-        for i, change in enumerate(changes[:5], 1):  # Show first 5
+        console.print("\n[cyan]Character Changes This Episode:[/cyan]")
+        for i, change in enumerate(changes, 1):
             console.print(f"  {i}. {change}")
-        if len(changes) > 5:
-            console.print(f"  ... and {len(changes) - 5} more changes")
     
     console.print()
+
+
+def _display_generation_strategy(context: Dict[str, Any]) -> None:
+    """Display what will be included/excluded in the generation."""
+    console.print("[bold cyan]╔════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║  GENERATION STRATEGY                   ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════╝[/bold cyan]\n")
     
-    # ========================================================================
-    # EPISODE CONTEXT
-    # ========================================================================
-    console.print("[bold magenta]EPISODE CONTEXT[/bold magenta]")
-    
-    current_ep = context.get('current_episode', {})
-    if current_ep:
-        ep_table = Table(show_header=False)
-        ep_table.add_row("[cyan]Episode:[/cyan]", f"[yellow]{current_ep.get('number', 'N/A')}[/yellow]")
-        ep_table.add_row("[cyan]Tone:[/cyan]", f"[yellow]{current_ep.get('tone', 'N/A')}[/yellow]")
-        ep_table.add_row("[cyan]Focus:[/cyan]", f"[green]{context.get('episode_focus', 'N/A')}[/green]")
-        ep_table.add_row("[cyan]End Condition:[/cyan]", f"[yellow]{current_ep.get('end_condition', 'N/A')}[/yellow]")
-        console.print(ep_table)
-    
-    # Selected themes
-    themes = context.get('episode_selected_themes', [])
-    if themes:
-        console.print(f"\n[cyan]Selected Themes:[/cyan] {', '.join(themes)}")
-    
-    # Story hooks
-    hooks = context.get('story_hooks', [])
-    if hooks:
-        console.print("\n[cyan]Hooks to Explore:[/cyan]")
-        for hook in hooks[:3]:
-            console.print(f"  • {hook}")
-        if len(hooks) > 3:
-            console.print(f"  ... and {len(hooks) - 3} more")
-    
-    # Recent episode recaps
-    recent_eps = context.get('recent_episode_recaps', [])
-    if recent_eps:
-        console.print("\n[cyan]Recent Episode Recaps (Last 3):[/cyan]")
-        for ep_recap in recent_eps[:3]:
-            console.print(f"  • Episode {ep_recap.get('number', 'N/A')}: {ep_recap.get('title', 'N/A')}")
-    
-    console.print()
-    
-    # ========================================================================
-    # ARC CONTEXT
-    # ========================================================================
-    console.print("[bold magenta]ARC CONTEXT[/bold magenta]")
-    
-    arc_premise = context.get('arc_premise', 'N/A')
-    console.print(f"[cyan]Premise:[/cyan] {arc_premise}")
-    
-    arc_conflict = context.get('central_conflict', 'N/A')
-    console.print(f"[cyan]Central Conflict:[/cyan] {arc_conflict}")
-    
-    arc_themes = context.get('arc_themes', [])
-    if arc_themes:
-        console.print(f"[cyan]Arc Themes:[/cyan] {', '.join(arc_themes[:3])}")
-    
-    # Character arc goals
-    char_goals = context.get('character_arc_goals', {})
-    if char_goals:
-        console.print("\n[cyan]Character Arc Goals:[/cyan]")
-        for char_id, goal in list(char_goals.items())[:3]:
-            console.print(f"  • {char_id}: {goal}")
-        if len(char_goals) > 3:
-            console.print(f"  ... and {len(char_goals) - 3} more")
-    
-    # Unresolved mysteries
-    mysteries = context.get('unresolved_mysteries', [])
-    if mysteries:
-        console.print("\n[cyan]Unresolved Mysteries:[/cyan]")
-        for mystery in mysteries[:3]:
-            console.print(f"  ? {mystery}")
-    
-    console.print()
-    
-    # ========================================================================
-    # SEGMENT HISTORY
-    # ========================================================================
-    console.print("[bold magenta]SEGMENT HISTORY[/bold magenta]")
-    
+    all_chars = context.get('all_characters', {})
+    extended_chars = context.get('extended_characters', {})
     recaps = context.get('segment_recaps', [])
-    if recaps:
-        console.print(f"\n[cyan]Last {len(recaps)} Segment Recaps:[/cyan]")
-        for recap in recaps[-3:]:  # Show last 3
-            console.print(f"  • {recap.get('description', 'N/A')[:70]}")
-    
     full_segments = context.get('recent_segments_full', [])
-    if full_segments:
-        console.print(f"\n[cyan]Full Text Available For:[/cyan] Last {len(full_segments)} segments")
-        console.print(f"  [dim](Used for conversation continuity)[/dim]")
-        
-        # Display the actual full text of recent segments
-        for seg in full_segments[-3:]:  # Show last 3
-            seg_id = seg.get('segment_id', 'unknown')
-            seg_text = seg.get('text', '')
-            if seg_text:
-                console.print(f"\n[bold cyan]--- Full Text of Segment {seg_id} ---[/bold cyan]")
-                console.print(f"[white]{seg_text}[/white]")
+    changes = context.get('character_changes_this_episode', [])
+    hooks = context.get('story_hooks', [])
+    mysteries = context.get('unresolved_mysteries', [])
     
-    console.print()
-    
-    # ========================================================================
-    # WHAT WILL BE INCLUDED/EXCLUDED
-    # ========================================================================
-    console.print("[bold cyan]Generation Strategy:[/bold cyan]")
     console.print("[green]✓ Will Include in Context:[/green]")
     console.print(f"  • {len(all_chars) if all_chars else 0} character summaries")
     console.print(f"  • {len(extended_chars) if extended_chars else 0} extended character details")
     console.print(f"  • Current episode (#{context.get('episode_number', '?')})")
-    console.print(f"  • {len(recaps) if recaps else 0} segment recaps")
+    console.print(f"  • {len(recaps) if recaps else 0} recent segment recaps")
     console.print(f"  • {len(full_segments) if full_segments else 0} full segment texts (for continuity)")
-    console.print(f"  • {len(changes) if changes else 0} accumulated changes this episode")
-    console.print(f"  • Arc premise, conflict, themes, and goals")
+    console.print(f"  • {len(changes) if changes else 0} character changes this episode")
+    console.print(f"  • Arc premise, conflict, themes, goals, and mysteries")
     console.print(f"  • {len(hooks) if hooks else 0} story hooks to explore")
-    console.print(f"  • {len(mysteries) if mysteries else 0} unresolved mysteries")
+    console.print(f"  • Episode focus, tone, and selected themes")
     
     console.print("\n[yellow]⊘ Will Not Include (to save tokens):[/yellow]")
-    console.print("  • Character details beyond extended list")
-    console.print("  • Episodes older than last 3")
-    console.print("  • Segments older than last 10")
-    console.print("  • Resolved arcs (unless relevant to current)")
+    console.print("  • Inactive character details")
+    console.print("  • Episodes older than recent")
+    console.print("  • Segments older than recent")
+    console.print("  • Resolved arcs (archived)")
+    console.print("  • Complete location/world details (summaries only)")
     
     console.print()
 

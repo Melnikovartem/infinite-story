@@ -412,8 +412,8 @@ class StorySegment(StoryBlock):
         context_start = time.time()
         context_builder = SegmentContextBuilder(self.story, generator)
         context = await context_builder.build_context(
-            segment_id=self.id,
-            player_choice=connecting_choice.text
+            current_segment_id=self.id,
+            user_choice=connecting_choice.text
         )
         context_duration = time.time() - context_start
         logger.debug(f"Built generation context in {context_duration:.2f}s with full parent chain")
