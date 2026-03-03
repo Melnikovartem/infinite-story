@@ -500,7 +500,8 @@ Respond with JSON:
     def _build_episode_generation_prompt(
         self,
         arc: StoryArc,
-        previous_recap: Optional[EpisodeRecap]
+        previous_recap: Optional[EpisodeRecap],
+        selected_themes: List[str] = None
     ) -> str:
         """
         Build prompt for new episode context.
@@ -508,6 +509,7 @@ Respond with JSON:
         Args:
             arc: The story arc for the new episode
             previous_recap: Optional recap from the previous episode
+            selected_themes: Themes selected for this episode
             
         Returns:
             The prompt to send to the AI

@@ -1,4 +1,4 @@
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 from enum import Enum
 from pydantic import Field, field_validator
 from .story_block import StoryBlock
