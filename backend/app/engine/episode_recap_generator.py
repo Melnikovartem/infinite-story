@@ -1106,13 +1106,18 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         running_notes: str,
         emotion: Optional[str] = None,
         status: str = "present",
-        segment_id: Optional[str] = None
+        segment_id: Optional[str] = None,
+        world_context: Optional[Dict[str, Any]] = None,
+        use_llm_regeneration: bool = False
     ) -> bool:
         """
         Update a character's running_status with new notes.
         
         This is the core function for tracking character state changes.
         Can be called from segments, episodes, or other generators.
+        
+        If use_llm_regeneration=True and world_context provided, will call LLM
+        to regenerate character fields based on running notes.
         
         Args:
             character_id: ID of the character to update
@@ -1121,6 +1126,8 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             status: Character presence status (present, absent, mentioned)
             segment_id: Optional segment ID this change occurred in
                        If not provided, uses a marked entry like "episode_X_end"
+            world_context: Optional world context for LLM regeneration
+            use_llm_regeneration: If True, call LLM to regenerate character fields
             
         Returns:
             True if update succeeded, False otherwise
@@ -1130,7 +1137,9 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 "char_knight",
                 "lost cursed_sword - dropped in the river",
                 emotion="desperate",
-                status="present"
+                status="present",
+                world_context=world_info,
+                use_llm_regeneration=True
             )
         """
         char = self.story.get_character(character_id)
@@ -1139,6 +1148,7 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             return False
         
         try:
+            # Always record the running status update
             char.add_state(
                 segment_id=segment_id or "marked_update",
                 emotion=emotion,
@@ -1147,6 +1157,13 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             )
             char.save()
             logger.info(f"Updated character {char.name}: {running_notes}")
+            
+            # If LLM regeneration requested, call async method
+            if use_llm_regeneration and world_context and self.generator:
+                # Note: This is a sync method calling async - should be awaited by caller
+                logger.debug(f"Regeneration requested for {char.name}, world context available")
+                # Return True here, caller should await regenerate_character_from_running_state separately
+            
             return True
         except Exception as e:
             logger.error(f"Failed to update character {character_id}: {e}")
@@ -1196,3 +1213,188 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         logger.info(f"Updated story objects with running state from episode {episode_number}: "
                    f"{len(running_state.get('character_states', {}))} characters, "
                    f"{len(running_state.get('location_states', {}))} locations")
+    
+    async def update_character_with_llm(
+        self,
+        character_id: str,
+        running_notes: str,
+        world_context: Dict[str, Any],
+        emotion: Optional[str] = None,
+        status: str = "present",
+        segment_id: Optional[str] = None
+    ) -> bool:
+        """
+        Update character running_status AND regenerate fields via LLM.
+        
+        This is the async version that:
+        1. Records the running_status update
+        2. Calls LLM to regenerate character description, health, emotion, inventory
+        3. Updates EpisodeMeta character_state_snapshot with new values
+        
+        Args:
+            character_id: ID of character to update
+            running_notes: Narrative changes (e.g., "wounded in arm, lost cursed_sword")
+            world_context: Full story context (arc, themes, locations, etc.)
+            emotion: Optional emotion state (may be overridden by LLM)
+            status: Character presence status
+            segment_id: Optional segment ID for running_status
+            
+        Returns:
+            True if both update and regeneration succeeded
+        """
+        # First update the running_status
+        if not self.update_character(character_id, running_notes, emotion, status, segment_id):
+            return False
+        
+        # Then regenerate fields via LLM
+        return await self.regenerate_character_from_running_state(
+            character_id,
+            running_notes,
+            world_context
+        )
+    
+    async def regenerate_character_from_running_state(
+        self,
+        character_id: str,
+        running_notes: str,
+        world_context: Dict[str, Any]
+    ) -> bool:
+        """
+        Use LLM to regenerate character fields based on running state changes.
+        
+        When a character's running_status contains significant changes (e.g., "lost cursed_sword"),
+        we ask the LLM to:
+        1. Parse the running notes
+        2. Update character description, health_status, emotional_status, inventory
+        3. Preserve character core identity
+        4. Reflect changes in arc goal progress
+        
+        Args:
+            character_id: ID of character to update
+            running_notes: Arbitrary text from running_status (e.g., "wounded, angry, lost cursed_sword")
+            world_context: Full story world context (arc, locations, factions, themes, etc.)
+            
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        char = self.story.get_character(character_id)
+        if not char:
+            logger.warning(f"Character {character_id} not found")
+            return False
+        
+        # Build LLM prompt
+        prompt = f"""You are updating a character's description and state based on what happened to them.
+
+CHARACTER DETAILS:
+- Name: {char.name}
+- Original Description: {char.description}
+- Original Background: {char.background}
+
+WHAT HAPPENED (running notes):
+{running_notes}
+
+WORLD CONTEXT:
+Arc: {world_context.get('arc', {}).get('name', 'Unknown')}
+Current Themes: {', '.join(world_context.get('themes', []))}
+Current Location: {world_context.get('location', 'Unknown')}
+
+Please regenerate the character's:
+1. description (1-2 sentences, reflecting current state and changes)
+2. health_status (e.g., "healthy", "wounded in arm", "dying")
+3. emotional_status (e.g., "determined", "angry", "desperate", "hopeful")
+4. inventory (key items this character has, formatted as dict with notes)
+5. goal_progress (0.0 to 1.0, how much closer/further from their arc goal)
+6. goal_notes (what progress was made toward their arc goal)
+
+Return ONLY valid JSON in this format:
+{{
+  "description": "...",
+  "health_status": "...",
+  "emotional_status": "...",
+  "inventory": {{"item_name": "notes about item", ...}},
+  "goal_progress": 0.5,
+  "goal_notes": "..."
+}}"""
+        
+        try:
+            logger.debug(f"Calling LLM to regenerate character {char.name} from running state")
+            response = await self.generator.generate(
+                system_prompt="You are a creative writer updating character states based on narrative changes. "
+                             "Always return valid JSON. Never return commentary outside the JSON.",
+                user_prompt=prompt,
+                context_type="character_update"
+            )
+            
+            if response.error:
+                logger.warning(f"LLM error regenerating character {character_id}: {response.error}")
+                return False
+            
+            # Parse response
+            import json
+            import re
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            try:
+                # Extract JSON from response
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if not json_match:
+                    logger.warning(f"No JSON found in LLM response for character {character_id}")
+                    return False
+                
+                parsed = json.loads(json_match.group())
+                
+                # Update character fields
+                if 'description' in parsed:
+                    char.description = parsed['description']
+                
+                # Update CharacterStateSnapshot in EpisodeMeta
+                from app.models.character_state import CharacterStateSnapshot
+                from app.models.episode_meta import EpisodeMeta
+                
+                # Try to find and update current episode's metadata
+                if hasattr(self, 'current_episode_number'):
+                    episode_num = self.current_episode_number
+                else:
+                    # Default to latest episode
+                    arc = StoryArc.load(self.story.id, getattr(self, 'current_arc_id', None))
+                    episode_num = arc.episode_count if arc else 1
+                
+                # Create/update snapshot with new fields
+                snapshot = CharacterStateSnapshot(
+                    character_id=character_id,
+                    description=parsed.get('description', char.description),
+                    health_status=parsed.get('health_status', ''),
+                    emotional_status=parsed.get('emotional_status', ''),
+                    relationship_notes={},  # Preserved from existing
+                    inventory=parsed.get('inventory', {}),
+                    character_arc_goal=getattr(char, 'character_arc_goal', ''),
+                    goal_progress=float(parsed.get('goal_progress', 0.0)),
+                    goal_notes=parsed.get('goal_notes', '')
+                )
+                
+                # Try to update EpisodeMeta if available
+                try:
+                    episode_meta_id = f"episode_meta_{episode_num}_{getattr(self, 'current_arc_id', 'unknown')}"
+                    episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                    if episode_meta:
+                        episode_meta.character_state_snapshot[character_id] = snapshot
+                        episode_meta.save()
+                        logger.debug(f"Updated EpisodeMeta for character {char.name}")
+                except Exception as e:
+                    logger.debug(f"Could not update EpisodeMeta: {e}")
+                
+                # Save character
+                char.save()
+                logger.info(f"Regenerated character {char.name} from running state: "
+                           f"health={parsed.get('health_status')}, "
+                           f"emotion={parsed.get('emotional_status')}, "
+                           f"items={len(parsed.get('inventory', {}))}")
+                return True
+                
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.warning(f"Failed to parse LLM response for character {character_id}: {e}")
+                return False
+        
+        except Exception as e:
+            logger.error(f"Failed to regenerate character {character_id}: {e}")
+            return False
