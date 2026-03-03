@@ -1214,6 +1214,98 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                    f"{len(running_state.get('character_states', {}))} characters, "
                    f"{len(running_state.get('location_states', {}))} locations")
     
+    async def update_story_objects_with_llm_regeneration(
+        self,
+        episode_number: int,
+        arc_id: Optional[str] = None,
+        world_context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Update story objects AND regenerate character fields via LLM where needed.
+        
+        This is the high-level method that:
+        1. Collects running state from completed episode
+        2. For each character, checks if regeneration needed
+        3. If yes and world_context available, calls LLM to regenerate fields
+        4. Updates both StoryCharacter and EpisodeMeta
+        
+        Args:
+            episode_number: The completed episode number
+            arc_id: Optional arc ID
+            world_context: Optional full story world context
+                          If provided, enables LLM regeneration for significant changes
+        """
+        running_state = self.collect_running_state_from_episode(episode_number, arc_id)
+        
+        # Update characters
+        for char_id, char_state in running_state.get('character_states', {}).items():
+            running_notes = char_state.get('notes', '')
+            
+            # Always update running_status
+            self.update_character(
+                character_id=char_id,
+                running_notes=running_notes,
+                emotion=char_state.get('emotion', ''),
+                status='present',
+                segment_id=f"episode_{episode_number}_end"
+            )
+            
+            # If significant changes and world context available, regenerate via LLM
+            if world_context and self._should_regenerate_character(running_notes):
+                try:
+                    success = await self.update_character_with_llm(
+                        character_id=char_id,
+                        running_notes=running_notes,
+                        world_context=world_context,
+                        emotion=char_state.get('emotion', ''),
+                        status='present',
+                        segment_id=f"episode_{episode_number}_end"
+                    )
+                    if success:
+                        logger.info(f"Successfully regenerated character {char_id} from running state")
+                    else:
+                        logger.debug(f"LLM regeneration failed for {char_id}, using basic update")
+                except Exception as e:
+                    logger.debug(f"Could not regenerate character {char_id} via LLM: {e}")
+        
+        # Update locations
+        for loc_id, loc_state in running_state.get('location_states', {}).items():
+            loc = self.story.get_location(loc_id)
+            if loc:
+                loc.current_state = loc_state.get('current_state', '')
+                loc.save()
+        
+        logger.info(f"Updated story objects with running state from episode {episode_number}: "
+                   f"{len(running_state.get('character_states', {}))} characters")
+    
+    def _should_regenerate_character(self, running_notes: str) -> bool:
+        """
+        Detect if running_notes contain significant changes warranting LLM regeneration.
+        
+        Heuristic: If running_notes contain state-changing keywords, regenerate.
+        Examples that trigger regeneration:
+        - "lost X" / "gained X" (inventory changes)
+        - "wounded" / "healed" / "dying" (health changes)
+        - "angry" / "determined" / "desperate" (emotional shifts)
+        - "betrayed by" / "allied with" (relationship changes)
+        
+        Args:
+            running_notes: Arbitrary running state text
+            
+        Returns:
+            True if regeneration likely needed
+        """
+        significant_keywords = {
+            'lost', 'gained', 'obtained', 'dropped', 'destroyed',  # inventory
+            'wounded', 'healed', 'injured', 'dying', 'dead', 'poisoned',  # health
+            'angry', 'furious', 'calm', 'desperate', 'hopeful', 'betrayed',  # emotion
+            'alliance', 'betrayal', 'trust', 'revenge', 'sacrifice',  # relationships
+            'discovered', 'learned', 'revealed', 'exposed', 'admitted'  # knowledge
+        }
+        
+        notes_lower = running_notes.lower()
+        return any(keyword in notes_lower for keyword in significant_keywords)
+    
     async def update_character_with_llm(
         self,
         character_id: str,
