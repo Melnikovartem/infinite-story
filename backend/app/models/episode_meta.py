@@ -109,6 +109,16 @@ class EpisodeMeta(StoryBase):
         description="Location ID -> {name, description, current_state} (ALL locations, episode-wide state)"
     )
     
+    # ========================================================================
+    # ACCUMULATED CHANGES FROM PREVIOUS EPISODE
+    # ========================================================================
+    # Narrative events/changes that happened in the previous episode
+    # These are preserved so new episode's LLM context knows what happened
+    previous_episode_changes: List[str] = Field(
+        default_factory=list,
+        description="All change_notes from previous episode (e.g., 'Knight lost cursed_sword')"
+    )
+    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

@@ -91,8 +91,13 @@ class SegmentContextBuilder:
         # Walk backward to episode start
         episode_chain = self._walk_episode_chain(current_segment_id)
         
-        # Accumulate character changes
+        # Accumulate character changes (this episode + previous episode's changes)
         accumulated_changes = self._accumulate_changes(episode_chain)
+        
+        # If this is the first segment of a new episode, include changes from previous episode
+        if self._is_first_segment_of_episode(current_seg, episode_chain):
+            prev_episode_changes = self._get_previous_episode_changes(current_seg)
+            accumulated_changes = prev_episode_changes + accumulated_changes
         
         # Detect episode transition
         should_transition = self._should_transition_episode(

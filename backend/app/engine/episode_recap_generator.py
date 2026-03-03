@@ -299,17 +299,25 @@ Additionally, extract:
         except Exception as e:
             logger.debug(f"Failed to select active characters: {e}")
         
-        # Step 6: Collect running state from previous episode
+        # Step 6: Update story objects and collect running state from previous episode
         running_state = {}
         if next_episode_num > 1:
             try:
+                # First, update the story's character and location objects with final state
+                self.update_story_objects_with_running_state(
+                    next_episode_num - 1,
+                    arc_id
+                )
+                logger.debug(f"Updated story objects with episode {next_episode_num - 1} end state")
+                
+                # Then collect the running state for EpisodeMeta
                 running_state = self.collect_running_state_from_episode(
                     next_episode_num - 1,
                     arc_id
                 )
                 logger.debug(f"Collected running state from episode {next_episode_num - 1}")
             except Exception as e:
-                logger.debug(f"Failed to collect running state from previous episode: {e}")
+                logger.debug(f"Failed to update story objects/collect running state: {e}")
         
         # Step 7: Create EpisodeMeta and save it
         try:
@@ -951,6 +959,7 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         This method walks all segments in an episode and collects:
         - Character running_status updates
         - Location running_status updates
+        - All change_notes (narrative events like "Knight lost cursed_sword")
         
         The collected state represents the final state after all segments in the episode.
         This is used to update the next episode's EpisodeMeta with the accumulated state.
@@ -977,21 +986,24 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                         'description': str,
                         'current_state': str
                     }
-                }
+                },
+                'change_notes': [list of narrative changes from all segments]
             }
         """
         character_states = {}
         location_states = {}
+        change_notes = []
         
         # Get all segments in this episode
         episode_segments = self._walk_episode_segments(episode_number, arc_id)
         
         if not episode_segments:
             logger.debug(f"No segments found for episode {episode_number}, returning empty running state")
-            return {'character_states': {}, 'location_states': {}}
+            return {'character_states': {}, 'location_states': {}, 'change_notes': []}
         
-        # Collect character running status from all segments (last one wins)
+        # Collect character running status, location status, and change notes from all segments
         for segment in episode_segments:
+            # Character running status (last one wins)
             for char_status in segment.characters_running_status:
                 char = self.story.get_character(char_status.character_id)
                 if char:
@@ -1003,7 +1015,7 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                         'notes': char_status.current_status
                     }
             
-            # Collect location running status from all segments (last one wins)
+            # Location running status (last one wins)
             for loc_status in segment.locations_running_status:
                 loc = self.story.get_location(loc_status.location_id)
                 if loc:
@@ -1012,13 +1024,19 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                         'description': loc.description,
                         'current_state': loc_status.current_status
                     }
+            
+            # Collect all change_notes (narrative events)
+            if segment.change_notes:
+                change_notes.extend(segment.change_notes)
         
         logger.info(f"Collected running state for episode {episode_number}: "
-                   f"{len(character_states)} characters, {len(location_states)} locations")
+                   f"{len(character_states)} characters, {len(location_states)} locations, "
+                   f"{len(change_notes)} change notes")
         
         return {
             'character_states': character_states,
-            'location_states': location_states
+            'location_states': location_states,
+            'change_notes': change_notes
         }
     
     def apply_running_state_to_episode_meta(
@@ -1029,9 +1047,12 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         """
         Apply collected running state from previous episode to new episode's metadata.
         
-        This updates the EpisodeMeta's character_state_snapshot and location_state_snapshot
-        with the running state from the previous episode. This ensures characters/locations
-        in the new episode start with the state they had at the end of the previous episode.
+        This updates the EpisodeMeta's character_state_snapshot, location_state_snapshot,
+        and previous_episode_changes with the running state from the previous episode.
+        
+        This ensures:
+        1. Characters/locations start with state from end of previous episode
+        2. LLM context includes change_notes (e.g., "Knight lost cursed_sword")
         
         Args:
             episode_meta: The EpisodeMeta to update
@@ -1049,6 +1070,7 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 # Create new snapshot from running state
                 try:
                     snapshot = CharacterStateSnapshot(
+                        character_id=char_id,
                         health_status=char_state.get('status', ''),
                         emotional_status=char_state.get('emotion', ''),
                         relationship_notes={},
@@ -1065,8 +1087,112 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         for loc_id, loc_state in running_state.get('location_states', {}).items():
             episode_meta.location_state_snapshot[loc_id] = loc_state
         
+        # Preserve narrative changes from previous episode
+        change_notes = running_state.get('change_notes', [])
+        if change_notes:
+            episode_meta.previous_episode_changes = change_notes
+            logger.debug(f"Preserved {len(change_notes)} change notes from previous episode")
+        
         logger.info(f"Applied running state to episode {episode_meta.episode_number}: "
                    f"updated {len(running_state.get('character_states', {}))} characters, "
-                   f"{len(running_state.get('location_states', {}))} locations")
+                   f"{len(running_state.get('location_states', {}))} locations, "
+                   f"preserved {len(change_notes)} change notes")
         
         return episode_meta
+    
+    def update_character(
+        self,
+        character_id: str,
+        running_notes: str,
+        emotion: Optional[str] = None,
+        status: str = "present",
+        segment_id: Optional[str] = None
+    ) -> bool:
+        """
+        Update a character's running_status with new notes.
+        
+        This is the core function for tracking character state changes.
+        Can be called from segments, episodes, or other generators.
+        
+        Args:
+            character_id: ID of the character to update
+            running_notes: Narrative note about what happened (e.g., "lost cursed_sword")
+            emotion: Optional emotional state update
+            status: Character presence status (present, absent, mentioned)
+            segment_id: Optional segment ID this change occurred in
+                       If not provided, uses a marked entry like "episode_X_end"
+            
+        Returns:
+            True if update succeeded, False otherwise
+            
+        Example:
+            update_character(
+                "char_knight",
+                "lost cursed_sword - dropped in the river",
+                emotion="desperate",
+                status="present"
+            )
+        """
+        char = self.story.get_character(character_id)
+        if not char:
+            logger.warning(f"Character {character_id} not found")
+            return False
+        
+        try:
+            char.add_state(
+                segment_id=segment_id or "marked_update",
+                emotion=emotion,
+                status=status,
+                notes=running_notes
+            )
+            char.save()
+            logger.info(f"Updated character {char.name}: {running_notes}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update character {character_id}: {e}")
+            return False
+    
+    def update_story_objects_with_running_state(
+        self,
+        episode_number: int,
+        arc_id: Optional[str] = None
+    ) -> None:
+        """
+        Update StoryCharacter and StoryLocation objects with their final running state
+        from a completed episode.
+        
+        This ensures the story object itself reflects what happened in the episode,
+        so when we query a character's running_status later, we get the up-to-date state.
+        
+        For example:
+        - If Knight had running_status entries for each segment
+        - At episode end, we consolidate to the final state
+        - StoryCharacter.running_status is updated with marked entries for episode end
+        
+        Args:
+            episode_number: The episode number that just completed
+            arc_id: Optional arc ID to scope the search
+        """
+        running_state = self.collect_running_state_from_episode(episode_number, arc_id)
+        
+        # Update StoryCharacter running_status with final episode state
+        for char_id, char_state in running_state.get('character_states', {}).items():
+            self.update_character(
+                character_id=char_id,
+                running_notes=f"End of Episode {episode_number}: {char_state.get('notes', '')}",
+                emotion=char_state.get('emotion', ''),
+                status='present',
+                segment_id=f"episode_{episode_number}_end"
+            )
+        
+        # Update StoryLocation current_state with final episode state
+        for loc_id, loc_state in running_state.get('location_states', {}).items():
+            loc = self.story.get_location(loc_id)
+            if loc:
+                loc.current_state = loc_state.get('current_state', '')
+                loc.save()
+                logger.debug(f"Updated location {loc.name} current_state with episode {episode_number} end state")
+        
+        logger.info(f"Updated story objects with running state from episode {episode_number}: "
+                   f"{len(running_state.get('character_states', {}))} characters, "
+                   f"{len(running_state.get('location_states', {}))} locations")
