@@ -1029,13 +1029,17 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             if segment.change_notes:
                 change_notes.extend(segment.change_notes)
         
+        # Collect faction state updates (based on faction_id from characters)
+        faction_states = self._collect_faction_states_from_episode(episode_number, arc_id)
+        
         logger.info(f"Collected running state for episode {episode_number}: "
                    f"{len(character_states)} characters, {len(location_states)} locations, "
-                   f"{len(change_notes)} change notes")
+                   f"{len(faction_states)} factions, {len(change_notes)} change notes")
         
         return {
             'character_states': character_states,
             'location_states': location_states,
+            'faction_states': faction_states,
             'change_notes': change_notes
         }
     
@@ -1093,9 +1097,14 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             episode_meta.previous_episode_changes = change_notes
             logger.debug(f"Preserved {len(change_notes)} change notes from previous episode")
         
+        # Update faction states
+        for faction_id, faction_state in running_state.get('faction_states', {}).items():
+            episode_meta.faction_state_snapshot[faction_id] = faction_state
+        
         logger.info(f"Applied running state to episode {episode_meta.episode_number}: "
                    f"updated {len(running_state.get('character_states', {}))} characters, "
                    f"{len(running_state.get('location_states', {}))} locations, "
+                   f"{len(running_state.get('faction_states', {}))} factions, "
                    f"preserved {len(change_notes)} change notes")
         
         return episode_meta
@@ -1169,6 +1178,62 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             logger.error(f"Failed to update character {character_id}: {e}")
             return False
     
+    def _collect_faction_states_from_episode(
+        self,
+        episode_number: int,
+        arc_id: Optional[str] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Collect faction states affected by characters in the episode.
+        
+        Factions are identified by characters' faction_id field.
+        Tracks faction power/influence based on character involvement.
+        
+        Args:
+            episode_number: The episode number to analyze
+            arc_id: Optional arc ID to scope the search
+            
+        Returns:
+            Dict of faction_id -> {name, description, goals, leader, alignment, power_level, member_count}
+        """
+        faction_states = {}
+        
+        # Get all segments in this episode
+        episode_segments = self._walk_episode_segments(episode_number, arc_id)
+        
+        if not episode_segments:
+            return {}
+        
+        # Track unique factions from characters in episodes
+        faction_members = {}  # faction_id -> list of (char_id, char_name)
+        
+        for segment in episode_segments:
+            # Get characters from this segment and their factions
+            for char_status in segment.characters_running_status:
+                char = self.story.get_character(char_status.character_id)
+                if char and char.faction_id:
+                    if char.faction_id not in faction_members:
+                        faction_members[char.faction_id] = []
+                    faction_members[char.faction_id].append((char.id, char.name))
+        
+        # Get faction details from story if available
+        if hasattr(self.story, '_factions') and self.story._factions:
+            for faction_id, faction in self.story._factions.items():
+                if faction_id in faction_members:
+                    faction_states[faction_id] = {
+                        'name': getattr(faction, 'name', 'Unknown Faction'),
+                        'description': getattr(faction, 'description', ''),
+                        'goals': getattr(faction, 'goals', []),
+                        'leader': getattr(faction, 'leader', ''),
+                        'alignment': getattr(faction, 'alignment', 'Neutral'),
+                        'power_level': 0.5,  # Default, can be updated by LLM
+                        'members': faction_members[faction_id],
+                        'member_count': len(faction_members[faction_id])
+                    }
+        
+        logger.debug(f"Collected faction states from episode {episode_number}: {len(faction_states)} factions")
+        return faction_states
+    
     def update_story_objects_with_running_state(
         self,
         episode_number: int,
@@ -1210,9 +1275,22 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 loc.save()
                 logger.debug(f"Updated location {loc.name} current_state with episode {episode_number} end state")
         
+        # Update faction states with final episode state
+        if hasattr(self.story, '_factions') and self.story._factions:
+            for faction_id, faction_state in running_state.get('faction_states', {}).items():
+                if faction_id in self.story._factions:
+                    faction = self.story._factions[faction_id]
+                    # Update faction attributes
+                    if hasattr(faction, 'power_level'):
+                        faction.power_level = faction_state.get('power_level', 0.5)
+                    if hasattr(faction, 'member_count'):
+                        faction.member_count = faction_state.get('member_count', 0)
+                    logger.debug(f"Updated faction {faction_state.get('name')} with episode {episode_number} end state")
+        
         logger.info(f"Updated story objects with running state from episode {episode_number}: "
                    f"{len(running_state.get('character_states', {}))} characters, "
-                   f"{len(running_state.get('location_states', {}))} locations")
+                   f"{len(running_state.get('location_states', {}))} locations, "
+                   f"{len(running_state.get('faction_states', {}))} factions")
     
     async def update_story_objects_with_llm_regeneration(
         self,
@@ -1275,8 +1353,19 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 loc.current_state = loc_state.get('current_state', '')
                 loc.save()
         
+        # Update factions
+        if hasattr(self.story, '_factions') and self.story._factions:
+            for faction_id, faction_state in running_state.get('faction_states', {}).items():
+                if faction_id in self.story._factions:
+                    faction = self.story._factions[faction_id]
+                    if hasattr(faction, 'power_level'):
+                        faction.power_level = faction_state.get('power_level', 0.5)
+                    if hasattr(faction, 'member_count'):
+                        faction.member_count = faction_state.get('member_count', 0)
+        
         logger.info(f"Updated story objects with running state from episode {episode_number}: "
-                   f"{len(running_state.get('character_states', {}))} characters")
+                   f"{len(running_state.get('character_states', {}))} characters, "
+                   f"{len(running_state.get('faction_states', {}))} factions")
     
     def _should_regenerate_character(self, running_notes: str) -> bool:
         """

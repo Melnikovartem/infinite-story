@@ -119,6 +119,15 @@ class EpisodeMeta(StoryBase):
         description="All change_notes from previous episode (e.g., 'Knight lost cursed_sword')"
     )
     
+    # ========================================================================
+    # FACTION STATE TRACKING
+    # ========================================================================
+    # Stores faction state snapshots at episode level (parallel to characters/locations)
+    faction_state_snapshot: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Faction ID -> {name, description, goals, leader, alignment, power_level, members}"
+    )
+    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
