@@ -109,13 +109,17 @@ class SegmentContextBuilder:
         # Walk full parent chain to include previous episodes
         full_parent_chain = self._walk_full_parent_chain(current_segment_id)
         
+        # Build structured character context (arc -> episode -> segment hierarchy)
+        char_context = self._get_structured_character_context(current_seg, episode_chain)
+        
         # Build comprehensive context
         context_dict = {
             # ====================================================================
-            # CHARACTER CONTEXT
+            # CHARACTER CONTEXT (HIERARCHICAL)
             # ====================================================================
-            'all_characters': self._get_all_character_summaries(),
-            'extended_characters': self._get_extended_character_info(episode_chain[-3:]),
+            'arc_characters': char_context['arc_characters'],           # All characters (short)
+            'episode_characters': char_context['episode_characters'],   # Updated states (full)
+            'segment_character_changes': char_context['segment_character_changes'],  # Running changes
             'character_changes_this_episode': accumulated_changes,
             'character_relationships': self._get_character_relationships(episode_chain),
             'relationship_changes': self._get_relationship_changes(episode_chain),
@@ -504,6 +508,94 @@ class SegmentContextBuilder:
             logger.warning(f"Failed to get character summaries: {e}")
         
         return summaries
+    
+    def _get_structured_character_context(
+        self,
+        current_seg: StorySegment,
+        episode_chain: List[str]
+    ) -> Dict[str, Any]:
+        """Build comprehensive, hierarchical character context for LLM.
+        
+        Hierarchy:
+        1. ALL CHARACTERS (from arc): short description only
+        2. Episode characters (updated states): full context + all fields
+        3. Segment running changes: current state overrides
+        
+        Returns:
+            {
+                'arc_characters': {...},           # All characters in arc (short)
+                'episode_characters': {...},       # Updated in episode (full context)
+                'segment_character_changes': {...} # Running changes this segment
+            }
+        """
+        from app.models.story_arc import StoryArc
+        from app.models.episode_meta import EpisodeMeta
+        
+        arc_characters = {}
+        episode_characters = {}
+        segment_changes = {}
+        
+        try:
+            # Load arc to get all characters
+            if current_seg.arc_id:
+                arc = StoryArc.load(self.story.id, current_seg.arc_id)
+                if arc:
+                    # Get all characters from story and provide short descriptions
+                    for character in self.story.get_all_characters():
+                        try:
+                            arc_characters[character.id] = {
+                                'name': character.name,
+                                'short_description': character.description,
+                                'importance': character.importance_tier if hasattr(character, 'importance_tier') else 'minor',
+                            }
+                        except Exception as e:
+                            logger.debug(f"Failed to get arc character {character.id}: {e}")
+            
+            # Load episode metadata to get updated character states
+            if current_seg.arc_id and current_seg.episode_number:
+                episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
+                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                
+                if episode_meta and episode_meta.character_state_snapshot:
+                    # Pack episode character states with full context
+                    for char_id, state_snapshot in episode_meta.character_state_snapshot.items():
+                        try:
+                            character = self.story.get_character(char_id)
+                            episode_characters[char_id] = {
+                                'name': character.name if character else f"Character {char_id}",
+                                'description': state_snapshot.description,
+                                'health_status': state_snapshot.health_status,
+                                'emotional_status': state_snapshot.emotional_status,
+                                'relationship_notes': state_snapshot.relationship_notes,
+                                'inventory': state_snapshot.inventory,
+                                'character_arc_goal': state_snapshot.character_arc_goal,
+                                'goal_progress': state_snapshot.goal_progress,
+                                'goal_notes': state_snapshot.goal_notes,
+                                'is_active': char_id in (episode_meta.active_characters or []),
+                            }
+                        except Exception as e:
+                            logger.debug(f"Failed to get episode character {char_id}: {e}")
+            
+            # Get segment-level running changes
+            for seg_id in episode_chain[-1:]:  # Last segment
+                seg = self.story.get_segment(seg_id)
+                if seg and seg.character_states:
+                    for char_id, state_dict in seg.character_states.items():
+                        if isinstance(state_dict, dict):
+                            segment_changes[char_id] = {
+                                'emotion': state_dict.get('emotion'),
+                                'status': state_dict.get('status'),
+                                'notes': state_dict.get('notes'),
+                            }
+        
+        except Exception as e:
+            logger.warning(f"Failed to build structured character context: {e}")
+        
+        return {
+            'arc_characters': arc_characters,
+            'episode_characters': episode_characters,
+            'segment_character_changes': segment_changes,
+        }
     
     def _get_extended_character_info(self, recent_segments: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get full character info for characters in last 3 segments."""

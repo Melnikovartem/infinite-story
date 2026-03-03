@@ -286,7 +286,20 @@ Additionally, extract:
         
         logger.info(f"Generated episode {next_episode_num} context: {context}")
         
-        # Step 5: Create EpisodeMeta and save it
+        # Step 5: Select active characters for this episode
+        active_characters = []
+        try:
+            active_characters = await self._select_active_characters_for_episode(
+                next_episode_num,
+                arc_id,
+                selected_themes,
+                context
+            )
+            logger.info(f"Selected {len(active_characters)} active characters for episode {next_episode_num}")
+        except Exception as e:
+            logger.debug(f"Failed to select active characters: {e}")
+        
+        # Step 6: Create EpisodeMeta and save it
         try:
             episode_meta = EpisodeMeta(
                 id=f"episode_meta_{next_episode_num}_{arc_id}",
@@ -299,6 +312,7 @@ Additionally, extract:
                 selected_themes=selected_themes,
                 episode_focus=context.get('episode_focus', ''),
                 story_hooks=context.get('story_hooks', []),
+                active_characters=active_characters,
             )
             episode_meta.save()
             logger.info(f"Created and saved EpisodeMeta for episode {next_episode_num}")
@@ -803,3 +817,106 @@ character states as JSON object mapping character IDs to their final states.
                     logger.debug(f"Location change detected for {state.name}")
                 
                 break
+    
+    async def _select_active_characters_for_episode(
+        self,
+        episode_number: int,
+        arc_id: Optional[str],
+        selected_themes: List[str],
+        episode_context: Dict[str, Any]
+    ) -> List[str]:
+        """Use LLM to designate most likely active characters for this episode.
+        
+        Args:
+            episode_number: The episode number
+            arc_id: The arc ID
+            selected_themes: Themes selected for this episode
+            episode_context: Episode generation context including tone, focus, hooks
+            
+        Returns:
+            List of character IDs most likely to be active in this episode
+        """
+        try:
+            logger.debug(f"Selecting active characters for episode {episode_number}")
+            
+            # Load arc to get character arc goals
+            arc = None
+            arc_goals = {}
+            if arc_id:
+                try:
+                    arc = StoryArc.load(self.story.id, arc_id)
+                    if arc:
+                        arc_goals = arc.character_arc_goals
+                except:
+                    pass
+            
+            # Get all characters
+            all_characters = self.story.get_all_characters()
+            char_list = "\n".join([
+                f"- {char.name} (ID: {char.id}): {char.description}"
+                for char in all_characters
+            ])
+            
+            # Build prompt
+            prompt = f"""Given this episode context, identify 3-5 characters most likely to be active and prominent.
+
+EPISODE {episode_number} CONTEXT:
+Themes: {', '.join(selected_themes)}
+Focus: {episode_context.get('episode_focus', 'General progression')}
+Tone: {episode_context.get('tone_tags', ['neutral'])[0]}
+End Condition: {episode_context.get('end_condition', 'Episode completion')}
+Narrative Direction: {episode_context.get('narrative_direction', 'Story progresses')}
+Story Hooks: {', '.join(episode_context.get('story_hooks', []))}
+
+CHARACTER ARC GOALS:
+{chr(10).join([f"- {char_id}: {goal}" for char_id, goal in arc_goals.items()])}
+
+AVAILABLE CHARACTERS:
+{char_list}
+
+Based on the episode's themes, focus, and narrative direction, which 3-5 characters will likely be 
+the most active and central to this episode? Consider:
+- Which characters have arc goals that align with the episode themes?
+- Who would naturally be involved in the end condition?
+- Which characters fit the episode's focus and tone?
+
+Respond with a JSON object:
+{{
+  "active_characters": [
+    {{"character_id": "char_xxx", "reason": "brief reason they're active in this episode"}}
+  ]
+}}
+
+Include exactly the character IDs. Be selective - focus on the most important characters."""
+            
+            response = await self.generator.generate(
+                system_prompt="You are a narrative director selecting which characters will be most prominent in an episode.",
+                user_prompt=prompt,
+                context_type="scene"
+            )
+            
+            if response.error:
+                logger.debug(f"Failed to select active characters: {response.error}")
+                return []
+            
+            # Parse response
+            import json
+            import re
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            try:
+                # Try to extract JSON
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    active_ids = [char.get("character_id") for char in parsed.get("active_characters", [])]
+                    active_ids = [cid for cid in active_ids if cid]  # Filter out None values
+                    logger.debug(f"Selected {len(active_ids)} active characters for episode {episode_number}: {active_ids}")
+                    return active_ids
+            except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                logger.debug(f"Failed to parse active characters JSON: {e}")
+            
+            return []
+            
+        except Exception as e:
+            logger.warning(f"Failed to select active characters for episode: {e}")

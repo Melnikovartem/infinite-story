@@ -274,3 +274,86 @@ Make sure the arcs:
         items = [item.strip() for item in items if item.strip()]
         
         return items[:5]  # Return max 5 items
+    
+    async def select_active_characters_for_arc(
+        self,
+        arc: StoryArc
+    ) -> List[str]:
+        """Use LLM to designate most likely active characters for an arc.
+        
+        Args:
+            arc: The StoryArc to select characters for
+            
+        Returns:
+            List of character IDs most likely to be active in this arc
+        """
+        try:
+            logger.info(f"Selecting active characters for arc: {arc.title}")
+            
+            # Get all characters in story
+            all_characters = self.story.get_all_characters()
+            char_list = "\n".join([
+                f"- {char.name} (ID: {char.id}): {char.description}"
+                for char in all_characters
+            ])
+            
+            # Build prompt
+            prompt = f"""Given this story arc, identify 3-5 characters most likely to be active and prominent.
+
+ARC DETAILS:
+Title: {arc.title}
+Premise: {arc.premise}
+Central Conflict: {arc.central_conflict}
+Themes: {', '.join(arc.themes)}
+Character Arc Goals: {arc.character_arc_goals}
+
+AVAILABLE CHARACTERS:
+{char_list}
+
+Based on the arc's premise, conflict, themes, and character development goals, which 3-5 characters 
+will likely be the most active and central to this arc? Consider:
+- Which characters have arc goals defined?
+- Which character traits/backgrounds fit the arc themes?
+- Who would naturally be involved in the central conflict?
+
+Respond with a JSON object:
+{{
+  "active_characters": [
+    {{"character_id": "char_xxx", "reason": "brief explanation why they're central to this arc"}}
+  ]
+}}
+
+Include exactly the character IDs. Be selective - focus on the most important characters."""
+            
+            response = await self.generator.generate(
+                system_prompt="You are a narrative director selecting which characters will be most prominent in an upcoming arc.",
+                user_prompt=prompt,
+                context_type="arc"
+            )
+            
+            if response.error:
+                logger.warning(f"Failed to select active characters: {response.error}")
+                return []
+            
+            # Parse response
+            import json
+            import re
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            try:
+                # Try to extract JSON
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    active_ids = [char.get("character_id") for char in parsed.get("active_characters", [])]
+                    active_ids = [cid for cid in active_ids if cid]  # Filter out None values
+                    logger.info(f"Selected {len(active_ids)} active characters for arc {arc.id}: {active_ids}")
+                    return active_ids
+            except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                logger.debug(f"Failed to parse active characters JSON: {e}")
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Failed to select active characters: {e}", exc_info=True)
+            return []

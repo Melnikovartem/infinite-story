@@ -91,6 +91,10 @@ class StoryArc(StoryBase):
         default_factory=list,
         description="Character IDs important to this arc"
     )
+    active_characters: List[str] = Field(
+        default_factory=list,
+        description="Character IDs most likely active in this arc (selected by LLM during generation)"
+    )
     
     # ========================================================================
     # C. NARRATIVE STRUCTURE (NEW)

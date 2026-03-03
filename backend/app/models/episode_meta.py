@@ -95,6 +95,10 @@ class EpisodeMeta(StoryBase):
         default_factory=dict,
         description="Character ID -> CharacterStateSnapshot (ALL characters, episode-wide state)"
     )
+    active_characters: List[str] = Field(
+        default_factory=list,
+        description="Character IDs most likely active in this episode (selected by LLM during generation)"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={
