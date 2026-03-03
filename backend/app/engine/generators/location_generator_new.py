@@ -76,6 +76,11 @@ Return ONLY valid JSON array with no additional text.""",
             # Create StoryLocation objects
             locations = []
             for location_data in location_data_list:
+                # Ensure associated_fractions are strings (they might come as integers from JSON)
+                assoc_fracs = location_data.get('associated_fractions', [])
+                if assoc_fracs and isinstance(assoc_fracs, list):
+                    assoc_fracs = [str(f) for f in assoc_fracs]
+                
                 location = StoryLocation(
                     id=f"loc_{self.story.id}_{uuid.uuid4().hex[:8]}",
                     story_id=self.story.id,
@@ -83,7 +88,7 @@ Return ONLY valid JSON array with no additional text.""",
                     name=location_data.get('name', 'Unknown Location'),
                     description=location_data.get('short_description', ''),
                     full_description=location_data.get('full_description', ''),
-                    associated_fractions=location_data.get('associated_fractions', []),
+                    associated_fractions=assoc_fracs,
                     importance=location_data.get('importance', 'minor')
                 )
                 locations.append(location)

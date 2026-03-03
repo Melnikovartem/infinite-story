@@ -166,7 +166,6 @@ class Story(StoryBase):
             raise ValueError(f"Fraction {fraction.id} belongs to story {fraction.story_id}, not {self.id}")
         logger.debug(f"Adding fraction '{fraction.id}' ({fraction.title}) to story '{self.id}'")
         self._fractions[fraction.id] = fraction
-        fraction.story = self
     
     def get_fraction(self, fraction_id: str) -> Optional['StoryFraction']:
         """Get a fraction by ID.
