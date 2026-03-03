@@ -48,13 +48,25 @@ class StoryCharacter(StoryBlock):
     """A character in a story.
     
     This represents a character with their name, description, background, and avatar.
+    
+    The description field evolves over episodes as episodes are flushed.
+    current_state tracks the latest state during an episode.
     """
     name: str
-    description: str
+    description: str  # Evolves at episode-end through flush
     background: str
     avatar_shape: AvatarShape = Field(default=AvatarShape.CIRCLE)
     avatar_color: str = Field(default="#FF6B6B")
     running_status: List[dict[str, Any]] = Field(default_factory=list)
+    
+    # ========================================================================
+    # NEW: Current Episode State
+    # ========================================================================
+    # Tracks character state during current episode, reset at episode start
+    current_state: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current state during episode: {mood, status, location, loyalty, relationships, goals}"
+    )
 
     def __init__(self, **data: Any):
         """Initialize a StoryCharacter instance.

@@ -163,6 +163,11 @@ class SegmentContextBuilder:
             'world_state_changes': self._get_world_state_changes(episode_chain),
             
             # ====================================================================
+            # RUNNING CHANGES - What Changed So Far This Episode
+            # ====================================================================
+            'episode_running_changes': self._collect_episode_running_changes(episode_chain),
+            
+            # ====================================================================
             # THEME & MYSTERY TRACKING
             # ====================================================================
             'themes_explored': self._get_themes_explored(episode_chain),
@@ -232,6 +237,19 @@ class SegmentContextBuilder:
                     })
             except Exception as e:
                 logger.debug(f"Episode metadata not found: {e}")
+        
+        # Add world objects (locations, characters, factions) context
+        # With short descriptions for all, full descriptions for active ones
+        if current_seg.arc_id:
+            try:
+                world_context = self._build_world_context(
+                    current_seg.arc_id,
+                    current_seg.episode_number,
+                    episode_chain
+                )
+                context_dict.update(world_context)
+            except Exception as e:
+                logger.warning(f"Failed to build world context: {e}")
         
         return context_dict
     
@@ -1003,3 +1021,227 @@ class SegmentContextBuilder:
             'recent_pace': recent_pace,
             'early_pace': early_pace
         }
+    
+    # =========================================================================
+    # NEW: RUNNING CHANGES COLLECTION
+    # =========================================================================
+    
+    def _collect_episode_running_changes(self, segment_chain: List[str]) -> List[Dict[str, Any]]:
+        """Collect all running_changes from episode segments so far.
+        
+        Returns list of EntityChange dicts in chronological order.
+        These show what state changes have occurred so far in the episode.
+        
+        Args:
+            segment_chain: List of segment IDs in the episode so far
+            
+        Returns:
+            List of change dicts with entity_id, property, from/to values
+        """
+        all_changes = []
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and hasattr(seg, 'running_changes') and seg.running_changes:
+                for change in seg.running_changes:
+                    # Convert EntityChange to dict if needed
+                    if isinstance(change, dict):
+                        all_changes.append(change)
+                    else:
+                        all_changes.append(change.to_dict())
+        
+        return all_changes
+    
+    # =========================================================================
+    # NEW: WORLD OBJECTS CONTEXT (Locations, Characters, Factions)
+    # =========================================================================
+    
+    def _build_world_context(
+        self,
+        arc_id: str,
+        episode_number: int,
+        episode_chain: List[str]
+    ) -> Dict[str, Any]:
+        """Build comprehensive world context for segment generation.
+        
+        Returns:
+        {
+            'locations_all': [{'id': '...', 'name': '...', 'short_desc': '...'}],
+            'locations_active': [{'id': '...', 'name': '...', 'short_desc': '...', 'full_desc': '...', 'episode_state': '...'}],
+            'characters_all': [{'id': '...', 'name': '...', 'summary': '...'}],
+            'characters_episode': [{'id': '...', 'name': '...', 'summary': '...', 'full_desc': '...', 'running_changes': [...]}],
+            'factions_active': [{'id': '...', 'name': '...', 'description': '...'}],
+        }
+        """
+        try:
+            from app.models.story_arc import StoryArc
+            
+            arc = StoryArc.load(self.story.id, arc_id)
+            if not arc:
+                return {}
+            
+            # Build location context
+            locations_context = self._get_locations_context(arc, episode_number)
+            
+            # Build character context
+            characters_context = self._get_characters_context(arc, episode_number, episode_chain)
+            
+            # Build faction context
+            factions_context = self._get_factions_context(arc)
+            
+            return {
+                **locations_context,
+                **characters_context,
+                **factions_context,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to build world context: {e}")
+            return {}
+    
+    def _get_locations_context(
+        self,
+        arc: Any,  # StoryArc
+        episode_number: int
+    ) -> Dict[str, Any]:
+        """Build location context with active/inactive distinction.
+        
+        Returns:
+        {
+            'locations_all': [short descriptions for all locations],
+            'locations_active': [full descriptions for active locations only],
+        }
+        """
+        try:
+            all_locations = self.story.get_all_locations()
+            if not all_locations:
+                return {'locations_all': [], 'locations_active': []}
+            
+            # All locations: short descriptions
+            locations_all = [
+                {
+                    'id': loc.id,
+                    'name': loc.name,
+                    'short_desc': loc.description,
+                }
+                for loc in all_locations
+            ]
+            
+            # Active locations: full descriptions + episode state
+            locations_active = []
+            for loc_id in arc.active_locations:
+                loc = self.story.get_location(loc_id)
+                if loc:
+                    # Get episode-specific description if available
+                    episode_desc = arc.episode_location_descriptions.get(
+                        loc_id,
+                        loc.full_description or loc.description
+                    )
+                    
+                    locations_active.append({
+                        'id': loc.id,
+                        'name': loc.name,
+                        'short_desc': loc.description,
+                        'full_desc': episode_desc,
+                        'episode_state': loc.current_state,
+                    })
+            
+            return {
+                'locations_all': locations_all,
+                'locations_active': locations_active,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get locations context: {e}")
+            return {'locations_all': [], 'locations_active': []}
+    
+    def _get_characters_context(
+        self,
+        arc: Any,  # StoryArc
+        episode_number: int,
+        episode_chain: List[str]
+    ) -> Dict[str, Any]:
+        """Build character context with episode-sensitive details.
+        
+        Returns:
+        {
+            'characters_all': [short summaries for all characters],
+            'characters_episode': [full descriptions for characters that might appear in this episode],
+        }
+        """
+        try:
+            all_characters = self.story.get_all_characters()
+            if not all_characters:
+                return {'characters_all': [], 'characters_episode': []}
+            
+            # All characters: short summaries
+            characters_all = [
+                {
+                    'id': char.id,
+                    'name': char.name,
+                    'summary': char.description,  # Short description
+                }
+                for char in all_characters
+            ]
+            
+            # Characters that might appear in this episode
+            characters_episode = []
+            
+            for char_id in arc.active_characters:
+                char = self.story.get_character(char_id)
+                if char:
+                    # Get episode-specific description if available
+                    episode_desc = arc.episode_character_descriptions.get(
+                        char_id,
+                        char.background if hasattr(char, 'background') else char.description
+                    )
+                    
+                    # Collect running changes from this episode's segments
+                    running_changes = []
+                    for seg_id in episode_chain:
+                        seg = self.story.get_segment(seg_id)
+                        if seg and seg.running_changes:
+                            for change in seg.running_changes:
+                                if char_id in str(change):
+                                    running_changes.append(change)
+                    
+                    characters_episode.append({
+                        'id': char.id,
+                        'name': char.name,
+                        'summary': char.description,
+                        'full_desc': episode_desc,
+                        'running_changes': running_changes,
+                    })
+            
+            return {
+                'characters_all': characters_all,
+                'characters_episode': characters_episode,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get characters context: {e}")
+            return {'characters_all': [], 'characters_episode': []}
+    
+    def _get_factions_context(self, arc: Any) -> Dict[str, Any]:  # StoryArc
+        """Build faction context.
+        
+        Returns:
+        {
+            'factions_active': [factions relevant to this arc],
+        }
+        """
+        try:
+            factions_active = []
+            
+            # Get faction objects for active factions
+            for faction_id in arc.active_factions:
+                # Note: Factions might not have a dedicated model yet
+                # This is a placeholder for future implementation
+                # For now, we just track IDs
+                factions_active.append({
+                    'id': faction_id,
+                })
+            
+            return {
+                'factions_active': factions_active,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get factions context: {e}")
+            return {'factions_active': []}

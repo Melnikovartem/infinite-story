@@ -1,14 +1,27 @@
 from .story_block import StoryBlock
+from typing import Dict, Any
+from pydantic import Field
 
 class StoryLocation(StoryBlock):
     """A location in a story.
     
     This represents a location with its name and descriptions.
+    
+    The description field evolves over episodes as episodes are flushed.
+    current_state tracks the latest state during an episode.
     """
     name: str
-    description: str  # Short description (1-2 sentences)
-    full_description: str = ""  # Full detailed description
-    current_state: str = ""  # Current state/changes in this episode
+    description: str  # Short description (1-2 sentences), evolves at episode-end
+    full_description: str = ""  # Full detailed description, evolves at episode-end
+    
+    # ========================================================================
+    # NEW: Current Episode State
+    # ========================================================================
+    # Tracks location state during current episode, reset at episode start
+    current_state: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current state during episode: {stability, accessibility, corruption, ownership, inhabitants, etc.}"
+    )
 
     def __init__(self, **data):
         """Initialize a StoryLocation instance.

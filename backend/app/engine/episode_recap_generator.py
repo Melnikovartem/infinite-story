@@ -194,9 +194,26 @@ Additionally, extract:
         except Exception as e:
             logger.warning(f"Failed to generate new characters: {e}")
         
-        # 11. Save recap
+        # 11. Update arc with episode character and location descriptions
+        try:
+            await self._update_arc_descriptions(
+                arc_id,
+                episode_segments,
+                ending_states
+            )
+            logger.info(f"Updated arc descriptions for episode {episode_number}")
+        except Exception as e:
+            logger.warning(f"Failed to update arc descriptions: {e}")
+        
+        # 12. Save recap with updated descriptions
         recap.save()
         logger.info(f"Generated recap for episode {episode_number}: {ai_title}")
+        
+        # 13. Update arc episode count and check for arc completion (E2-5 NEW)
+        try:
+            await self._handle_arc_completion(arc_id, episode_number)
+        except Exception as e:
+            logger.warning(f"Failed to handle arc completion: {e}")
         
         return recap
     
@@ -803,3 +820,106 @@ character states as JSON object mapping character IDs to their final states.
                     logger.debug(f"Location change detected for {state.name}")
                 
                 break
+    
+    async def _handle_arc_completion(
+        self,
+        arc_id: Optional[str],
+        episode_number: int
+    ) -> None:
+        """
+        Handle arc completion after episode finalization.
+        
+        Steps:
+        1. Increment the arc's episode_count
+        2. Save the updated arc
+        3. Check if arc has reached completion threshold (15 episodes)
+        4. If complete, trigger arc transition via ArcTransitionManager
+        
+        Args:
+            arc_id: The arc ID the episode belongs to
+            episode_number: The episode number that just completed
+        """
+        if not arc_id:
+            logger.debug("No arc_id provided, skipping arc completion handling")
+            return
+        
+        from app.models.story_arc import StoryArc
+        from app.engine.arc_transition_manager import ArcTransitionManager
+        
+        # Load the arc
+        arc = StoryArc.load(self.story.id, arc_id)
+        if not arc:
+            logger.warning(f"Arc {arc_id} not found for completion handling")
+            return
+        
+        # Increment episode count
+        arc.episode_count = episode_number
+        arc.save()
+        logger.debug(f"Updated arc {arc_id} episode_count to {episode_number}")
+        
+        # Check if arc is complete and handle transition
+        transition_manager = ArcTransitionManager(self.story, self.generator)
+        next_arc_id = await transition_manager.check_and_handle_arc_completion(
+            arc_id,
+            episode_number
+        )
+        
+        if next_arc_id:
+            logger.info(f"Arc transition triggered: next arc is {next_arc_id}")
+            # In a real system, you'd notify the story_runner to update current_arc_id
+            # This would happen when generating the first segment of the next arc
+    
+    async def _update_arc_descriptions(
+        self,
+        arc_id: str,
+        episode_segments: List[StorySegment],
+        ending_states: Dict[str, 'CharacterState']
+    ) -> None:
+        """
+        Update arc's character and location descriptions based on episode ending state.
+        
+        This runs at episode end to capture how characters and locations have evolved,
+        so the next episode can use updated descriptions.
+        
+        Args:
+            arc_id: The arc ID to update
+            episode_segments: All segments in the episode
+            ending_states: Character states at episode end
+        """
+        try:
+            from app.models.story_arc import StoryArc
+            
+            arc = StoryArc.load(self.story.id, arc_id)
+            if not arc:
+                return
+            
+            # Get running changes from the last segment
+            if episode_segments:
+                last_segment = episode_segments[-1]
+                running_changes = getattr(last_segment, 'running_changes', [])
+                
+                # Update character descriptions based on running changes
+                for char_id in arc.active_characters:
+                    char = self.story.get_character(char_id)
+                    if char and char_id in ending_states:
+                        # Build updated description from ending state
+                        state = ending_states[char_id]
+                        updated_desc = f"{char.description}. (Status: {state.status}, Mood: {state.mood}, Loyalty: {state.loyalty:+.1f})"
+                        arc.episode_character_descriptions[char_id] = updated_desc
+                        logger.debug(f"Updated description for character {char.name}")
+                
+                # Update location descriptions based on running changes
+                for loc_id in arc.active_locations:
+                    loc = self.story.get_location(loc_id)
+                    if loc and loc.current_state:
+                        # Include current state in the description
+                        updated_desc = f"{loc.full_description or loc.description}. Current state: {loc.current_state}"
+                        arc.episode_location_descriptions[loc_id] = updated_desc
+                        logger.debug(f"Updated description for location {loc.name}")
+            
+            # Save updated arc
+            arc.save()
+            logger.info(f"Updated arc {arc_id} with episode-end descriptions")
+        
+        except Exception as e:
+            logger.warning(f"Failed to update arc descriptions: {e}")

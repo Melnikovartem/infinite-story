@@ -124,6 +124,37 @@ class StoryArc(StoryBase):
         description="Special AI generation instructions for this arc"
     )
     
+    # ========================================================================
+    # E. WORLD OBJECTS - ACTIVE TRACKING (NEW)
+    # ========================================================================
+    # These are selected/active objects for THIS arc to keep context focused
+    active_locations: List[str] = Field(
+        default_factory=list,
+        description="Location IDs that are active/important in this arc"
+    )
+    active_characters: List[str] = Field(
+        default_factory=list,
+        description="Character IDs that might appear in this arc"
+    )
+    active_factions: List[str] = Field(
+        default_factory=list,
+        description="Faction/group IDs relevant to this arc"
+    )
+    
+    # ========================================================================
+    # F. EPISODE RUNNING STATE - CHARACTER & LOCATION EVOLUTION
+    # ========================================================================
+    # Episode-level character descriptions (updated at episode end)
+    episode_character_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="character_id -> description for this arc (updated each episode)"
+    )
+    # Episode-level location descriptions (updated at episode end)
+    episode_location_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="location_id -> description for this arc (updated each episode)"
+    )
+    
     # Compression status
     is_compressed: bool = Field(
         False,
@@ -132,6 +163,39 @@ class StoryArc(StoryBase):
     compression_result: Optional[ArcCompressionResult] = Field(
         None,
         description="Result of arc compression if compressed"
+    )
+    
+    # ========================================================================
+    # G. ARC FINALIZATION & TRANSITION (E2-5 NEW)
+    # ========================================================================
+    is_finalized: bool = Field(
+        False,
+        description="Whether this arc has been finalized after 15 episodes"
+    )
+    mainline_segment_count: int = Field(
+        0,
+        ge=0,
+        description="Number of segments in the canonical mainline path"
+    )
+    
+    # Future arc support
+    is_future_arc: bool = Field(
+        False,
+        description="Whether this arc is a pre-generated future arc (not yet active)"
+    )
+    is_active: bool = Field(
+        False,
+        description="Whether this arc is currently the active arc for segment generation"
+    )
+    
+    # Context from previous arc
+    previous_arc_id: Optional[str] = Field(
+        None,
+        description="ID of the arc that preceded this one"
+    )
+    previous_arc_summary: str = Field(
+        "",
+        description="Summary of the previous arc's mainline narrative for continuity"
     )
     
     def get_short_overview(self) -> str:
