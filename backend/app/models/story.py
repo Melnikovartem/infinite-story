@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .story_choice import StoryChoice
     from .story_context import StoryContext
     from .story_segment import SegmentStatus
+    from .story_fraction import StoryFraction
 
 class Story(StoryBase):
     """A story in the system.
@@ -31,6 +32,7 @@ class Story(StoryBase):
     _segments: Dict[str, 'StorySegment'] = PrivateAttr(default_factory=dict)
     _choices: Dict[str, 'StoryChoice'] = PrivateAttr(default_factory=dict)
     _context: Optional['StoryContext'] = PrivateAttr(default=None)
+    _fractions: Dict[str, 'StoryFraction'] = PrivateAttr(default_factory=dict)
     
     def __init__(self, **data):
         """Initialize a Story instance.
@@ -153,6 +155,38 @@ class Story(StoryBase):
             The choice, or None if not found
         """
         return self._choices.get(choice_id)
+    
+    def add_fraction(self, fraction: 'StoryFraction') -> None:
+        """Add a fraction to the story.
+
+        Args:
+            fraction: The fraction to add
+        """
+        if fraction.story_id != self.id:
+            raise ValueError(f"Fraction {fraction.id} belongs to story {fraction.story_id}, not {self.id}")
+        logger.debug(f"Adding fraction '{fraction.id}' ({fraction.title}) to story '{self.id}'")
+        self._fractions[fraction.id] = fraction
+        fraction.story = self
+    
+    def get_fraction(self, fraction_id: str) -> Optional['StoryFraction']:
+        """Get a fraction by ID.
+        
+        Args:
+            fraction_id: The ID of the fraction to get
+            
+        Returns:
+            The fraction, or None if not found
+        """
+        return self._fractions.get(fraction_id)
+    
+    def get_all_fractions(self) -> List['StoryFraction']:
+        """Get all fractions in the story.
+        
+        Returns:
+            A list of all fractions, sorted by order
+        """
+        fractions = list(self._fractions.values())
+        return sorted(fractions, key=lambda f: f.order)
     
     def get_available_choices(self, segment_id: str) -> List['StoryChoice']:
         """Get available choices from a segment, excluding archived destinations.

@@ -207,4 +207,17 @@ class ChoiceGenerationResponse(TextGeneratorResponse):
     choice_text: Optional[str] = Field(None, description="The text of the choice presented to the player")
     next_segment_hint: Optional[str] = Field(None, description="A hint about what might happen if this choice is made")
     flags: Dict[str, bool] = Field(default_factory=dict, description="Content warning flags for the choice")
-    impact: Dict[str, str] = Field(default_factory=dict, description="Expected impact of this choice on characters and story") 
+    impact: Dict[str, str] = Field(default_factory=dict, description="Expected impact of this choice on characters and story")
+
+
+class StoryShapeResponse(TextGeneratorResponse):
+    """Response for calculating story shape/structure."""
+    scale: str = Field(..., description="Story scale: epic, large, medium, or small")
+    num_fractions: int = Field(..., description="Number of fractions (acts) needed")
+    num_locations: int = Field(..., description="Number of locations needed")
+    characters_per_fraction: Dict[str, int] = Field(
+        ..., 
+        description="Min and max number of characters per fraction (e.g., {'min': 2, 'max': 4})"
+    )
+    num_independent_characters: int = Field(..., description="Number of independent characters (not tied to fractions)")
+    reasoning: Optional[str] = Field(None, description="Explanation for why this shape was chosen") 
