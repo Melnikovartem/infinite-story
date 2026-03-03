@@ -1,4 +1,4 @@
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 from enum import Enum
 from pydantic import Field, field_validator
 from .story_block import StoryBlock
@@ -12,6 +12,14 @@ class AvatarShape(str, Enum):
     DIAMOND = "diamond"
     STAR = "star"
     PENTAGON = "pentagon"
+
+
+class CharacterRole(str, Enum):
+    """Character roles in the story."""
+    PROTAGONIST = "protagonist"
+    ANTAGONIST = "antagonist"
+    ALLY = "ally"
+    MINOR = "minor"
 
 
 class CharacterState:
@@ -48,15 +56,31 @@ class StoryCharacter(StoryBlock):
     """A character in a story.
     
     This represents a character with their name, description, background, and avatar.
+    Characters can be assigned to fractions or be independent.
     """
     name: str
-    description: str
+    description: str  # Short description (physical appearance + impression)
     background: str
+    full_description: str = ""  # Detailed description (3-5 sentences)
     avatar_shape: AvatarShape = Field(default=AvatarShape.CIRCLE)
     avatar_color: str = Field(default="#FF6B6B")
     running_status: List[dict[str, Any]] = Field(default_factory=list)
-    faction_id: Optional[str] = Field(default=None, description="ID of the faction this character belongs to")
-    importance_tier: str = Field(default="minor", description="Character importance: minor, major, or protagonist")
+    
+    # Current episode state
+    current_state: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current state during episode: {mood, status, location, loyalty, relationships, goals}"
+    )
+    
+    # Fraction and location association
+    fraction_id: Optional[str] = Field(default=None, description="ID of the fraction this character belongs to")
+    associated_locations: List[str] = Field(default_factory=list)  # Location IDs where character appears
+    
+    # Character characteristics
+    role: CharacterRole = Field(default=CharacterRole.MINOR)  # protagonist, antagonist, ally, minor
+    personality: List[str] = Field(default_factory=list)  # Key personality traits (3-4 items)
+    goals: str = ""  # What does this character want?
+    relationships: Dict[str, str] = Field(default_factory=dict)  # character_id -> relationship description
 
     def __init__(self, **data: Any):
         """Initialize a StoryCharacter instance.

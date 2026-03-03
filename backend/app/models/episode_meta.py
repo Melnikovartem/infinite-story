@@ -1,6 +1,6 @@
 """Episode metadata model for storing episode-level information."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.story_base import StoryBase
