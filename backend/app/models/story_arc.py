@@ -165,6 +165,39 @@ class StoryArc(StoryBase):
         description="Result of arc compression if compressed"
     )
     
+    # ========================================================================
+    # G. ARC FINALIZATION & TRANSITION (E2-5 NEW)
+    # ========================================================================
+    is_finalized: bool = Field(
+        False,
+        description="Whether this arc has been finalized after 15 episodes"
+    )
+    mainline_segment_count: int = Field(
+        0,
+        ge=0,
+        description="Number of segments in the canonical mainline path"
+    )
+    
+    # Future arc support
+    is_future_arc: bool = Field(
+        False,
+        description="Whether this arc is a pre-generated future arc (not yet active)"
+    )
+    is_active: bool = Field(
+        False,
+        description="Whether this arc is currently the active arc for segment generation"
+    )
+    
+    # Context from previous arc
+    previous_arc_id: Optional[str] = Field(
+        None,
+        description="ID of the arc that preceded this one"
+    )
+    previous_arc_summary: str = Field(
+        "",
+        description="Summary of the previous arc's mainline narrative for continuity"
+    )
+    
     def get_short_overview(self) -> str:
         """Get a brief overview of the arc."""
         return f"{self.title} ({self.episode_count} episodes)"

@@ -414,6 +414,7 @@ class StoryRunner:
             next_episode_tone = context['episode_tone']
             next_episode_end_condition = context['episode_end_condition']
             next_segment_number = context['segment_number_in_episode'] + 1
+            next_arc_id = self.current_arc_id  # Default: stay in current arc
             
             # If transitioning to new episode, generate new episode context via E2-2
             if should_transition and self.generator and self.current_arc_id:
@@ -436,6 +437,16 @@ class StoryRunner:
                     next_episode_end_condition = new_ep_context.get('end_condition', '')
                     next_segment_number = 1  # Reset segment counter for new episode
                     logger.info(f"Generated new episode context for episode {next_episode_number}")
+                    
+                    # Check for arc transition (E2-5 NEW)
+                    # After generating episode {threshold}, check if arc completed
+                    if next_episode_number > 15:  # Completed 15 episodes
+                        next_arc_id = await self._check_arc_transition(self.current_arc_id)
+                        if next_arc_id and next_arc_id != self.current_arc_id:
+                            logger.info(f"Arc transition detected: {self.current_arc_id} -> {next_arc_id}")
+                            self.current_arc_id = next_arc_id
+                            next_episode_number = 1  # Reset episode count for new arc
+                
                 except Exception as e:
                     logger.warning(f"Failed to generate new episode context: {e}, using defaults")
             
@@ -446,7 +457,7 @@ class StoryRunner:
                 id=segment_id,
                 short_description="A scene in the story",  # Would come from AI response
                 text_blocks=[],  # Would come from AI response
-                arc_id=self.current_arc_id,  # Pass arc_id to child segment (E2-5)
+                arc_id=next_arc_id,  # Use next_arc_id (may be new arc after transition) (E2-5)
                 episode_number=next_episode_number,
                 episode_tone=next_episode_tone,
                 episode_end_condition=next_episode_end_condition,
@@ -625,3 +636,43 @@ Respond with:
         except Exception as e:
             logger.warning(f"Failed to create SegmentRecap for segment {segment.id}: {e}")
             # Don't raise - this is optional for context building
+    
+    async def _check_arc_transition(self, current_arc_id: str) -> Optional[str]:
+        """
+        Check if arc transition should occur and return next arc ID.
+        
+        This is called when transitioning to episode 16 (after 15 episodes completed).
+        It queries the ArcTransitionManager to see if a next arc has been determined.
+        
+        Args:
+            current_arc_id: The currently active arc ID
+            
+        Returns:
+            The next arc ID if transition occurs, or current_arc_id if no transition
+        """
+        try:
+            from app.engine.arc_transition_manager import ArcTransitionManager
+            
+            # Get the next arc from transition manager
+            transition_mgr = ArcTransitionManager(self.story, self.generator)
+            
+            # Check if we should transition and get the next arc
+            # Note: check_and_handle_arc_completion is async and handles everything
+            # including finalization and context feeding
+            # This method should have already been called during episode recap generation
+            # So we just need to find the active arc
+            
+            all_arcs = transition_mgr._get_all_arcs()
+            active_arcs = [a for a in all_arcs if a.is_active and a.id != current_arc_id]
+            
+            if active_arcs:
+                next_arc = active_arcs[0]
+                logger.info(f"Arc transition: next active arc is {next_arc.id}")
+                return next_arc.id
+            else:
+                logger.debug("No arc transition: current arc continues")
+                return current_arc_id
+        
+        except Exception as e:
+            logger.error(f"Error checking arc transition: {e}", exc_info=True)
+            return current_arc_id

@@ -191,6 +191,12 @@ class StorySegment(StoryBlock):
         description="State of this segment"
     )
     
+    # -- Arc Finalization (E2-5) --
+    is_mainline: bool = Field(
+        False,
+        description="Whether this segment is part of the arc's canonical mainline path"
+    )
+    
     # Non-Stored Information
     # Pointers to choices
     incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead to this segment
