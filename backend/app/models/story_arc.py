@@ -124,6 +124,37 @@ class StoryArc(StoryBase):
         description="Special AI generation instructions for this arc"
     )
     
+    # ========================================================================
+    # E. WORLD OBJECTS - ACTIVE TRACKING (NEW)
+    # ========================================================================
+    # These are selected/active objects for THIS arc to keep context focused
+    active_locations: List[str] = Field(
+        default_factory=list,
+        description="Location IDs that are active/important in this arc"
+    )
+    active_characters: List[str] = Field(
+        default_factory=list,
+        description="Character IDs that might appear in this arc"
+    )
+    active_factions: List[str] = Field(
+        default_factory=list,
+        description="Faction/group IDs relevant to this arc"
+    )
+    
+    # ========================================================================
+    # F. EPISODE RUNNING STATE - CHARACTER & LOCATION EVOLUTION
+    # ========================================================================
+    # Episode-level character descriptions (updated at episode end)
+    episode_character_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="character_id -> description for this arc (updated each episode)"
+    )
+    # Episode-level location descriptions (updated at episode end)
+    episode_location_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="location_id -> description for this arc (updated each episode)"
+    )
+    
     # Compression status
     is_compressed: bool = Field(
         False,

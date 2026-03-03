@@ -194,7 +194,18 @@ Additionally, extract:
         except Exception as e:
             logger.warning(f"Failed to generate new characters: {e}")
         
-        # 11. Save recap
+        # 11. Update arc with episode character and location descriptions
+        try:
+            await self._update_arc_descriptions(
+                arc_id,
+                episode_segments,
+                ending_states
+            )
+            logger.info(f"Updated arc descriptions for episode {episode_number}")
+        except Exception as e:
+            logger.warning(f"Failed to update arc descriptions: {e}")
+        
+        # 12. Save recap with updated descriptions
         recap.save()
         logger.info(f"Generated recap for episode {episode_number}: {ai_title}")
         
@@ -803,3 +814,58 @@ character states as JSON object mapping character IDs to their final states.
                     logger.debug(f"Location change detected for {state.name}")
                 
                 break
+    
+    async def _update_arc_descriptions(
+        self,
+        arc_id: str,
+        episode_segments: List[StorySegment],
+        ending_states: Dict[str, 'CharacterState']
+    ) -> None:
+        """
+        Update arc's character and location descriptions based on episode ending state.
+        
+        This runs at episode end to capture how characters and locations have evolved,
+        so the next episode can use updated descriptions.
+        
+        Args:
+            arc_id: The arc ID to update
+            episode_segments: All segments in the episode
+            ending_states: Character states at episode end
+        """
+        try:
+            from app.models.story_arc import StoryArc
+            
+            arc = StoryArc.load(self.story.id, arc_id)
+            if not arc:
+                return
+            
+            # Get running changes from the last segment
+            if episode_segments:
+                last_segment = episode_segments[-1]
+                running_changes = getattr(last_segment, 'running_changes', [])
+                
+                # Update character descriptions based on running changes
+                for char_id in arc.active_characters:
+                    char = self.story.get_character(char_id)
+                    if char and char_id in ending_states:
+                        # Build updated description from ending state
+                        state = ending_states[char_id]
+                        updated_desc = f"{char.description}. (Status: {state.status}, Mood: {state.mood}, Loyalty: {state.loyalty:+.1f})"
+                        arc.episode_character_descriptions[char_id] = updated_desc
+                        logger.debug(f"Updated description for character {char.name}")
+                
+                # Update location descriptions based on running changes
+                for loc_id in arc.active_locations:
+                    loc = self.story.get_location(loc_id)
+                    if loc and loc.current_state:
+                        # Include current state in the description
+                        updated_desc = f"{loc.full_description or loc.description}. Current state: {loc.current_state}"
+                        arc.episode_location_descriptions[loc_id] = updated_desc
+                        logger.debug(f"Updated description for location {loc.name}")
+            
+            # Save updated arc
+            arc.save()
+            logger.info(f"Updated arc {arc_id} with episode-end descriptions")
+        
+        except Exception as e:
+            logger.warning(f"Failed to update arc descriptions: {e}")
