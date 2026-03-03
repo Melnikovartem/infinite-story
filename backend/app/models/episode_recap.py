@@ -70,6 +70,20 @@ class EpisodeRecap(StoryBase):
     )
     
     # ========================================================================
+    # NEW: World Object State Snapshots (Character & Location Evolution)
+    # ========================================================================
+    # Updated descriptions of characters at episode end (for next episode context)
+    episode_character_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="character_id -> updated description at episode end"
+    )
+    # Updated descriptions of locations at episode end (for next episode context)
+    episode_location_descriptions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="location_id -> updated description at episode end"
+    )
+    
+    # ========================================================================
     # NEW: Episode Completion Tracking
     # ========================================================================
     episode_complete: bool = Field(

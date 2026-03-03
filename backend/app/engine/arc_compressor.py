@@ -242,7 +242,7 @@ Branch with {len(branch)} segments:
         branch_summaries: List[str]
     ) -> int:
         """
-        Ask AI which branch is best for mainline.
+        Ask AI which branch is best for mainline, with full world context.
         
         Args:
             arc: The story arc being compressed
@@ -252,21 +252,29 @@ Branch with {len(branch)} segments:
             Index of the selected mainline branch
         """
         
+        # Build world context
+        world_context = self._build_world_context_for_compression(arc)
+        
         prompt = f"""
 You are a narrative architect selecting a canonical storyline.
 
 ARC: {arc.title}
 Premise: {arc.premise}
 Direction: {arc.narrative_direction}
+Themes: {', '.join(arc.themes) if arc.themes else 'N/A'}
+
+=== WORLD STATE AT COMPRESSION ===
+{world_context}
 
 We have {len(branch_summaries)} divergent branches.
 Select which should be the mainline (canon) version.
 
 Consider:
-1. Narrative coherence with arc premise
-2. Character development consistency
-3. Thematic resonance
-4. Story momentum and pacing
+1. Narrative coherence with arc premise and themes
+2. Character development consistency with evolved states
+3. Location/world changes alignment with current state
+4. Thematic resonance
+5. Story momentum and pacing
 
 BRANCH OPTIONS:
 {chr(10).join([
@@ -299,3 +307,49 @@ Respond with JSON:
         
         logger.info("AI response unclear, selecting longest branch")
         return 0
+    
+    def _build_world_context_for_compression(self, arc: StoryArc) -> str:
+        """Build world context (characters/locations) for compression AI.
+        
+        Includes current character and location descriptions that have been
+        flushed from episodes, so compression AI has full picture of world state.
+        
+        Args:
+            arc: The arc being compressed
+            
+        Returns:
+            Formatted world context string
+        """
+        context_lines = []
+        
+        # Active characters
+        if arc.active_characters:
+            context_lines.append("CHARACTERS (evolved through episodes):")
+            for char_id in arc.active_characters:
+                char = self.story.get_character(char_id)
+                if char:
+                    context_lines.append(f"  - {char.name}")
+                    context_lines.append(f"    Description: {char.description}")
+                    if char.current_state:
+                        state_items = [f"{k}: {v}" for k, v in char.current_state.items()]
+                        context_lines.append(f"    State: {', '.join(state_items)}")
+        
+        # Active locations
+        if arc.active_locations:
+            context_lines.append("\nLOCATIONS (evolved through episodes):")
+            for loc_id in arc.active_locations:
+                loc = self.story.get_location(loc_id)
+                if loc:
+                    context_lines.append(f"  - {loc.name}")
+                    context_lines.append(f"    Description: {loc.description}")
+                    if loc.current_state:
+                        state_items = [f"{k}: {v}" for k, v in loc.current_state.items()]
+                        context_lines.append(f"    State: {', '.join(state_items)}")
+        
+        # Active factions
+        if arc.active_factions:
+            context_lines.append("\nFACTIONS:")
+            for faction_id in arc.active_factions:
+                context_lines.append(f"  - {faction_id}")
+        
+        return "\n".join(context_lines) if context_lines else "No world objects defined"
