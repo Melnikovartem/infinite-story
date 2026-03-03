@@ -119,6 +119,19 @@ class SegmentContextBuilder:
             'character_changes_this_episode': accumulated_changes,
             'character_relationships': self._get_character_relationships(episode_chain),
             'relationship_changes': self._get_relationship_changes(episode_chain),
+            'character_importance_tiers': self._get_character_importance_tiers(),
+            
+            # ====================================================================
+            # FACTION CONTEXT (NEW)
+            # ====================================================================
+            'factions': self._get_faction_context(),
+            'faction_dynamics': self._get_faction_dynamics(episode_chain),
+            'character_faction_alignment': self._get_character_faction_alignment(),
+            
+            # ====================================================================
+            # MAGIC/TECH SYSTEM CONTEXT (NEW)
+            # ====================================================================
+            'magic_system': self._get_magic_system_context(),
             
             # ====================================================================
             # EPISODE CONTEXT (all episodes in current arc)
@@ -1002,4 +1015,139 @@ class SegmentContextBuilder:
             'score': min(1.0, score),
             'recent_pace': recent_pace,
             'early_pace': early_pace
+        }
+    
+    # ========================================================================
+    # NEW METHODS FOR FACTION, MAGIC SYSTEM, AND CHARACTER TIERS
+    # ========================================================================
+    
+    def _get_character_importance_tiers(self) -> Dict[str, List[str]]:
+        """Get characters grouped by importance tier.
+        
+        Returns: {
+            'protagonist': [char_names],
+            'major': [char_names],
+            'minor': [char_names]
+        }
+        """
+        tiers = {'protagonist': [], 'major': [], 'minor': []}
+        
+        for char in self.story._characters.values():
+            tier = getattr(char, 'importance_tier', 'minor')
+            name = getattr(char, 'name', 'Unknown')
+            if tier not in tiers:
+                tiers[tier] = []
+            tiers[tier].append(name)
+        
+        return tiers
+    
+    def _get_faction_context(self) -> Dict[str, Any]:
+        """Get all factions with their details.
+        
+        Returns: {
+            'count': int,
+            'factions': [
+                {
+                    'id': str,
+                    'name': str,
+                    'description': str,
+                    'goals': [str],
+                    'leader': str,
+                    'resources': str,
+                    'alignment': str
+                }
+            ]
+        }
+        """
+        factions_list = []
+        
+        # Get factions from story if stored
+        if hasattr(self.story, '_factions') and self.story._factions:
+            for faction in self.story._factions.values():
+                factions_list.append({
+                    'id': getattr(faction, 'id', 'unknown'),
+                    'name': getattr(faction, 'name', 'Unknown'),
+                    'description': getattr(faction, 'description', ''),
+                    'goals': getattr(faction, 'goals', []),
+                    'leader': getattr(faction, 'leader', 'Unknown'),
+                    'resources': getattr(faction, 'resources', ''),
+                    'alignment': getattr(faction, 'alignment', 'Neutral')
+                })
+        
+        return {
+            'count': len(factions_list),
+            'factions': factions_list
+        }
+    
+    def _get_faction_dynamics(self, segment_chain: List[str]) -> Dict[str, Any]:
+        """Track faction appearances and conflicts in recent episodes.
+        
+        Returns: {
+            'faction_mentions': {'faction_name': count, ...},
+            'faction_conflicts': [{'faction1': str, 'faction2': str, 'description': str}],
+            'faction_alliances': [{'faction1': str, 'faction2': str, 'status': str}]
+        }
+        """
+        # This is a simplified version - could be expanded to parse segment text for faction mentions
+        return {
+            'faction_mentions': {},
+            'faction_conflicts': [],
+            'faction_alliances': []
+        }
+    
+    def _get_character_faction_alignment(self) -> Dict[str, str]:
+        """Get faction alignment for each major character.
+        
+        Returns: {
+            'character_name': 'faction_name',
+            ...
+        }
+        """
+        alignments = {}
+        
+        for char in self.story._characters.values():
+            if getattr(char, 'importance_tier', 'minor') in ('protagonist', 'major'):
+                char_name = getattr(char, 'name', 'Unknown')
+                faction_id = getattr(char, 'faction_id', None)
+                
+                if faction_id and hasattr(self.story, '_factions'):
+                    # Find faction by ID
+                    for faction in self.story._factions.values():
+                        if getattr(faction, 'id', None) == faction_id:
+                            alignments[char_name] = getattr(faction, 'name', 'Unknown Faction')
+                            break
+        
+        return alignments
+    
+    def _get_magic_system_context(self) -> Dict[str, Any]:
+        """Get magic/tech system rules and constraints.
+        
+        Returns: {
+            'name': str,
+            'description': str,
+            'capabilities': [str],
+            'limitations': [str],
+            'costs': [str],
+            'technology_level': str
+        }
+        """
+        # Try to find magic system in story data
+        if hasattr(self.story, '_magic_system') and self.story._magic_system:
+            magic_sys = self.story._magic_system
+            return {
+                'name': getattr(magic_sys, 'name', 'Unknown System'),
+                'description': getattr(magic_sys, 'description', ''),
+                'capabilities': getattr(magic_sys, 'capabilities', [])[:3],
+                'limitations': getattr(magic_sys, 'limitations', [])[:3],
+                'costs': getattr(magic_sys, 'costs', [])[:3],
+                'technology_level': getattr(magic_sys, 'technology_level', '')
+            }
+        
+        return {
+            'name': 'Unknown',
+            'description': '',
+            'capabilities': [],
+            'limitations': [],
+            'costs': [],
+            'technology_level': ''
         }
