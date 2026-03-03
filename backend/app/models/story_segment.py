@@ -34,6 +34,37 @@ class LocationStatus(BaseModel):
     location_id: str
     current_status: str
 
+class EntityChange(BaseModel):
+    """A change to a character or location state during a segment.
+    
+    Tracks what changed during this segment so episode-end flush can update
+    the actual character/location model with evolved descriptions.
+    """
+    entity_id: str  # "char_thorne" or "loc_veil"
+    entity_type: str  # "character" or "location"
+    entity_name: str  # "Thorne" or "Veil Edge" - for reference
+    property: str  # "mood", "status", "stability", "description", etc.
+    from_value: Optional[str] = None  # Previous value
+    to_value: Optional[str] = None  # New value
+    description: str = ""  # Human-readable: "Thorne's mood changed from hopeful to determined"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict for serialization."""
+        return {
+            'entity_id': self.entity_id,
+            'entity_type': self.entity_type,
+            'entity_name': self.entity_name,
+            'property': self.property,
+            'from_value': self.from_value,
+            'to_value': self.to_value,
+            'description': self.description,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'EntityChange':
+        """Create from dict."""
+        return cls(**data)
+
 class StorySegment(StoryBlock):
     """A segment in a story.
     
@@ -109,6 +140,17 @@ class StorySegment(StoryBlock):
     change_notes: List[str] = Field(
         default_factory=list,
         description="Running log of character/location changes in this segment (e.g., 'Knight discovered the betrayal', 'Relationship with King changed')"
+    )
+    
+    # ========================================================================
+    # NEW: RUNNING CHANGES - Entity State Changes in This Segment
+    # ========================================================================
+    # Structured tracking of what changed (character moods, location states, etc.)
+    # These accumulate during the episode and are flushed at episode-end to update
+    # the actual character/location model descriptions
+    running_changes: List[EntityChange] = Field(
+        default_factory=list,
+        description="Structured changes to character/location state in this segment"
     )
     
     # ========================================================================

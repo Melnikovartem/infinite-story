@@ -163,6 +163,11 @@ class SegmentContextBuilder:
             'world_state_changes': self._get_world_state_changes(episode_chain),
             
             # ====================================================================
+            # RUNNING CHANGES - What Changed So Far This Episode
+            # ====================================================================
+            'episode_running_changes': self._collect_episode_running_changes(episode_chain),
+            
+            # ====================================================================
             # THEME & MYSTERY TRACKING
             # ====================================================================
             'themes_explored': self._get_themes_explored(episode_chain),
@@ -1016,6 +1021,36 @@ class SegmentContextBuilder:
             'recent_pace': recent_pace,
             'early_pace': early_pace
         }
+    
+    # =========================================================================
+    # NEW: RUNNING CHANGES COLLECTION
+    # =========================================================================
+    
+    def _collect_episode_running_changes(self, segment_chain: List[str]) -> List[Dict[str, Any]]:
+        """Collect all running_changes from episode segments so far.
+        
+        Returns list of EntityChange dicts in chronological order.
+        These show what state changes have occurred so far in the episode.
+        
+        Args:
+            segment_chain: List of segment IDs in the episode so far
+            
+        Returns:
+            List of change dicts with entity_id, property, from/to values
+        """
+        all_changes = []
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and hasattr(seg, 'running_changes') and seg.running_changes:
+                for change in seg.running_changes:
+                    # Convert EntityChange to dict if needed
+                    if isinstance(change, dict):
+                        all_changes.append(change)
+                    else:
+                        all_changes.append(change.to_dict())
+        
+        return all_changes
     
     # =========================================================================
     # NEW: WORLD OBJECTS CONTEXT (Locations, Characters, Factions)
