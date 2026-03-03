@@ -299,7 +299,19 @@ Additionally, extract:
         except Exception as e:
             logger.debug(f"Failed to select active characters: {e}")
         
-        # Step 6: Create EpisodeMeta and save it
+        # Step 6: Collect running state from previous episode
+        running_state = {}
+        if next_episode_num > 1:
+            try:
+                running_state = self.collect_running_state_from_episode(
+                    next_episode_num - 1,
+                    arc_id
+                )
+                logger.debug(f"Collected running state from episode {next_episode_num - 1}")
+            except Exception as e:
+                logger.debug(f"Failed to collect running state from previous episode: {e}")
+        
+        # Step 7: Create EpisodeMeta and save it
         try:
             episode_meta = EpisodeMeta(
                 id=f"episode_meta_{next_episode_num}_{arc_id}",
@@ -314,6 +326,11 @@ Additionally, extract:
                 story_hooks=context.get('story_hooks', []),
                 active_characters=active_characters,
             )
+            
+            # Apply running state from previous episode to new episode
+            if running_state:
+                episode_meta = self.apply_running_state_to_episode_meta(episode_meta, running_state)
+            
             episode_meta.save()
             logger.info(f"Created and saved EpisodeMeta for episode {next_episode_num}")
         except Exception as e:
@@ -920,3 +937,136 @@ Include exactly the character IDs. Be selective - focus on the most important ch
             
         except Exception as e:
             logger.warning(f"Failed to select active characters for episode: {e}")
+
+            return []
+    
+    def collect_running_state_from_episode(
+        self,
+        episode_number: int,
+        arc_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Collect all running state changes from segments in a completed episode.
+        
+        This method walks all segments in an episode and collects:
+        - Character running_status updates
+        - Location running_status updates
+        
+        The collected state represents the final state after all segments in the episode.
+        This is used to update the next episode's EpisodeMeta with the accumulated state.
+        
+        Args:
+            episode_number: The episode number to collect running state from
+            arc_id: Optional arc ID to scope the search
+            
+        Returns:
+            Dict with keys:
+            {
+                'character_states': {
+                    'char_id': {
+                        'name': str,
+                        'description': str,
+                        'emotion': str,
+                        'status': str,
+                        'notes': str
+                    }
+                },
+                'location_states': {
+                    'loc_id': {
+                        'name': str,
+                        'description': str,
+                        'current_state': str
+                    }
+                }
+            }
+        """
+        character_states = {}
+        location_states = {}
+        
+        # Get all segments in this episode
+        episode_segments = self._walk_episode_segments(episode_number, arc_id)
+        
+        if not episode_segments:
+            logger.debug(f"No segments found for episode {episode_number}, returning empty running state")
+            return {'character_states': {}, 'location_states': {}}
+        
+        # Collect character running status from all segments (last one wins)
+        for segment in episode_segments:
+            for char_status in segment.characters_running_status:
+                char = self.story.get_character(char_status.character_id)
+                if char:
+                    character_states[char_status.character_id] = {
+                        'name': char.name,
+                        'description': char.description,
+                        'emotion': char_status.current_status.split('|')[0] if '|' in char_status.current_status else char_status.current_status,
+                        'status': 'present',
+                        'notes': char_status.current_status
+                    }
+            
+            # Collect location running status from all segments (last one wins)
+            for loc_status in segment.locations_running_status:
+                loc = self.story.get_location(loc_status.location_id)
+                if loc:
+                    location_states[loc_status.location_id] = {
+                        'name': loc.name,
+                        'description': loc.description,
+                        'current_state': loc_status.current_status
+                    }
+        
+        logger.info(f"Collected running state for episode {episode_number}: "
+                   f"{len(character_states)} characters, {len(location_states)} locations")
+        
+        return {
+            'character_states': character_states,
+            'location_states': location_states
+        }
+    
+    def apply_running_state_to_episode_meta(
+        self,
+        episode_meta: "EpisodeMeta",
+        running_state: Dict[str, Any]
+    ) -> "EpisodeMeta":
+        """
+        Apply collected running state from previous episode to new episode's metadata.
+        
+        This updates the EpisodeMeta's character_state_snapshot and location_state_snapshot
+        with the running state from the previous episode. This ensures characters/locations
+        in the new episode start with the state they had at the end of the previous episode.
+        
+        Args:
+            episode_meta: The EpisodeMeta to update
+            running_state: Dict from collect_running_state_from_episode()
+            
+        Returns:
+            Updated EpisodeMeta
+        """
+        from app.models.episode_meta import EpisodeMeta
+        from app.models.character_state import CharacterStateSnapshot
+        
+        # Update character states
+        for char_id, char_state in running_state.get('character_states', {}).items():
+            if char_id not in episode_meta.character_state_snapshot:
+                # Create new snapshot from running state
+                try:
+                    snapshot = CharacterStateSnapshot(
+                        health_status=char_state.get('status', ''),
+                        emotional_status=char_state.get('emotion', ''),
+                        relationship_notes={},
+                        inventory={},
+                        character_arc_goal='',
+                        goal_progress=0.0,
+                        goal_notes=char_state.get('notes', '')
+                    )
+                    episode_meta.character_state_snapshot[char_id] = snapshot
+                except Exception as e:
+                    logger.warning(f"Failed to create character snapshot for {char_id}: {e}")
+        
+        # Update location states
+        for loc_id, loc_state in running_state.get('location_states', {}).items():
+            episode_meta.location_state_snapshot[loc_id] = loc_state
+        
+        logger.info(f"Applied running state to episode {episode_meta.episode_number}: "
+                   f"updated {len(running_state.get('character_states', {}))} characters, "
+                   f"{len(running_state.get('location_states', {}))} locations")
+        
+        return episode_meta

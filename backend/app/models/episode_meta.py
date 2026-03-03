@@ -100,6 +100,15 @@ class EpisodeMeta(StoryBase):
         description="Character IDs most likely active in this episode (selected by LLM during generation)"
     )
     
+    # ========================================================================
+    # LOCATION METADATA (ALL locations in episode)
+    # ========================================================================
+    # Stores location state snapshots at episode level (parallel to characters)
+    location_state_snapshot: Dict[str, Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Location ID -> {name, description, current_state} (ALL locations, episode-wide state)"
+    )
+    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
