@@ -15,7 +15,7 @@ class GeneratorConfig(BaseModel):
     )
     api_key: str = Field(description="API key for the LLM provider")
     base_url: str = Field(default="https://api.openai.com", description="Base URL for OpenAI API")
-    model: str = Field(default="deepseek-v3", description="Model name to use")
+    model: str = Field(default="deepseek-v3.2", description="Model name to use")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens to generate")
     site_url: Optional[str] = Field(default=None, description="Your app's URL (for OpenRouter)")
@@ -71,7 +71,7 @@ class Config(BaseModel):
                     "Get one at https://openrouter.ai"
                 )
             # Use deepseek-v3.2 as default - cheapest and works great
-            model = os.getenv("AI_MODEL", "deepseek-v3")
+            model = os.getenv("AI_MODEL", "deepseek-v3.2")
         else:  # openai
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:

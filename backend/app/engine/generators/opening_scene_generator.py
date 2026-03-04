@@ -90,10 +90,10 @@ Focus on sensory details, mood, and atmosphere."""
 Write with vivid sensory details that make the reader feel present in this world.
 Your opening scenes hook readers immediately and establish mood, setting, and story potential."""
         
-        response = await self.generate(
+        response = await self.generate_with_fallback(
+            context_type="scene",
             system_prompt=system_prompt,
-            user_prompt=prompt,
-            context_type="scene"
+            user_prompt=prompt
         )
         
         opening_text = response.content if hasattr(response, 'content') else str(response)
@@ -170,10 +170,10 @@ ONLY output the choices, no explanations."""
         system_prompt = """You are a narrative designer creating compelling story choices.
 The choices should feel natural, consequential, and offer meaningful branching paths."""
         
-        response = await self.generate(
+        response = await self.generate_with_fallback(
+            context_type="scene",
             system_prompt=system_prompt,
-            user_prompt=prompt,
-            context_type="scene"
+            user_prompt=prompt
         )
         
         choices_text = response.content if hasattr(response, 'content') else str(response)

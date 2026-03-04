@@ -55,16 +55,13 @@ class FractionGenerator:
             )
             
             # Generate fractions via AI
-            response_text = await self.generator.generate(
+            response_text = await self.generator.generate_with_fallback(
+                context_type="world",
                 system_prompt="""You are a master story architect.
 Create compelling story fractions (acts) with clear goals and themes.
 Return ONLY valid JSON array with no additional text.""",
-                user_prompt=prompt,
-                context_type="world"
+                user_prompt=prompt
             )
-            
-            if hasattr(response_text, 'error') and response_text.error:
-                raise ValueError(f"Fraction generation failed: {response_text.error}")
             
             # Parse response
             fraction_data_list = self._parse_fractions_response(response_text, story_shape.num_fractions)

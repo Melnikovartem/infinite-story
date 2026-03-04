@@ -59,16 +59,13 @@ class LocationGeneratorNew:
             )
             
             # Generate locations via AI
-            response_text = await self.generator.generate(
+             response_text = await self.generator.generate_with_fallback(
+                context_type="world",
                 system_prompt="""You are a master world builder creating interconnected locations.
 Each location ties into the world's fractions and themes.
 Return ONLY valid JSON array with no additional text.""",
-                user_prompt=prompt,
-                context_type="world"
+                user_prompt=prompt
             )
-            
-            if hasattr(response_text, 'error') and response_text.error:
-                raise ValueError(f"Location generation failed: {response_text.error}")
             
             # Parse response
             location_data_list = self._parse_locations_response(response_text, story_shape.num_locations)

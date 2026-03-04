@@ -51,16 +51,13 @@ class WorldDescriptionGenerator:
             )
             
             # Generate via AI
-            response = await self.generator.generate(
+            response = await self.generator.generate_with_fallback(
+                context_type="world",
                 system_prompt="""You are a world-building expert creating rich, detailed worlds.
 Create immersive worlds with clear systems, cultures, and rules.
 Provide structured information about the world.""",
-                user_prompt=prompt,
-                context_type="world"
+                user_prompt=prompt
             )
-            
-            if response.error:
-                raise ValueError(f"World generation failed: {response.error}")
             
             # Extract world data
             world_description = self._extract_world_description(response)

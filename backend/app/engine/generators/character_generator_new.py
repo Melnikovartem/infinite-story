@@ -76,17 +76,13 @@ class CharacterGeneratorNew:
                 )
                 
                 # Generate via AI
-                response_text = await self.generator.generate(
+                response_text = await self.generator.generate_with_fallback(
+                    context_type="character",
                     system_prompt="""You are a character creator specializing in vivid, compelling characters.
 Create characters that drive the story forward.
 Return ONLY valid JSON array with no additional text.""",
-                    user_prompt=prompt,
-                    context_type="character"
+                    user_prompt=prompt
                 )
-                
-                if hasattr(response_text, 'error') and response_text.error:
-                    logger.warning(f"Character generation failed for fraction: {response_text.error}")
-                    continue
                 
                 # Parse response
                 character_data_list = self._parse_characters_response(response_text, char_count)
@@ -156,17 +152,14 @@ Return ONLY valid JSON array with no additional text.""",
                 story_shape.num_independent_characters
             )
             
-            # Generate via AI
-            response_text = await self.generator.generate(
+            # Generate via AI with fallback
+            response_text = await self.generator.generate_with_fallback(
+                context_type="character",
                 system_prompt="""You are a character creator specializing in complex, compelling characters.
 Create independent characters who operate across the entire story.
 Return ONLY valid JSON array with no additional text.""",
-                user_prompt=prompt,
-                context_type="character"
+                user_prompt=prompt
             )
-            
-            if hasattr(response_text, 'error') and response_text.error:
-                raise ValueError(f"Independent character generation failed: {response_text.error}")
             
             # Parse response
             character_data_list = self._parse_characters_response(

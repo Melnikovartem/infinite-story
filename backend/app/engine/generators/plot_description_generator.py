@@ -53,17 +53,14 @@ class PlotDescriptionGenerator:
                 world_context.fundamental_truths
             )
             
-            # Generate via AI
-            response = await self.generator.generate(
+            # Generate via AI with fallback
+            response = await self.generator.generate_with_fallback(
+                context_type="world",
                 system_prompt="""You are a master story architect.
 Create compelling plot outlines with clear central conflicts and character arcs.
 Make the story engaging and full of potential.""",
-                user_prompt=prompt,
-                context_type="world"
+                user_prompt=prompt
             )
-            
-            if response.error:
-                raise ValueError(f"Plot generation failed: {response.error}")
             
             # Extract plot data
             plot_description = self._extract_plot_description(response)
