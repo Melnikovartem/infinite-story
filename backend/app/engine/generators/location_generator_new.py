@@ -59,7 +59,7 @@ class LocationGeneratorNew:
             )
             
             # Generate locations via AI
-             response_text = await self.generator.generate_with_fallback(
+            response_text = await self.generator.generate_with_fallback(
                 context_type="world",
                 system_prompt="""You are a master world builder creating interconnected locations.
 Each location ties into the world's fractions and themes.
