@@ -96,7 +96,12 @@ Your opening scenes hook readers immediately and establish mood, setting, and st
             user_prompt=prompt
         )
         
-        opening_text = response.content if hasattr(response, 'content') else str(response)
+        # Extract text content, handling both object and string responses
+        opening_text = self._extract_content(response)
+        
+        # If extraction failed, create a sensible fallback
+        if not opening_text or opening_text.startswith('raw_response'):
+            opening_text = self._create_fallback_scene(story, world_context)
         
         # Create opening segment
         opening_segment = StorySegment(
@@ -176,7 +181,7 @@ The choices should feel natural, consequential, and offer meaningful branching p
             user_prompt=prompt
         )
         
-        choices_text = response.content if hasattr(response, 'content') else str(response)
+        choices_text = self._extract_content(response)
         
         # Parse choices from response
         choice_lines = []
@@ -185,8 +190,12 @@ The choices should feel natural, consequential, and offer meaningful branching p
             if line and any(line.startswith(f"{i}.") for i in range(1, 4)):
                 # Remove the number prefix
                 choice_text = line.split('.', 1)[1].strip() if '.' in line else line
-                if choice_text:
+                if choice_text and len(choice_text) > 5:  # Ensure meaningful text
                     choice_lines.append(choice_text)
+        
+        # If no choices parsed, create fallback choices
+        if not choice_lines:
+            choice_lines = self._create_fallback_choices(story)
         
         # Create choice objects
         choices_list = []
@@ -206,3 +215,67 @@ The choices should feel natural, consequential, and offer meaningful branching p
         
         logger.info(f"Generated {len(choices_list)} opening choices")
         return choices_list
+    
+    def _extract_content(self, response) -> str:
+        """Extract clean text content from response object.
+        
+        Args:
+            response: Response from LLM (could be object or string)
+            
+        Returns:
+            Clean text content
+        """
+        if isinstance(response, str):
+            return response
+        
+        if hasattr(response, 'content') and isinstance(response.content, str):
+            return response.content.strip()
+        
+        return str(response)
+    
+    def _create_fallback_scene(self, story: Story, world_context: StoryContext) -> str:
+        """Create a sensible fallback opening scene if generation fails.
+        
+        Args:
+            story: The story
+            world_context: World context
+            
+        Returns:
+            Fallback narrative text
+        """
+        world_desc = "a mysterious world" 
+        if hasattr(world_context, 'worldbuilding') and isinstance(world_context.worldbuilding, dict):
+            world_desc = world_context.worldbuilding.get('world_description', world_desc)
+        
+        return f"""You find yourself standing at the threshold of an extraordinary moment. Around you lies {world_desc}. The air crackles with possibility and tension. 
+
+Your journey is about to begin, and with it comes a weight of consequence—the choices you make here will ripple through everything that follows. You can feel it, deep in your bones. This is not just another moment. This is the moment that changes everything.
+
+The path ahead splits in several directions, each promising a different adventure, a different story waiting to unfold. What will you do?"""
+    
+    def _create_fallback_choices(self, story: Story) -> List[str]:
+        """Create sensible fallback choices if generation fails.
+        
+        Args:
+            story: The story
+            
+        Returns:
+            List of fallback choice texts
+        """
+        fractions = story.get_all_fractions()
+        locations = story.get_all_locations()
+        
+        choices = [
+            "Venture forward cautiously, ready for whatever awaits.",
+            "Seek out more information before committing to action.",
+            "Trust your instincts and follow the path that calls to you."
+        ]
+        
+        # Customize based on available context
+        if fractions:
+            choices[0] = f"Join forces with the {fractions[0].title if hasattr(fractions[0], 'title') else 'first faction'}."
+        
+        if locations:
+            choices[1] = f"Make your way toward {locations[0].name if hasattr(locations[0], 'name') else 'the unknown location'}."
+        
+        return choices
