@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 import json
-from app.models.content_report import ContentReport, ReportType, ReportStatus
+from app.utils.content_report import ContentReport, ReportType, ReportStatus
 
 
 class TestContentReportModel:

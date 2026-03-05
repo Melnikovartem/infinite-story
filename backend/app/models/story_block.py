@@ -31,27 +31,27 @@ class StoryBlock(StoryBase):
             raise ValueError(f"story_id {self.story_id} does not match story.id {self.story.id}")
         return self
 
-    def get_short_overview(self) -> str:
-        """Get a short descriptor of this story block.
+    def to_context_short(self) -> str:
+        """Short context for LLM prompts.
         
-        This should be overridden by subclasses to provide a brief description
-        of the block's content and purpose.
+        Returns short_description + recap if available. Should be overridden
+        by subclasses to provide a brief context string.
         
         Returns:
-            A string describing the block
+            A short context string
         """
-        raise NotImplementedError("Subclasses must implement get_short_overview")
+        raise NotImplementedError("Subclasses must implement to_context_short")
 
-    def get_full_overview(self) -> str:
-        """Get detailed information about this story block.
+    def to_context_full(self) -> str:
+        """Full context for LLM prompts.
         
-        This should be overridden by subclasses to provide comprehensive
-        information about the block's content, relationships, and state.
+        Returns description + all relevant fields. Should be overridden
+        by subclasses to provide comprehensive context.
         
         Returns:
-            A string containing detailed information about the block
+            A full context string
         """
-        raise NotImplementedError("Subclasses must implement get_full_overview")
+        raise NotImplementedError("Subclasses must implement to_context_full")
 
     @classmethod
     def load(cls, story_id: str, component_id: str, story: 'Story', **other_data: Any) -> Optional['StoryBlock']:

@@ -5,7 +5,7 @@ import logging
 from typing import List, Optional, Dict
 
 from app.models.story_arc import StoryArc
-from app.models.episode_recap import EpisodeRecap
+from app.models.story_episode import StoryEpisode as EpisodeRecap
 
 logger = logging.getLogger("infinite_story.utils.theme_selector")
 

@@ -6,36 +6,14 @@ import re
 import uuid
 from typing import Dict, Any, List
 from app.models.story import Story
+from app.models.story_magic_system import StoryMagicSystem
 from app.engine.generator import TextGenerator
 
 logger = logging.getLogger("infinite_story.engine.generators.magic_system_generator")
 
 
-class MagicSystem:
-    """Magic or tech system for a world."""
-    def __init__(self, name: str, description: str, rules: List[str], 
-                 limitations: List[str], costs: List[str]):
-        self.id = f"magic_{uuid.uuid4().hex[:8]}"
-        self.name = name
-        self.description = description  # Short description
-        self.rules = rules  # What it can do
-        self.limitations = limitations  # What it CAN'T do (more important)
-        self.costs = costs  # Consequences of using it
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "rules": self.rules,
-            "limitations": self.limitations,
-            "costs": self.costs
-        }
-    
-    def short_summary(self) -> str:
-        """Get short summary for prompts."""
-        return f"{self.name}: {self.description}"
+# Backward-compatible alias
+MagicSystem = StoryMagicSystem
 
 
 class MagicSystemGenerator:
@@ -56,7 +34,7 @@ class MagicSystemGenerator:
         world_description: str,
         genre: str,
         user_input: str = ""
-    ) -> MagicSystem:
+    ) -> StoryMagicSystem:
         """Generate magic or tech system for the world.
         
         Args:
@@ -65,7 +43,7 @@ class MagicSystemGenerator:
             user_input: Optional user guidance
             
         Returns:
-            MagicSystem object
+            StoryMagicSystem object (persistent, saveable)
         """
         try:
             logger.info(f"Generating magic/tech system for '{self.story.id}'")
@@ -131,8 +109,8 @@ IMPORTANT:
 
 Make the system feel grounded and dangerous, not omnipotent."""
     
-    def _parse_magic_system(self, response: Any, genre: str) -> MagicSystem:
-        """Parse magic system from AI response."""
+    def _parse_magic_system(self, response: Any, genre: str) -> StoryMagicSystem:
+        """Parse magic system from AI response into persistent StoryMagicSystem."""
         
         response_text = ""
         if hasattr(response, 'content'):
@@ -142,22 +120,40 @@ Make the system feel grounded and dangerous, not omnipotent."""
         else:
             response_text = str(response)
         
-        # Extract system name
-        name_match = re.search(r'\*\*([^*]+)\*\*', response_text)
-        name = name_match.group(1).strip() if name_match else "The Ancient Arts"
+        # Known template headers to skip (these are prompt labels, not real names)
+        _SKIP_NAMES = {
+            'system name', 'name', 'magic system', 'tech system',
+            'description', 'important', 'note', 'notes',
+        }
         
-        # Extract fields
+        # Extract system name - find first **bold** text that isn't a template header
+        name = "The Ancient Arts"
+        for name_match in re.finditer(r'\*\*([^*]+)\*\*', response_text):
+            candidate = name_match.group(1).strip().rstrip(':')
+            if candidate.lower() not in _SKIP_NAMES and len(candidate) > 2:
+                # Also skip if it looks like a section label
+                if not re.match(r'^(What It|Costs?|Description|Limitations?|Capabilities)', candidate, re.IGNORECASE):
+                    name = candidate
+                    break
+        
+        # Extract description - single line after "Description:" label
         description = self._extract_field(response_text, r'Description:\s*([^\n]+)', 
                                          "A powerful system with real costs")
         
-        capabilities_text = self._extract_field(response_text, r'What It Can Do.*?:\s*([^\n]+(?:\n[^\n]+){0,2})', "")
-        capabilities = [c.strip() for c in re.split(r'[-•\n]', capabilities_text) if c.strip()][:3]
+        # Extract capabilities - look for list items after the "What It Can Do" section
+        capabilities_section = self._extract_section(response_text, 
+            r'What It Can Do[^:]*:', r'What It (?:CANNOT|Cannot|can\'t)')
+        capabilities = self._extract_list_items(capabilities_section)[:3]
         
-        limitations_text = self._extract_field(response_text, r'What It CANNOT Do.*?:\s*([^\n]+(?:\n[^\n]+){0,3})', "")
-        limitations = [l.strip() for l in re.split(r'[-•\n]', limitations_text) if l.strip()][:4]
+        # Extract limitations - look for list items after the "What It CANNOT Do" section
+        limitations_section = self._extract_section(response_text,
+            r'What It (?:CANNOT|Cannot|can\'t) Do[^:]*:', r'Costs?')
+        limitations = self._extract_list_items(limitations_section)[:4]
         
-        costs_text = self._extract_field(response_text, r'Costs? & Consequences.*?:\s*([^\n]+(?:\n[^\n]+){0,3})', "")
-        costs = [c.strip() for c in re.split(r'[-•\n]', costs_text) if c.strip()][:4]
+        # Extract costs - look for list items after the "Costs" section
+        costs_section = self._extract_section(response_text,
+            r'Costs?\s*(?:&|and)?\s*Consequences?[^:]*:', r'(?:IMPORTANT|$)')
+        costs = self._extract_list_items(costs_section)[:4]
         
         # Defaults if parsing failed
         if not capabilities:
@@ -167,13 +163,45 @@ Make the system feel grounded and dangerous, not omnipotent."""
         if not costs:
             costs = ["Physical exhaustion", "Spiritual debt", "Temporary vulnerability", "Unknown consequences"]
         
-        return MagicSystem(
+        system_id = f"magic_{uuid.uuid4().hex[:8]}"
+        return StoryMagicSystem(
+            id=system_id,
+            story=self.story,
             name=name,
             description=description,
             rules=capabilities,
             limitations=limitations,
-            costs=costs
+            costs=costs,
         )
+    
+    def _extract_section(self, text: str, start_pattern: str, end_pattern: str) -> str:
+        """Extract text between two section headers."""
+        start_match = re.search(start_pattern, text, re.IGNORECASE)
+        if not start_match:
+            return ""
+        
+        remaining = text[start_match.end():]
+        end_match = re.search(end_pattern, remaining, re.IGNORECASE)
+        if end_match:
+            return remaining[:end_match.start()].strip()
+        return remaining.strip()
+    
+    def _extract_list_items(self, text: str) -> List[str]:
+        """Extract individual list items from text containing bullet points or numbered items."""
+        if not text:
+            return []
+        
+        items = []
+        for line in text.split('\n'):
+            line = line.strip()
+            # Remove bullet/number prefixes
+            line = re.sub(r'^[-•*]\s*|^\d+[\.\)]\s*', '', line).strip()
+            if line and len(line) > 3:
+                # Remove trailing commas/periods
+                line = line.rstrip('.,;')
+                items.append(line)
+        
+        return items
     
     def _extract_field(self, text: str, pattern: str, default: str = "") -> str:
         """Extract field using regex."""

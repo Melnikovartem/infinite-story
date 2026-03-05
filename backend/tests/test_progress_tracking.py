@@ -3,7 +3,7 @@
 import pytest
 import time
 from datetime import datetime, UTC, timedelta
-from app.models.scene_counter import SceneCounter
+from app.utils.scene_counter import SceneCounter
 
 
 class TestSceneCounterModel:

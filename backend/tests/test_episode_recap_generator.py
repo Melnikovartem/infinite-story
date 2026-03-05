@@ -8,7 +8,7 @@ from datetime import datetime, UTC
 from app.models.story import Story
 from app.models.story_segment import StorySegment, SegmentStatus
 from app.models.story_arc import StoryArc
-from app.models.episode_recap import EpisodeRecap, CharacterState
+from app.models.story_episode import StoryEpisode as EpisodeRecap, CharacterState
 from app.models.text_types import TextBlock, TextType
 from app.engine.episode_recap_generator import EpisodeRecapGenerator
 

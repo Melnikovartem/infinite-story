@@ -34,6 +34,26 @@ class StoryChoice(StoryBlock):
         super().__init__(**data)
         self.story.add_choice(self)
     
+    def to_context_short(self) -> str:
+        """Short context: choice text."""
+        return self.text
+    
+    def to_context_full(self) -> str:
+        """Full context: choice text with metadata."""
+        parts = [f"Choice: {self.text}"]
+        if self.from_segment_id:
+            parts.append(f"From: {self.from_segment_id}")
+        if self.to_segment_id:
+            parts.append(f"To: {self.to_segment_id}")
+        if self.flags.nsfw or self.flags.violent:
+            flags = []
+            if self.flags.nsfw:
+                flags.append("NSFW")
+            if self.flags.violent:
+                flags.append("Violent")
+            parts.append(f"Flags: {', '.join(flags)}")
+        return " | ".join(parts)
+    
     def lock(self) -> None:
         """Lock this choice to prevent concurrent generation."""
         self.locked = True

@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pathlib import Path
 from app.main import app
-from app.models.content_report import ContentReport
+from app.utils.content_report import ContentReport
 
 client = TestClient(app)
 

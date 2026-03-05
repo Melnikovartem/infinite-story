@@ -136,10 +136,8 @@ class StoryArc(StoryBase):
         default_factory=list,
         description="Location IDs that are active/important in this arc"
     )
-    active_characters: List[str] = Field(
-        default_factory=list,
-        description="Character IDs that might appear in this arc"
-    )
+    # NOTE: active_characters is already defined above in section B (Character Development)
+    # It stores character IDs selected by LLM during generation
     active_factions: List[str] = Field(
         default_factory=list,
         description="Faction/group IDs relevant to this arc"
@@ -202,12 +200,55 @@ class StoryArc(StoryBase):
         description="Summary of the previous arc's mainline narrative for continuity"
     )
     
-    def get_short_overview(self) -> str:
-        """Get a brief overview of the arc."""
-        return f"{self.title} ({self.episode_count} episodes)"
+    # ========================================================================
+    # H. ARC RECAP (populated when arc completes)
+    # ========================================================================
+    recap: Optional[str] = Field(
+        None,
+        description="Short 1-2 sentence recap of the arc"
+    )
+    recap_title: str = Field(
+        default="",
+        description="Auto-generated arc title for recap (e.g., 'The Betrayal at Court')"
+    )
+    recap_summary: str = Field(
+        default="",
+        description="3-5 paragraph narrative summary of the entire arc"
+    )
+    character_arc_resolutions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="character_id -> how their arc was resolved"
+    )
+    mysteries_resolved: Dict[str, str] = Field(
+        default_factory=dict,
+        description="mystery -> how it was resolved"
+    )
+    unresolved_for_next: List[str] = Field(
+        default_factory=list,
+        description="Mysteries that remain unresolved for next arc"
+    )
+    outcome: str = Field(
+        default="",
+        description="Overall outcome of the arc (victory, defeat, transformation, etc.)"
+    )
+    hook_for_next_arc: str = Field(
+        default="",
+        description="Hook or setup that leads into the next arc"
+    )
+    new_status_quo: str = Field(
+        default="",
+        description="The new status quo established by end of arc"
+    )
     
-    def get_full_overview(self) -> str:
-        """Get a detailed overview of the arc."""
+    def to_context_short(self) -> str:
+        """Short context: title + recap if available."""
+        base = f"{self.title} ({self.episode_count} episodes)"
+        if self.recap:
+            base += f" | {self.recap}"
+        return base
+    
+    def to_context_full(self) -> str:
+        """Full context: complete arc information."""
         return f"""
 Arc: {self.title}
 

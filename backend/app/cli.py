@@ -470,6 +470,9 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
         # Create opening segment
         from app.models.story_segment import StorySegment
         
+        # Link opening segment to the first generated arc
+        first_arc_id = arcs[0].id if arcs else "arc_1"
+        
         opening_segment = StorySegment(
             id="opening",
             story_id=story_id,
@@ -477,7 +480,7 @@ Your opening scenes hook readers immediately and establish mood, setting, and po
             short_description="The Story Begins",
             atmosphere="atmospheric",
             episode_number=1,
-            arc_id="arc_1",
+            arc_id=first_arc_id,
             protagonist_id=protagonist.id if protagonist and hasattr(protagonist, 'id') else None
         )
         
@@ -528,15 +531,12 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
             for i, choice_text in enumerate(choice_lines[:3]):  # Max 3 choices
                 choice_id = f"choice_{uuid.uuid4().hex[:8]}"
                 
-                # Create a follow-up segment for each choice
-                follow_segment_id = f"segment_{uuid.uuid4().hex[:8]}"
-                
                 choice = StoryChoice(
                     id=choice_id,
                     story_id=story_id,
                     story=story,
                     from_segment_id="opening",
-                    to_segment_id=follow_segment_id,
+                    to_segment_id=None,  # Will be AI-generated when chosen
                     text=choice_text
                 )
                 
@@ -550,6 +550,11 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
         
         # Set start segment
         story.start_segment_id = "opening"
+        
+        # Update first arc to point to opening segment
+        if arcs:
+            arcs[0].start_segment_id = "opening"
+            arcs[0].current_segment_id = "opening"
         
         # Save everything
         console.print("\n[bold yellow]💾 Saving story to disk...[/bold yellow]")
@@ -1421,6 +1426,233 @@ def create_story_step(
     asyncio.run(create_story_step_by_step_async(
         story_id, title, description, genre, step, skip, reset, status
     ))
+
+@app.command()
+def inspect_story(
+    story_id: str = typer.Argument(..., help="Story ID to inspect"),
+    component: str = typer.Option(
+        None, "--component", "-c",
+        help="Inspect specific component type: arcs, episodes, segments, characters, locations, factions, magic, choices, context"
+    ),
+    detail: str = typer.Option(
+        None, "--detail", "-d",
+        help="Show full detail for a specific component ID"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON"
+    ),
+):
+    """Inspect story state: arcs, episodes, segments, factions, magic systems, etc.
+    
+    Examples:
+        # Overview of everything
+        python -m app.cli inspect-story my_story
+        
+        # Inspect specific component type
+        python -m app.cli inspect-story my_story -c arcs
+        python -m app.cli inspect-story my_story -c factions
+        
+        # Full detail for a specific component
+        python -m app.cli inspect-story my_story -d opening
+        python -m app.cli inspect-story my_story -c arcs -d arc_my_story_abc123
+        
+        # Raw JSON output
+        python -m app.cli inspect-story my_story -c arcs --json
+    """
+    import json as json_mod
+    from app.models.story_arc import StoryArc
+    from app.models.story_episode import StoryEpisode
+    from app.models.story_segment import StorySegment
+    from app.models.story_character import StoryCharacter
+    from app.models.story_location import StoryLocation
+    from app.models.story_context import StoryContext
+    from app.models.story_faction import StoryFaction
+    from app.models.story_magic_system import StoryMagicSystem
+    from app.models.story_choice import StoryChoice
+    
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Component type -> model class mapping
+    component_map = {
+        'arcs': StoryArc,
+        'arc': StoryArc,
+        'episodes': StoryEpisode,
+        'episode': StoryEpisode,
+        'segments': StorySegment,
+        'segment': StorySegment,
+        'characters': StoryCharacter,
+        'character': StoryCharacter,
+        'locations': StoryLocation,
+        'location': StoryLocation,
+        'factions': StoryFaction,
+        'faction': StoryFaction,
+        'magic': StoryMagicSystem,
+        'magic_systems': StoryMagicSystem,
+        'choices': StoryChoice,
+        'choice': StoryChoice,
+        'context': StoryContext,
+    }
+    
+    # StoryBlock subclasses require a story object to load
+    from app.models.story_block import StoryBlock
+    _needs_story = {
+        StorySegment, StoryChoice, StoryCharacter, StoryLocation,
+        StoryFaction, StoryMagicSystem, StoryEpisode,
+    }
+    
+    def _load_all(cls):
+        """Load all instances of a component type."""
+        ids = cls.list_all(story_id)
+        items = []
+        for cid in ids:
+            try:
+                if cls in _needs_story:
+                    item = cls.load(story_id, cid, story=story)
+                else:
+                    item = cls.load(story_id, cid)
+                if item:
+                    items.append(item)
+            except Exception as e:
+                items.append({"id": cid, "error": str(e)})
+        return items
+    
+    def _print_item_summary(item, cls_name: str):
+        """Print a one-line summary of an item."""
+        if isinstance(item, dict):
+            console.print(f"  [red]{item['id']}: ERROR {item['error']}[/red]")
+            return
+        
+        label = f"[cyan]{item.id}[/cyan]"
+        
+        if hasattr(item, 'title'):
+            title_text = item.title[:60] + "..." if len(item.title) > 60 else item.title
+            label += f" | {title_text}"
+        if hasattr(item, 'name') and not hasattr(item, 'title'):
+            label += f" | {item.name}"
+        if hasattr(item, 'is_active'):
+            label += f" | active={item.is_active}"
+        if hasattr(item, 'is_future_arc'):
+            label += f" | future={item.is_future_arc}"
+        if hasattr(item, 'short_description') and item.short_description:
+            label += f" | {item.short_description[:50]}"
+        if hasattr(item, 'text') and item.text:
+            label += f" | {item.text[:60]}"
+        if hasattr(item, 'description') and item.description and not hasattr(item, 'title'):
+            label += f" | {item.description[:50]}"
+        if hasattr(item, 'arc_id') and item.arc_id:
+            label += f" | arc={item.arc_id}"
+        if hasattr(item, 'episode_number') and item.episode_number:
+            label += f" | ep={item.episode_number}"
+        if hasattr(item, 'from_segment_id'):
+            label += f" | {item.from_segment_id} -> {item.to_segment_id or '???'}"
+        
+        console.print(f"  {label}")
+    
+    def _print_item_detail(item):
+        """Print full detail of an item as formatted JSON."""
+        if isinstance(item, dict):
+            console.print(json_mod.dumps(item, indent=2, default=str))
+            return
+        data = item.model_dump()
+        if json_output:
+            console.print(json_mod.dumps(data, indent=2, default=str))
+        else:
+            for key, value in data.items():
+                if value is None or value == "" or value == [] or value == {}:
+                    continue
+                if isinstance(value, str) and len(value) > 200:
+                    value = value[:200] + "..."
+                console.print(f"  [cyan]{key}[/cyan]: {value}")
+    
+    def _load_one(cls, component_id):
+        """Load a single instance, passing story if needed."""
+        try:
+            if cls in _needs_story:
+                return cls.load(story_id, component_id, story=story)
+            else:
+                return cls.load(story_id, component_id)
+        except Exception:
+            return None
+    
+    # If a specific detail ID is requested with a component type
+    if detail and component:
+        cls = component_map.get(component)
+        if not cls:
+            console.print(f"[red]Unknown component type: {component}[/red]")
+            return
+        item = _load_one(cls, detail)
+        if not item:
+            console.print(f"[red]{component} '{detail}' not found[/red]")
+            return
+        console.print(Panel(f"[bold]{cls.__name__}: {detail}[/bold]", border_style="cyan"))
+        _print_item_detail(item)
+        return
+    
+    # If detail requested without component, try all types
+    if detail:
+        for cname, cls in component_map.items():
+            if cname != cname.rstrip('s'):  # skip singular aliases
+                continue
+            item = _load_one(cls, detail)
+            if item:
+                console.print(Panel(f"[bold]{cls.__name__}: {detail}[/bold]", border_style="cyan"))
+                _print_item_detail(item)
+                return
+        console.print(f"[red]Component '{detail}' not found in any type[/red]")
+        return
+    
+    # If a specific component type is requested
+    if component:
+        cls = component_map.get(component)
+        if not cls:
+            console.print(f"[red]Unknown component type: {component}[/red]")
+            console.print(f"[yellow]Valid types: {', '.join(set(component_map.keys()))}[/yellow]")
+            return
+        items = _load_all(cls)
+        console.print(Panel(f"[bold]{cls.__name__}s ({len(items)})[/bold]", border_style="cyan"))
+        for item in items:
+            if json_output:
+                _print_item_detail(item)
+                console.print("---")
+            else:
+                _print_item_summary(item, cls.__name__)
+        return
+    
+    # Full overview
+    console.print(Panel(
+        f"[bold cyan]{story.title}[/bold cyan]\n"
+        f"ID: {story.id} | Genre: {story.genre}\n"
+        f"Start: {story.start_segment_id}\n"
+        f"Description: {story.description[:100]}...",
+        title="Story Overview",
+        border_style="cyan"
+    ))
+    
+    # Show counts for each component type
+    component_types = [
+        ('Arcs', StoryArc),
+        ('Episodes', StoryEpisode),
+        ('Segments', StorySegment),
+        ('Characters', StoryCharacter),
+        ('Locations', StoryLocation),
+        ('Factions', StoryFaction),
+        ('Magic Systems', StoryMagicSystem),
+        ('Choices', StoryChoice),
+        ('Context', StoryContext),
+    ]
+    
+    for label, cls in component_types:
+        items = _load_all(cls)
+        if not items:
+            console.print(f"\n[dim]{label}: 0[/dim]")
+            continue
+        
+        console.print(f"\n[bold yellow]{label} ({len(items)}):[/bold yellow]")
+        for item in items:
+            _print_item_summary(item, cls.__name__)
 
 if __name__ == "__main__":
     app()

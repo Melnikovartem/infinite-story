@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from app.models.session_state import SessionState
-from app.models.scene_counter import SceneCounter
+from app.utils.scene_counter import SceneCounter
 
 router = APIRouter()
 

@@ -20,12 +20,8 @@ class StoryContext(StoryBlock):
         super().__init__(**data)
         self.story.add_context(self)
 
-    def get_short_overview(self) -> str:
-        """Get a short descriptor of this story context.
-        
-        Returns:
-            A string describing the key aspects of the world
-        """
+    def to_context_short(self) -> str:
+        """Short context: key fundamental truths."""
         # Get first few fundamental truths
         truths_preview = ", ".join(self.fundamental_truths[:2])
         if len(self.fundamental_truths) > 2:
@@ -33,12 +29,8 @@ class StoryContext(StoryBlock):
             
         return f"World Context: {truths_preview}"
 
-    def get_full_overview(self) -> str:
-        """Get detailed information about this story context.
-        
-        Returns:
-            A string containing comprehensive world information
-        """
+    def to_context_full(self) -> str:
+        """Full context: worldbuilding and fundamental truths."""
         # Format worldbuilding information
         worldbuilding_info = ""
         if isinstance(self.worldbuilding, dict):

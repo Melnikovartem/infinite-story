@@ -14,15 +14,19 @@ class PromptFormatter:
     """Format context into natural language prompts."""
     
     @staticmethod
-    def format_scene_context(context: Dict[str, Any]) -> str:
+    def format_scene_context(context: Dict[str, Any], choice_text: str = None) -> str:
         """Format scene generation context into natural prompt.
         
         Args:
             context: Generation context dict from SegmentContextBuilder
+            choice_text: Optional override for user choice text (uses context['user_choice'] if not provided)
             
         Returns:
             Natural language prompt for scene generation
         """
+        # Allow choice_text override
+        if choice_text and 'user_choice' not in context:
+            context['user_choice'] = choice_text
         parts = []
         
         # Story context

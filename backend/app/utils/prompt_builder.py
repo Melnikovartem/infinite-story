@@ -136,7 +136,7 @@ class ScenePromptBuilder:
         # Get story context (condensed)
         logger.debug("Getting story context")
         story_context = self.story._context
-        story_context_overview = story_context.get_short_overview() if story_context else ""
+        story_context_overview = story_context.to_context_short() if story_context else ""
         logger.debug("Got story context")
 
         # Get current story state (last 5 segments instead of 10)
@@ -161,7 +161,7 @@ class ScenePromptBuilder:
         all_chars = self.story.get_all_characters()
         for char in all_chars:
             if char.id in relevant_char_ids and char.id not in [c.character_id for c in self.segment.characters]:
-                relevant_chars_not_present.append(f"- {char.get_short_overview()}")
+                relevant_chars_not_present.append(f"- {char.to_context_short()}")
         logger.debug(f"Got {len(relevant_chars_not_present)} relevant characters not present")
 
         # Get ONLY relevant locations not present
@@ -170,7 +170,7 @@ class ScenePromptBuilder:
         all_locs = self.story.get_all_locations()
         for loc in all_locs:
             if loc.id in relevant_loc_ids and loc.id not in self.segment.locations_present:
-                relevant_locs_not_present.append(f"- {loc.get_short_overview()}")
+                relevant_locs_not_present.append(f"- {loc.to_context_short()}")
         logger.debug(f"Got {len(relevant_locs_not_present)} relevant locations not present")
 
         # Build prompt with prioritized structure

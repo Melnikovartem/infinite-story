@@ -226,7 +226,7 @@ Genre: {genre}
 
 Fraction: {fraction.title}
 Goal: {fraction.main_goal}
-{fraction.get_full_context()}
+{fraction.to_context_full()}
 
 Locations in World:
 {locations_text}

@@ -74,6 +74,7 @@ class StorySegment(StoryBlock):
 
     # Core Scene Information
     short_description: str = Field(description="Brief summary of the scene")
+    recap: Optional[str] = Field(None, description="AI-generated recap of this segment (set after generation or at episode end)")
     atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")
     weather: Optional[str] = Field(None, description="Weather conditions during the scene")
@@ -135,7 +136,7 @@ class StorySegment(StoryBlock):
     )
     character_states: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
-        description="[DEPRECATED] Keep for backward compatibility - use EpisodeMeta.character_state_snapshot instead"
+        description="[DEPRECATED] Keep for backward compatibility - use StoryEpisode.character_state_snapshot instead"
     )
     change_notes: List[str] = Field(
         default_factory=list,
@@ -319,32 +320,15 @@ class StorySegment(StoryBlock):
             
         return "\n".join(formatted_blocks)
     
-    def get_short_overview(self) -> str:
-        """Get a short descriptor of this story segment.
-        
-        Returns:
-            A string describing the key events in this segment
-        """
-        # Get previous segments
-        prev_segments = self.get_story_segments_before(max_depth=10)
-        
-        # Get plain text content
-        content = self.get_plain_text_script()
-        
-        # Format the overview
-        overview = f"Scene: {self.short_description}\n\n"
-        if prev_segments:
-            overview += f"Previous Scenes:\n{prev_segments}\n\n"
-        overview += f"Scene Script:\n{content}"
-            
-        return overview
+    def to_context_short(self) -> str:
+        """Short context: short_description + recap if available."""
+        parts = [self.short_description]
+        if self.recap:
+            parts.append(self.recap)
+        return " | ".join(parts)
 
-    def get_full_overview(self) -> str:
-        """Get detailed information about this story segment.
-        
-        Returns:
-            A string containing comprehensive scene information
-        """
+    def to_context_full(self) -> str:
+        """Full context: scene info + characters + locations."""
          # Get previous segments
         prev_segments = self.get_story_segments_before(max_depth=10)
         
@@ -362,7 +346,7 @@ class StorySegment(StoryBlock):
         for char_status in self.characters:
             character = self.story.get_character(char_status.character_id)
             if character:
-                character_info.append(character.get_full_overview())
+                character_info.append(character.to_context_full())
 
         if character_info:
             overview += f"\n\nCharacters Present:\n{'\n'.join(character_info)}"
@@ -371,7 +355,7 @@ class StorySegment(StoryBlock):
         for loc_status in self.locations_running_status:
             location = self.story.get_location(loc_status.location_id)
             if location:
-                location_info.append(location.get_full_overview())
+                location_info.append(location.to_context_full())
 
         if location_info:
             overview += f"\n\nLocations Present:\n{'\n'.join(location_info)}"

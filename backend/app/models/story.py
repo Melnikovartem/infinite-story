@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from .story_context import StoryContext
     from .story_segment import SegmentStatus
     from .story_fraction import StoryFraction
+    from .story_episode import StoryEpisode
+    from .story_faction import StoryFaction
+    from .story_magic_system import StoryMagicSystem
 
 class Story(StoryBase):
     """A story in the system.
@@ -33,6 +36,9 @@ class Story(StoryBase):
     _choices: Dict[str, 'StoryChoice'] = PrivateAttr(default_factory=dict)
     _context: Optional['StoryContext'] = PrivateAttr(default=None)
     _fractions: Dict[str, 'StoryFraction'] = PrivateAttr(default_factory=dict)
+    _episodes: Dict[str, 'StoryEpisode'] = PrivateAttr(default_factory=dict)
+    _factions: Dict[str, 'StoryFaction'] = PrivateAttr(default_factory=dict)
+    _magic_systems: Dict[str, 'StoryMagicSystem'] = PrivateAttr(default_factory=dict)
     
     def __init__(self, **data):
         """Initialize a Story instance.
@@ -156,6 +162,38 @@ class Story(StoryBase):
         """
         return self._choices.get(choice_id)
     
+    def add_episode(self, episode: 'StoryEpisode') -> None:
+        """Add an episode to the story.
+
+        Args:
+            episode: The episode to add
+        """
+        if episode.story_id != self.id:
+            raise ValueError(f"Episode {episode.id} belongs to story {episode.story_id}, not {self.id}")
+        logger.debug(f"Adding episode '{episode.id}' to story '{self.id}'")
+        self._episodes[episode.id] = episode
+        episode.story = self
+    
+    def get_episode(self, episode_id: str) -> Optional['StoryEpisode']:
+        """Get an episode by ID.
+        
+        Args:
+            episode_id: The ID of the episode to get
+            
+        Returns:
+            The episode, or None if not found
+        """
+        return self._episodes.get(episode_id)
+    
+    def get_all_episodes(self) -> List['StoryEpisode']:
+        """Get all episodes in the story.
+        
+        Returns:
+            A list of all episodes, sorted by episode_number
+        """
+        episodes = list(self._episodes.values())
+        return sorted(episodes, key=lambda e: e.episode_number)
+    
     def add_fraction(self, fraction: 'StoryFraction') -> None:
         """Add a fraction to the story.
 
@@ -186,6 +224,62 @@ class Story(StoryBase):
         """
         fractions = list(self._fractions.values())
         return sorted(fractions, key=lambda f: f.order)
+    
+    # ========================================================================
+    # Faction (political groups/organizations) cache
+    # ========================================================================
+    
+    def add_faction(self, faction: 'StoryFaction') -> None:
+        """Add a faction to the story.
+
+        Args:
+            faction: The faction to add
+        """
+        if faction.story_id != self.id:
+            raise ValueError(f"Faction {faction.id} belongs to story {faction.story_id}, not {self.id}")
+        logger.debug(f"Adding faction '{faction.id}' ({faction.name}) to story '{self.id}'")
+        self._factions[faction.id] = faction
+        faction.story = self
+    
+    def get_faction(self, faction_id: str) -> Optional['StoryFaction']:
+        """Get a faction by ID."""
+        return self._factions.get(faction_id)
+    
+    def get_all_factions(self) -> List['StoryFaction']:
+        """Get all factions in the story."""
+        return list(self._factions.values())
+    
+    def get_factions_for_arc(self, arc_id: str) -> List['StoryFaction']:
+        """Get factions active in a specific arc."""
+        return [f for f in self._factions.values() if f.arc_id == arc_id]
+    
+    # ========================================================================
+    # Magic System cache
+    # ========================================================================
+    
+    def add_magic_system(self, magic_system: 'StoryMagicSystem') -> None:
+        """Add a magic system to the story.
+
+        Args:
+            magic_system: The magic system to add
+        """
+        if magic_system.story_id != self.id:
+            raise ValueError(f"MagicSystem {magic_system.id} belongs to story {magic_system.story_id}, not {self.id}")
+        logger.debug(f"Adding magic system '{magic_system.id}' ({magic_system.name}) to story '{self.id}'")
+        self._magic_systems[magic_system.id] = magic_system
+        magic_system.story = self
+    
+    def get_magic_system(self, system_id: str) -> Optional['StoryMagicSystem']:
+        """Get a magic system by ID."""
+        return self._magic_systems.get(system_id)
+    
+    def get_all_magic_systems(self) -> List['StoryMagicSystem']:
+        """Get all magic systems in the story."""
+        return list(self._magic_systems.values())
+    
+    def get_magic_systems_for_arc(self, arc_id: str) -> List['StoryMagicSystem']:
+        """Get magic systems active in a specific arc."""
+        return [m for m in self._magic_systems.values() if m.arc_id == arc_id]
     
     def get_available_choices(self, segment_id: str) -> List['StoryChoice']:
         """Get available choices from a segment, excluding archived destinations.

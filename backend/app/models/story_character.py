@@ -81,6 +81,9 @@ class StoryCharacter(StoryBlock):
     personality: List[str] = Field(default_factory=list)  # Key personality traits (3-4 items)
     goals: str = ""  # What does this character want?
     relationships: Dict[str, str] = Field(default_factory=dict)  # character_id -> relationship description
+    
+    # Recap (updated as story progresses)
+    recap: Optional[str] = Field(None, description="Current recap of this character (updated during story)")
 
     def __init__(self, **data: Any):
         """Initialize a StoryCharacter instance.
@@ -163,20 +166,15 @@ class StoryCharacter(StoryBlock):
         """
         return self.running_status.copy()
     
-    def get_short_overview(self) -> str:
-        """Get a short descriptor of this character.
-        
-        Returns:
-            A string describing the character's role and key traits
-        """
-        return f"{self.name}: {self.description} (Avatar: {self.avatar_shape.value} {self.avatar_color})"
+    def to_context_short(self) -> str:
+        """Short context: description + recap if available."""
+        parts = [f"{self.name}: {self.description}"]
+        if self.recap:
+            parts.append(self.recap)
+        return " | ".join(parts)
 
-    def get_full_overview(self) -> str:
-        """Get detailed information about this character.
-        
-        Returns:
-            A string containing comprehensive character information
-        """
+    def to_context_full(self) -> str:
+        """Full context: complete character information."""
         # Get all segments where this character appears
         character_segments = []
         for segment in self.story.get_all_segments():

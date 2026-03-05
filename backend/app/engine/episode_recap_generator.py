@@ -3,7 +3,8 @@
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
-from app.models import Story, StorySegment, EpisodeRecap, StoryArc, CharacterState
+from app.models import Story, StorySegment, StoryArc
+from app.models.story_episode import StoryEpisode as EpisodeRecap, CharacterState
 from app.models.story_segment import SegmentStatus
 from app.engine.generator import TextGenerator
 from app.engine.character_state_updater import CharacterStateUpdater
@@ -52,7 +53,7 @@ class EpisodeRecapGenerator:
         Raises:
             ValueError: If no segments found for the episode
         """
-        from app.models.episode_meta import EpisodeMeta
+        from app.models.story_episode import StoryEpisode as EpisodeMeta
         
         # 1. Collect segments in this episode
         episode_segments = self._walk_episode_segments(
@@ -136,10 +137,11 @@ Additionally, extract:
         # 7. Create EpisodeRecap with enhanced fields
         recap_id = f"recap_{self.story.id}_ep{episode_number}_{arc_id or 'main'}"
         recap = EpisodeRecap(
+            story=self.story,
             id=recap_id,
             story_id=self.story.id,
             episode_number=episode_number,
-            arc_id=arc_id,
+            arc_id=arc_id or "main",
             title=ai_title,  # Auto-generated from AI
             summary=ai_summary,
             key_themes=selected_themes if selected_themes else (ai_themes if isinstance(ai_themes, list) else []),
@@ -227,7 +229,7 @@ Additionally, extract:
             ValueError: If arc not found
         """
         from app.utils.theme_selector import ThemeSelector
-        from app.models.episode_meta import EpisodeMeta
+        from app.models.story_episode import StoryEpisode as EpisodeMeta
         
         # Step 1: Get arc
         arc = StoryArc.load(self.story.id, arc_id)
@@ -1065,8 +1067,8 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         Returns:
             Updated EpisodeMeta
         """
-        from app.models.episode_meta import EpisodeMeta
-        from app.models.character_state import CharacterStateSnapshot
+        from app.models.story_episode import StoryEpisode as EpisodeMeta
+        from app.models.story_episode import CharacterStateSnapshot
         
         # Update character states
         for char_id, char_state in running_state.get('character_states', {}).items():
@@ -1216,20 +1218,20 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                         faction_members[char.faction_id] = []
                     faction_members[char.faction_id].append((char.id, char.name))
         
-        # Get faction details from story if available
-        if hasattr(self.story, '_factions') and self.story._factions:
-            for faction_id, faction in self.story._factions.items():
-                if faction_id in faction_members:
-                    faction_states[faction_id] = {
-                        'name': getattr(faction, 'name', 'Unknown Faction'),
-                        'description': getattr(faction, 'description', ''),
-                        'goals': getattr(faction, 'goals', []),
-                        'leader': getattr(faction, 'leader', ''),
-                        'alignment': getattr(faction, 'alignment', 'Neutral'),
-                        'power_level': 0.5,  # Default, can be updated by LLM
-                        'members': faction_members[faction_id],
-                        'member_count': len(faction_members[faction_id])
-                    }
+        # Get faction details from story
+        for faction in self.story.get_all_factions():
+            if faction.id in faction_members:
+                faction_states[faction.id] = {
+                    'name': faction.name,
+                    'description': faction.description,
+                    'goals': faction.goals,
+                    'leader': faction.leader,
+                    'alignment': faction.alignment,
+                    'status': faction.status,
+                    'power_level': 0.5,  # Default, can be updated by LLM
+                    'members': faction_members[faction.id],
+                    'member_count': len(faction_members[faction.id])
+                }
         
         logger.debug(f"Collected faction states from episode {episode_number}: {len(faction_states)} factions")
         return faction_states
@@ -1276,16 +1278,14 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 logger.debug(f"Updated location {loc.name} current_state with episode {episode_number} end state")
         
         # Update faction states with final episode state
-        if hasattr(self.story, '_factions') and self.story._factions:
-            for faction_id, faction_state in running_state.get('faction_states', {}).items():
-                if faction_id in self.story._factions:
-                    faction = self.story._factions[faction_id]
-                    # Update faction attributes
-                    if hasattr(faction, 'power_level'):
-                        faction.power_level = faction_state.get('power_level', 0.5)
-                    if hasattr(faction, 'member_count'):
-                        faction.member_count = faction_state.get('member_count', 0)
-                    logger.debug(f"Updated faction {faction_state.get('name')} with episode {episode_number} end state")
+        for faction_id, faction_state in running_state.get('faction_states', {}).items():
+            faction = self.story.get_faction(faction_id)
+            if faction:
+                # Record change and update description if needed
+                change = f"Episode {episode_number}: power_level={faction_state.get('power_level', 0.5)}, members={faction_state.get('member_count', 0)}"
+                faction.apply_change(change)
+                faction.save()
+                logger.debug(f"Updated faction {faction.name} with episode {episode_number} end state")
         
         logger.info(f"Updated story objects with running state from episode {episode_number}: "
                    f"{len(running_state.get('character_states', {}))} characters, "
@@ -1354,14 +1354,12 @@ Include exactly the character IDs. Be selective - focus on the most important ch
                 loc.save()
         
         # Update factions
-        if hasattr(self.story, '_factions') and self.story._factions:
-            for faction_id, faction_state in running_state.get('faction_states', {}).items():
-                if faction_id in self.story._factions:
-                    faction = self.story._factions[faction_id]
-                    if hasattr(faction, 'power_level'):
-                        faction.power_level = faction_state.get('power_level', 0.5)
-                    if hasattr(faction, 'member_count'):
-                        faction.member_count = faction_state.get('member_count', 0)
+        for faction_id, faction_state in running_state.get('faction_states', {}).items():
+            faction = self.story.get_faction(faction_id)
+            if faction:
+                change = f"LLM update: {faction_state.get('description', '')[:100]}"
+                faction.apply_change(change)
+                faction.save()
         
         logger.info(f"Updated story objects with running state from episode {episode_number}: "
                    f"{len(running_state.get('character_states', {}))} characters, "
@@ -1529,8 +1527,8 @@ Return ONLY valid JSON in this format:
                     char.description = parsed['description']
                 
                 # Update CharacterStateSnapshot in EpisodeMeta
-                from app.models.character_state import CharacterStateSnapshot
-                from app.models.episode_meta import EpisodeMeta
+                from app.models.story_episode import CharacterStateSnapshot
+                from app.models.story_episode import StoryEpisode as EpisodeMeta
                 
                 # Try to find and update current episode's metadata
                 if hasattr(self, 'current_episode_number'):

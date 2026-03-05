@@ -62,55 +62,13 @@ class StoryFraction(StoryBase):
         description="Location IDs associated with this fraction"
     )
     
-    def get_short_context(self) -> str:
-        """Get short context for this fraction (used in prompts).
-        
-        Returns:
-            Brief description for use in LLM prompts
-        """
-        return self.short_description
+    def to_context_short(self) -> str:
+        """Short context: title and brief description."""
+        return f"{self.title} (Order {self.order}): {self.short_description}"
     
-    def get_full_context(self) -> str:
-        """Get full context for this fraction.
-        
-        Returns:
-            Comprehensive description with goal and themes
-        """
+    def to_context_full(self) -> str:
+        """Full context: complete fraction information."""
         context = f"""Fraction: {self.title}
-
-{self.full_description}
-
-Main Goal: {self.main_goal}
-
-Themes: {', '.join(self.themes) if self.themes else 'N/A'}
-
-Central Conflict: {self.central_conflict}"""
-        
-        if self.narrative_direction:
-            context += f"\n\nNarrative Direction: {self.narrative_direction}"
-        
-        return context
-    
-    def to_context(self, format: str = "full") -> str:
-        """Convert to context string for use in LLM prompts.
-        
-        Args:
-            format: "short" for brief, "full" for comprehensive
-            
-        Returns:
-            Formatted context string
-        """
-        if format == "short":
-            return self.get_short_context()
-        return self.get_full_context()
-    
-    def get_short_overview(self) -> str:
-        """Get a brief overview of the fraction."""
-        return f"{self.title} (Order {self.order})"
-    
-    def get_full_overview(self) -> str:
-        """Get a detailed overview of the fraction."""
-        return f"""Fraction: {self.title}
 
 Order: {self.order}
 
@@ -124,3 +82,8 @@ Central Conflict: {self.central_conflict}
 
 Characters: {len(self.character_ids)}
 Locations: {len(self.location_ids)}"""
+        
+        if self.narrative_direction:
+            context += f"\n\nNarrative Direction: {self.narrative_direction}"
+        
+        return context

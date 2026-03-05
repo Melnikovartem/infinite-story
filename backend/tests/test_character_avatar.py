@@ -156,8 +156,8 @@ class TestAvatarSystem:
                 avatar_color="#FF00"
             )
     
-    def test_get_short_overview_includes_avatar(self, test_story):
-        """Test that short overview includes avatar info."""
+    def test_to_context_short_includes_name_and_description(self, test_story):
+        """Test that short context includes name and description."""
         char = StoryCharacter(
             story=test_story,
             id="char_9",
@@ -169,10 +169,9 @@ class TestAvatarSystem:
             avatar_color="#FFD700"
         )
         
-        overview = char.get_short_overview()
+        overview = char.to_context_short()
         assert "Overview Test" in overview
-        assert "star" in overview
-        assert "#FFD700" in overview
+        assert "Test avatar in overview" in overview
 
 
 class TestCharacterState:
@@ -403,7 +402,7 @@ class TestCharacterSerialization:
             avatar_color="#8B4513"
         )
         
-        overview = char.get_full_overview()
+        overview = char.to_context_full()
         assert "Full Overview Test" in overview
         assert "pentagon" in overview
         assert "#8B4513" in overview

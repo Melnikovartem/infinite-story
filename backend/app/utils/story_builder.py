@@ -10,7 +10,7 @@ from app.models.story_character import StoryCharacter, AvatarShape
 from app.models.story_location import StoryLocation
 from app.models.story_context import StoryContext
 from app.models.story_arc import StoryArc
-from app.models.episode_recap import EpisodeRecap
+from app.models.story_episode import StoryEpisode as EpisodeRecap
 from app.models.text_types import TextBlock, TextType
 
 logger = logging.getLogger("infinite_story.utils.story_builder")

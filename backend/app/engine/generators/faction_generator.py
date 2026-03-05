@@ -6,38 +6,14 @@ import re
 import uuid
 from typing import List, Dict, Any
 from app.models.story import Story
+from app.models.story_faction import StoryFaction
 from app.engine.generator import TextGenerator
 
 logger = logging.getLogger("infinite_story.engine.generators.faction_generator")
 
 
-class Faction:
-    """Simple faction data class."""
-    def __init__(self, name: str, description: str, goals: List[str], 
-                 leader: str, resources: str, alignment: str):
-        self.id = f"faction_{uuid.uuid4().hex[:8]}"
-        self.name = name
-        self.description = description  # Short description
-        self.goals = goals  # List of faction goals
-        self.leader = leader
-        self.resources = resources
-        self.alignment = alignment  # Good, Evil, Neutral, etc
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "goals": self.goals,
-            "leader": self.leader,
-            "resources": self.resources,
-            "alignment": self.alignment
-        }
-    
-    def short_summary(self) -> str:
-        """Get short summary for prompts."""
-        return f"{self.name}: {self.description}"
+# Backward-compatible alias - old code that imports Faction gets StoryFaction
+Faction = StoryFaction
 
 
 class FactionGenerator:
@@ -59,7 +35,7 @@ class FactionGenerator:
         world_description: str,
         major_tensions: List[str],
         user_input: str = ""
-    ) -> List[Faction]:
+    ) -> List[StoryFaction]:
         """Generate factions for the world.
         
         Args:
@@ -69,7 +45,7 @@ class FactionGenerator:
             user_input: Optional user guidance
             
         Returns:
-            List of Faction objects
+            List of StoryFaction objects (persistent, saveable)
         """
         try:
             logger.info(f"Generating {count} factions for story '{self.story.id}'")
@@ -137,8 +113,8 @@ Make factions:
 
 Include opposition/rivalry between factions."""
     
-    def _parse_factions(self, response: Any, count: int) -> List[Faction]:
-        """Parse factions from AI response."""
+    def _parse_factions(self, response: Any, count: int) -> List[StoryFaction]:
+        """Parse factions from AI response into persistent StoryFaction objects."""
         
         factions = []
         response_text = ""
@@ -152,11 +128,20 @@ Include opposition/rivalry between factions."""
         
         logger.debug(f"Parsing {len(response_text)} chars for factions")
         
+        # Collect raw faction data first
+        raw_factions = []
+        
+        # Known prompt headers to skip (these are template labels, not real faction names)
+        _SKIP_HEADERS = {
+            'faction name', 'faction', 'name', 'description', 'goals', 'goal',
+            'leader', 'resources', 'alignment', 'opposition', 'rivalry',
+            'important', 'note', 'notes', 'instructions',
+        }
+        
         # Try parsing with ** markers first
         sections = re.split(r'\*\*([^*]+)\*\*', response_text)
         
         if len(sections) > 2:
-            # Parse markdown-style factions
             for i in range(1, len(sections), 2):
                 faction_name = sections[i].strip()
                 faction_content = sections[i + 1].strip() if i + 1 < len(sections) else ""
@@ -164,41 +149,74 @@ Include opposition/rivalry between factions."""
                 if not faction_name or len(faction_name) < 2:
                     continue
                 
-                faction = self._parse_faction_content(faction_name, faction_content)
-                factions.append(faction)
-                logger.debug(f"Created faction (markdown): {faction.name}")
-        
-        # Try parsing numbered/lettered format if not enough factions found
-        if len(factions) < count // 2:
-            numbered_sections = re.split(r'^(?:\d+\.|[A-Z]\.)\s*(.+?)(?=\n(?:\d+\.|[A-Z]\.)|$)', 
-                                        response_text, flags=re.MULTILINE | re.DOTALL)
-            
-            for i in range(1, len(numbered_sections), 2):
-                faction_name = numbered_sections[i].split('\n')[0].strip()
-                faction_content = numbered_sections[i].strip()
+                # Skip known prompt template headers
+                if faction_name.lower().strip(':').strip() in _SKIP_HEADERS:
+                    continue
                 
-                if faction_name and len(faction_name) > 2:
-                    faction = self._parse_faction_content(faction_name, faction_content)
-                    factions.append(faction)
-                    logger.debug(f"Created faction (numbered): {faction.name}")
+                # Skip if it looks like a field label (e.g., "Description:", "Goals:")
+                if re.match(r'^(Description|Goals?|Leader|Resources?|Alignment|Opposition|Rivalry)\s*:', faction_name, re.IGNORECASE):
+                    continue
+                
+                raw = self._parse_faction_content(faction_name, faction_content)
+                raw_factions.append(raw)
+                logger.debug(f"Parsed faction (markdown): {raw['name']}")
         
-        # If still not enough, create defaults
-        while len(factions) < count:
-            faction = Faction(
-                name=f"Faction {len(factions) + 1}",
-                description="A faction with distinct goals and resources",
-                goals=["Gain influence", "Protect their interests", "Advance their agenda"],
-                leader="Unknown",
-                resources="Unknown",
-                alignment="Neutral"
+        # Try numbered/lettered format if not enough
+        if len(raw_factions) < count // 2:
+            # Split on numbered lines like "1. ", "2. ", "A. ", etc.
+            numbered_sections = re.split(r'\n(?=\d+[\.\)]\s+|[A-Z][\.\)]\s+)', 
+                                        response_text)
+            
+            for section in numbered_sections:
+                section = section.strip()
+                if not section:
+                    continue
+                
+                # Extract faction name from first line
+                first_line = section.split('\n')[0].strip()
+                # Remove leading number/letter prefix
+                faction_name = re.sub(r'^\d+[\.\)]\s*|^[A-Z][\.\)]\s*', '', first_line).strip()
+                # Remove markdown bold
+                faction_name = re.sub(r'\*\*([^*]+)\*\*', r'\1', faction_name).strip()
+                # Remove trailing colon
+                faction_name = faction_name.rstrip(':').strip()
+                
+                if faction_name and len(faction_name) > 2 and faction_name.lower() not in _SKIP_HEADERS:
+                    raw = self._parse_faction_content(faction_name, section)
+                    raw_factions.append(raw)
+                    logger.debug(f"Parsed faction (numbered): {raw['name']}")
+        
+        # Fill defaults if not enough
+        while len(raw_factions) < count:
+            raw_factions.append({
+                'name': f"Faction {len(raw_factions) + 1}",
+                'description': "A faction with distinct goals and resources",
+                'goals': ["Gain influence", "Protect their interests", "Advance their agenda"],
+                'leader': "Unknown",
+                'resources': "Unknown",
+                'alignment': "Neutral",
+            })
+        
+        # Convert to persistent StoryFaction objects
+        for raw in raw_factions[:count]:
+            faction_id = f"faction_{uuid.uuid4().hex[:8]}"
+            faction = StoryFaction(
+                id=faction_id,
+                story=self.story,
+                name=raw['name'],
+                description=raw['description'],
+                goals=raw['goals'],
+                leader=raw['leader'],
+                resources=raw['resources'],
+                alignment=raw['alignment'],
             )
             factions.append(faction)
-            logger.debug(f"Created default faction: {faction.name}")
+            logger.debug(f"Created StoryFaction: {faction.name} ({faction.id})")
         
-        return factions[:count]
+        return factions
     
-    def _parse_faction_content(self, name: str, content: str) -> Faction:
-        """Parse a single faction's content."""
+    def _parse_faction_content(self, name: str, content: str) -> Dict[str, Any]:
+        """Parse a single faction's content into a raw dict."""
         description = self._extract_field(content, r'Description:\s*([^\n]+)', "A faction with unclear motives")
         goals_text = self._extract_field(content, r'Goals?:\s*([^\n]+(?:\n[^\n]+){0,3})', "")
         leader = self._extract_field(content, r'Leader:\s*([^\n]+)', "Unknown")
@@ -210,14 +228,14 @@ Include opposition/rivalry between factions."""
         if not goals:
             goals = ["Gain power", "Survive", "Influence others"]
         
-        return Faction(
-            name=name,
-            description=description,
-            goals=goals,
-            leader=leader,
-            resources=resources,
-            alignment=alignment
-        )
+        return {
+            'name': name,
+            'description': description,
+            'goals': goals,
+            'leader': leader,
+            'resources': resources,
+            'alignment': alignment,
+        }
     
     def _extract_field(self, text: str, pattern: str, default: str = "") -> str:
         """Extract field using regex."""

@@ -10,8 +10,7 @@ from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
-from ..models.episode_recap import EpisodeRecap
-from ..models.segment_recap import SegmentRecap
+from ..models.story_episode import StoryEpisode as EpisodeRecap
 from ..engine.segment_context_builder import SegmentContextBuilder
 from ..engine.episode_recap_generator import EpisodeRecapGenerator
 
@@ -200,6 +199,55 @@ class StoryRunner:
             story.add_context(context)
             ctx_count += 1
         logger.info(f"Loaded {ctx_count} contexts")
+
+        # Load all episodes
+        from ..models.story_episode import StoryEpisode
+        episode_dir = StoryEpisode.get_storage_dir(story.id)
+        logger.debug(f"Loading episodes from {episode_dir}")
+        ep_count = 0
+        for episode_file in episode_dir.glob("*.json"):
+            episode_id = episode_file.stem
+            logger.debug(f"  Loading episode: {episode_id}")
+            episode = StoryEpisode.load(story.id, episode_id, story)
+            if not episode:
+                logger.warning(f"Failed to load episode {episode_id}")
+                continue
+            story.add_episode(episode)
+            ep_count += 1
+        logger.info(f"Loaded {ep_count} episodes")
+
+        # Load all factions
+        from ..models.story_faction import StoryFaction
+        faction_dir = StoryFaction.get_storage_dir(story.id)
+        logger.debug(f"Loading factions from {faction_dir}")
+        faction_count = 0
+        for faction_file in faction_dir.glob("*.json"):
+            faction_id = faction_file.stem
+            logger.debug(f"  Loading faction: {faction_id}")
+            faction = StoryFaction.load(story.id, faction_id, story)
+            if not faction:
+                logger.warning(f"Failed to load faction {faction_id}")
+                continue
+            story.add_faction(faction)
+            faction_count += 1
+        logger.info(f"Loaded {faction_count} factions")
+
+        # Load all magic systems
+        from ..models.story_magic_system import StoryMagicSystem
+        magic_dir = StoryMagicSystem.get_storage_dir(story.id)
+        logger.debug(f"Loading magic systems from {magic_dir}")
+        magic_count = 0
+        for magic_file in magic_dir.glob("*.json"):
+            magic_id = magic_file.stem
+            logger.debug(f"  Loading magic system: {magic_id}")
+            magic = StoryMagicSystem.load(story.id, magic_id, story)
+            if not magic:
+                logger.warning(f"Failed to load magic system {magic_id}")
+                continue
+            story.add_magic_system(magic)
+            magic_count += 1
+        logger.info(f"Loaded {magic_count} magic systems")
+
         logger.info(f"Finished loading all components for story '{story.id}'")
 
     def save_all_components(self, story) -> None:
@@ -496,8 +544,8 @@ class StoryRunner:
             new_segment.save()
             logger.info(f"Saved segment {segment_id} and choices")
             
-            # Create and save SegmentRecap for context building (E2-6)
-            self._create_and_save_segment_recap(new_segment, context)
+            # Set recap field on segment for context building
+            self._save_segment_recap(new_segment, context)
             
             return new_segment
         
@@ -592,50 +640,26 @@ Respond with:
 """
         return prompt
     
-    def _create_and_save_segment_recap(
+    def _save_segment_recap(
         self,
         segment: StorySegment,
         context: Dict[str, Any]
     ) -> None:
-        """Create and save a SegmentRecap for context building (E2-6).
+        """Set the recap field on the segment and save it.
         
-        Called after segment generation to create a quick reference recap
-        that can be loaded during context building without loading full segment.
+        Called after segment generation to populate the recap field
+        for quick context building without loading full segment text_blocks.
         
         Args:
             segment: The newly generated StorySegment
             context: The generation context dict
         """
         try:
-            # Extract key events from change_notes (if available)
-            change_notes = segment.change_notes or context.get('accumulated_changes', [])
-            key_events = change_notes[:4] if change_notes else []  # Limit to 4
-            
-            # Get characters present in current segment
-            characters_present = list(context.get('character_states', {}).keys())
-            
-            # Create recap
-            recap = SegmentRecap(
-                story_id=self.story.id,
-                segment_id=segment.id,
-                episode_number=segment.episode_number,
-                arc_id=segment.arc_id or self.current_arc_id or "",
-                segment_number_in_episode=segment.segment_number_in_episode,
-                short_description=segment.short_description or "",
-                key_events=key_events,
-                characters_present=characters_present,
-                character_changes=change_notes,  # Use change_notes as character changes
-                change_notes=change_notes,
-                themes_present=segment.episode_selected_themes or context.get('episode_selected_themes', []),
-            )
-            
-            # Save recap to disk
-            recap.save()
-            logger.debug(f"Created and saved SegmentRecap for segment {segment.id}")
-            
+            segment.recap = segment.short_description or ""
+            segment.save()
+            logger.debug(f"Saved segment recap for segment {segment.id}")
         except Exception as e:
-            logger.warning(f"Failed to create SegmentRecap for segment {segment.id}: {e}")
-            # Don't raise - this is optional for context building
+            logger.warning(f"Failed to save segment recap for segment {segment.id}: {e}")
     
     async def _check_arc_transition(self, current_arc_id: str) -> Optional[str]:
         """

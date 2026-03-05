@@ -342,17 +342,30 @@ class StoryValidator:
     # =========================================================================
     
     def _get_active_arcs(self) -> List[StoryArc]:
-        """Get all active arcs (those with segments)."""
+        """Get all active arcs (those marked active or referenced by segments)."""
         active = []
+        seen_ids = set()
         
-        # Check all segments to find which arcs have content
+        # First check arcs explicitly marked as active
+        all_arc_ids = StoryArc.list_all(self.story.id)
+        for arc_id in all_arc_ids:
+            try:
+                arc = StoryArc.load(self.story.id, arc_id)
+                if arc and arc.is_active and arc.id not in seen_ids:
+                    active.append(arc)
+                    seen_ids.add(arc.id)
+            except Exception:
+                pass
+        
+        # Also check segments that reference arcs (backward compat)
         for segment in self.story._segments.values():
-            if segment.arc_id:
+            if segment.arc_id and segment.arc_id not in seen_ids:
                 try:
                     arc = StoryArc.load(self.story.id, segment.arc_id)
-                    if arc and arc.id not in [a.id for a in active]:
+                    if arc and arc.id not in seen_ids:
                         active.append(arc)
-                except:
+                        seen_ids.add(arc.id)
+                except Exception:
                     pass
         
         return active

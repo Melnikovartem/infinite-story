@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from app.models.story import Story
-from app.models.episode_recap import CharacterState
+from app.models.story_episode import CharacterState
 from app.engine.episode_recap_generator import EpisodeRecapGenerator
 
 

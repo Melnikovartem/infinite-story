@@ -78,10 +78,12 @@ Each arc shows a different phase of the world's evolution.""",
                     unresolved_mysteries=outline.get('mysteries', []),
                     plot_hooks=outline.get('hooks', []),
                     start_segment_id='',  # Will be set when arc becomes active
+                    is_active=(i == 0),  # First arc is active by default
+                    is_future_arc=(i > 0),  # Subsequent arcs are future arcs
                 )
                 arc.save()
                 arcs.append(arc)
-                logger.info(f"Created arc outline: {arc.title}")
+                logger.info(f"Created arc outline: {arc.title} (active={arc.is_active})")
             
             return arcs
             

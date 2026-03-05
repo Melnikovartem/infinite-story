@@ -5,8 +5,7 @@ from typing import Dict, List, Optional, Set
 import json
 
 from app.models.story import Story
-from app.models.character_state import CharacterStateSnapshot
-from app.models.episode_recap import EpisodeRecap
+from app.models.story_episode import CharacterStateSnapshot, StoryEpisode as EpisodeRecap
 from app.models.story_segment import StorySegment
 from app.models.story_character import StoryCharacter
 

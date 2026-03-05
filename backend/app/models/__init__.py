@@ -6,13 +6,14 @@ from .story_choice import StoryChoice, ChoiceFlags
 from .story_character import StoryCharacter
 from .story_location import StoryLocation
 from .text_types import TextType, TextBlock
-from .episode_recap import EpisodeRecap, CharacterState
 from .story_arc import StoryArc, ArcCompressionResult
-from .character_state import CharacterStateSnapshot
-from .episode_meta import EpisodeMeta
-from .segment_recap import SegmentRecap
-from .character_recap import CharacterRecap
-from .arc_recap import ArcRecap
+from .story_episode import StoryEpisode, CharacterState, CharacterStateSnapshot
+from .story_faction import StoryFaction
+from .story_magic_system import StoryMagicSystem
+
+# Backward-compatible aliases for removed models
+EpisodeRecap = StoryEpisode
+EpisodeMeta = StoryEpisode
 
 __all__ = [
     'User',
@@ -27,13 +28,14 @@ __all__ = [
     'StoryLocation',
     'TextType',
     'TextBlock',
-    'EpisodeRecap',
+    'StoryEpisode',
     'CharacterState',
     'CharacterStateSnapshot',
     'StoryArc',
     'ArcCompressionResult',
+    'StoryFaction',
+    'StoryMagicSystem',
+    # Backward-compatible aliases
+    'EpisodeRecap',
     'EpisodeMeta',
-    'SegmentRecap',
-    'CharacterRecap',
-    'ArcRecap',
 ]

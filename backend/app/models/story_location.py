@@ -38,20 +38,12 @@ class StoryLocation(StoryBlock):
         super().__init__(**data)
         self.story.add_location(self)
 
-    def get_short_overview(self) -> str:
-        """Get a short descriptor of this location.
-        
-        Returns:
-            A string describing the location's key features
-        """
+    def to_context_short(self) -> str:
+        """Short context: name and description."""
         return f"{self.name}: {self.description}"
 
-    def get_full_overview(self) -> str:
-        """Get detailed information about this location.
-        
-        Returns:
-            A string containing comprehensive location information
-        """
+    def to_context_full(self) -> str:
+        """Full context: complete location information."""
         # Get all segments where this location appears
         location_segments = []
         for segment in self.story.get_all_segments():

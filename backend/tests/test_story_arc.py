@@ -157,13 +157,13 @@ def test_story_arc_overviews(test_data):
         episode_count=12
     )
     
-    # Test short overview
-    short = arc.get_short_overview()
+    # Test short context
+    short = arc.to_context_short()
     assert "The Magical Revolution" in short
     assert "12 episodes" in short
     
-    # Test full overview
-    full = arc.get_full_overview()
+    # Test full context
+    full = arc.to_context_full()
     assert "Arc: The Magical Revolution" in full
     assert "Premise: Knowledge is power" in full
     assert "Direction: Magic spreads across the land" in full

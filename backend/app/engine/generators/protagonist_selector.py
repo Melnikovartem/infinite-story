@@ -6,7 +6,7 @@ import uuid
 
 from app.models.story import Story
 from app.models.story_character import StoryCharacter
-from app.models.character_state import CharacterStateSnapshot
+from app.models.story_episode import CharacterStateSnapshot
 from app.engine.generator import TextGenerator
 
 logger = logging.getLogger("infinite_story.engine.generators.protagonist_selector")

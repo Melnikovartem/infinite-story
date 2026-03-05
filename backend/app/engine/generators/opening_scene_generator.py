@@ -48,7 +48,7 @@ class OpeningSceneGenerator(TextGenerator):
         if fractions:
             fractions_context = "\n\nKey Factions:\n"
             for frac in fractions[:3]:  # Limit to 3 for context
-                frac_desc = frac.to_context("short") if hasattr(frac, 'to_context') else str(frac)
+                frac_desc = frac.to_context_short()
                 fractions_context += f"- {frac_desc}\n"
         
         # Get locations context

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
 from datetime import datetime
-from app.models.content_report import ContentReport, ReportType, ReportStatus
+from app.utils.content_report import ContentReport, ReportType, ReportStatus
 
 router = APIRouter()
 

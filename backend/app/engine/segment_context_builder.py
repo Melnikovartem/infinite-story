@@ -217,7 +217,7 @@ class SegmentContextBuilder:
             'character_states': current_seg.character_states,
             'accumulated_changes': accumulated_changes,
             'previous_segments': [
-                self.story.get_segment(seg_id).get_short_overview()
+                self.story.get_segment(seg_id).to_context_short()
                 for seg_id in episode_chain[-5:]  # Last 5 scenes
                 if self.story.get_segment(seg_id)
             ],
@@ -243,9 +243,9 @@ class SegmentContextBuilder:
         # Add episode metadata if available
         if current_seg.arc_id and current_seg.episode_number:
             try:
-                from app.models.episode_meta import EpisodeMeta
+                from app.models.story_episode import StoryEpisode
                 episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
-                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                episode_meta = StoryEpisode.load(self.story.id, episode_meta_id, story=self.story)
                 if episode_meta:
                     context_dict.update({
                         'episode_selected_themes': episode_meta.selected_themes,
@@ -324,6 +324,60 @@ class SegmentContextBuilder:
             logger.warning(f"Reached max depth {max_depth} walking parent chain")
         
         return chain
+    
+    def _is_first_segment_of_episode(self, segment: StorySegment, episode_chain: List[str]) -> bool:
+        """Check if this segment is the first in its episode.
+        
+        A segment is the first in an episode if:
+        - It has segment_number_in_episode == 1, OR
+        - It's the only segment in the episode chain, OR
+        - Its parent segment (if any) belongs to a different episode
+        """
+        if segment.segment_number_in_episode == 1:
+            return True
+        
+        if len(episode_chain) <= 1:
+            return True
+        
+        # Check if parent is in a different episode
+        if segment.parent_segment_id:
+            parent = self.story.get_segment(segment.parent_segment_id)
+            if parent and parent.episode_number != segment.episode_number:
+                return True
+        
+        return False
+    
+    def _get_previous_episode_changes(self, current_seg: StorySegment) -> List[str]:
+        """Get accumulated changes from the previous episode.
+        
+        Walks backward from the current segment's parent to collect changes
+        from the last episode for continuity.
+        """
+        changes = []
+        
+        if not current_seg.parent_segment_id:
+            return changes
+        
+        parent = self.story.get_segment(current_seg.parent_segment_id)
+        if not parent or parent.episode_number == current_seg.episode_number:
+            return changes
+        
+        # Walk backward through the previous episode
+        prev_episode_num = parent.episode_number
+        current = parent
+        visited = set()
+        
+        while current and current.episode_number == prev_episode_num:
+            if current.id in visited:
+                break
+            visited.add(current.id)
+            changes.extend(current.change_notes)
+            
+            if not current.parent_segment_id:
+                break
+            current = self.story.get_segment(current.parent_segment_id)
+        
+        return changes
     
     def _accumulate_changes(self, segment_chain: List[str]) -> List[str]:
         """Collect all change_notes from segment chain."""
@@ -422,9 +476,9 @@ class SegmentContextBuilder:
             
             # Try to load episode recap
             try:
-                from app.models.episode_recap import EpisodeRecap
+                from app.models.story_episode import StoryEpisode
                 recap_id = f"episode_recap_{ep_num}_{current_arc_id}" if current_arc_id else f"episode_recap_{ep_num}"
-                recap = EpisodeRecap.load(self.story.id, recap_id)
+                recap = StoryEpisode.load(self.story.id, recap_id, story=self.story)
                 if recap:
                     ep_info['recap'] = {
                         'key_events': recap.key_events,
@@ -451,31 +505,25 @@ class SegmentContextBuilder:
         Returns:
             List of previous arc information with recaps
         """
-        from app.models.arc_recap import ArcRecap
-        
         arcs = []
         all_arcs = self.story.get_all_arcs() if hasattr(self.story, 'get_all_arcs') else []
         
-        # Get previous arcs (before current)
+        # Get previous arcs (before current) - recap is now a field on StoryArc
         for arc in all_arcs:
             if current_arc_id and arc.id == current_arc_id:
                 continue
             
-            try:
-                recap = ArcRecap.load(self.story.id, f"arc_recap_{arc.id}")
-                if recap:
-                    arcs.append({
-                        'arc_id': arc.id,
-                        'name': arc.name if hasattr(arc, 'name') else arc.id,
-                        'premise': recap.arc_premise if hasattr(recap, 'arc_premise') else '',
-                        'resolution': recap.resolution if hasattr(recap, 'resolution') else '',
-                        'major_events': recap.major_events if hasattr(recap, 'major_events') else [],
-                        'character_arcs': recap.character_arcs if hasattr(recap, 'character_arcs') else {},
-                    })
-                    if len(arcs) >= count:
-                        break
-            except:
-                pass
+            if arc.recap or arc.recap_summary:
+                arcs.append({
+                    'arc_id': arc.id,
+                    'name': arc.title,
+                    'premise': arc.premise,
+                    'resolution': arc.outcome,
+                    'recap': arc.recap or arc.recap_summary,
+                    'character_arcs': arc.character_arc_resolutions,
+                })
+                if len(arcs) >= count:
+                    break
         
         logger.debug(f"Extracted {len(arcs)} previous arcs")
         return arcs
@@ -486,29 +534,15 @@ class SegmentContextBuilder:
     
     def _get_all_character_summaries(self) -> Dict[str, Dict[str, Any]]:
         """Get short recaps for ALL characters in story."""
-        from app.models.character_recap import CharacterRecap
-        
         summaries = {}
         try:
             for character in self.story.get_all_characters():
-                try:
-                    recap = CharacterRecap.load(self.story.id, character.id)
-                    if recap:
-                        summaries[character.id] = {
-                            'name': recap.character_name,
-                            'status': recap.current_status,
-                            'emotion': recap.current_emotion,
-                            'description': recap.short_description,
-                            'relationships': recap.key_relationships,
-                            'last_seen': recap.last_seen_episode,
-                        }
-                except:
-                    # Fallback to character data
-                    summaries[character.id] = {
-                        'name': character.name,
-                        'description': character.description,
-                        'status': 'unknown',
-                    }
+                summaries[character.id] = {
+                    'name': character.name,
+                    'description': character.recap or character.description,
+                    'status': character.current_state.get('status', 'unknown') if character.current_state else 'unknown',
+                    'relationships': character.relationships,
+                }
         except Exception as e:
             logger.warning(f"Failed to get character summaries: {e}")
         
@@ -534,7 +568,7 @@ class SegmentContextBuilder:
             }
         """
         from app.models.story_arc import StoryArc
-        from app.models.episode_meta import EpisodeMeta
+        from app.models.story_episode import StoryEpisode
         
         arc_characters = {}
         episode_characters = {}
@@ -559,7 +593,7 @@ class SegmentContextBuilder:
             # Load episode metadata to get updated character states
             if current_seg.arc_id and current_seg.episode_number:
                 episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
-                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                episode_meta = StoryEpisode.load(self.story.id, episode_meta_id, story=self.story)
                 
                 if episode_meta and episode_meta.character_state_snapshot:
                     # Pack episode character states with full context
@@ -647,7 +681,7 @@ class SegmentContextBuilder:
         count: int = 3
     ) -> List[Dict[str, Any]]:
         """Get last N episode recaps."""
-        from app.models.episode_recap import EpisodeRecap
+        from app.models.story_episode import StoryEpisode
         
         recaps = []
         
@@ -655,7 +689,7 @@ class SegmentContextBuilder:
         for ep_num in range(current_episode - 1, max(0, current_episode - count - 1), -1):
             try:
                 recap_id = f"recap_{self.story.id}_ep{ep_num}_{arc_id or 'main'}"
-                recap = EpisodeRecap.load(self.story.id, recap_id)
+                recap = StoryEpisode.load(self.story.id, recap_id, story=self.story)
                 if recap:
                     recaps.append({
                         'episode': ep_num,
@@ -703,40 +737,26 @@ class SegmentContextBuilder:
         return []
     
     def _get_segment_recaps(self, segment_chain: List[str], count: int = 10) -> List[Dict[str, Any]]:
-        """Get recaps for recent segments."""
-        from app.models.segment_recap import SegmentRecap
-        
+        """Get recaps for recent segments from segment.recap field."""
         recaps = []
         
         # Get last N segments from chain
         for seg_id in segment_chain[-count:]:
-            try:
-                recap = SegmentRecap.load(self.story.id, f"segment_recap_{seg_id}")
-                if recap:
-                    recaps.append({
-                        'segment_id': recap.segment_id,
-                        'description': recap.short_description,
-                        'key_events': recap.key_events,
-                        'characters': recap.characters_present,
-                        'changes': recap.character_changes,
-                    })
-            except:
-                # Fallback: create basic recap from segment
-                seg = self.story.get_segment(seg_id)
-                if seg:
-                    recaps.append({
-                        'segment_id': seg.id,
-                        'description': seg.short_description,
-                        'characters': seg.characters_present,
-                    })
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                recaps.append({
+                    'segment_id': seg.id,
+                    'description': seg.recap or seg.short_description,
+                    'characters': seg.characters_present,
+                    'changes': seg.change_notes,
+                })
         
         return recaps
     
     def _get_segment_recaps_with_context(self, full_parent_chain: List[str], count: int = 10) -> List[Dict[str, Any]]:
         """Get recaps for recent segments from full parent chain, with recap details.
         
-        Walks the full parent chain and gets the N most recent segments with their
-        full recap information if available.
+        Reads recap info directly from segment.recap field and other segment fields.
         
         Args:
             full_parent_chain: Full list of parent segment IDs
@@ -745,47 +765,20 @@ class SegmentContextBuilder:
         Returns:
             List of segment recaps with details
         """
-        from app.models.segment_recap import SegmentRecap
-        
         recaps = []
         
         # Get last N segments from full chain
         for seg_id in full_parent_chain[-count:]:
-            try:
-                recap = SegmentRecap.load(self.story.id, f"segment_recap_{seg_id}")
-                if recap:
-                    recaps.append({
-                        'segment_id': recap.segment_id,
-                        'episode_number': recap.episode_number if hasattr(recap, 'episode_number') else None,
-                        'segment_number': recap.segment_number if hasattr(recap, 'segment_number') else None,
-                        'description': recap.short_description,
-                        'key_events': recap.key_events if hasattr(recap, 'key_events') else [],
-                        'characters': recap.characters_present if hasattr(recap, 'characters_present') else [],
-                        'changes': recap.character_changes if hasattr(recap, 'character_changes') else [],
-                    })
-                else:
-                    # Fallback: create basic recap from segment
-                    seg = self.story.get_segment(seg_id)
-                    if seg:
-                        recaps.append({
-                            'segment_id': seg.id,
-                            'episode_number': seg.episode_number,
-                            'segment_number': seg.segment_number_in_episode,
-                            'description': seg.short_description,
-                            'characters': seg.characters_present,
-                            'changes': seg.change_notes,
-                        })
-            except:
-                # Fallback: create basic recap from segment
-                seg = self.story.get_segment(seg_id)
-                if seg:
-                    recaps.append({
-                        'segment_id': seg.id,
-                        'episode_number': seg.episode_number,
-                        'segment_number': seg.segment_number_in_episode,
-                        'description': seg.short_description,
-                        'characters': seg.characters_present,
-                    })
+            seg = self.story.get_segment(seg_id)
+            if seg:
+                recaps.append({
+                    'segment_id': seg.id,
+                    'episode_number': seg.episode_number,
+                    'segment_number': seg.segment_number_in_episode,
+                    'description': seg.recap or seg.short_description,
+                    'characters': seg.characters_present,
+                    'changes': seg.change_notes,
+                })
         
         return recaps
     
@@ -1151,25 +1144,25 @@ class SegmentContextBuilder:
                     'goals': [str],
                     'leader': str,
                     'resources': str,
-                    'alignment': str
+                    'alignment': str,
+                    'status': str
                 }
             ]
         }
         """
         factions_list = []
         
-        # Get factions from story if stored
-        if hasattr(self.story, '_factions') and self.story._factions:
-            for faction in self.story._factions.values():
-                factions_list.append({
-                    'id': getattr(faction, 'id', 'unknown'),
-                    'name': getattr(faction, 'name', 'Unknown'),
-                    'description': getattr(faction, 'description', ''),
-                    'goals': getattr(faction, 'goals', []),
-                    'leader': getattr(faction, 'leader', 'Unknown'),
-                    'resources': getattr(faction, 'resources', ''),
-                    'alignment': getattr(faction, 'alignment', 'Neutral')
-                })
+        for faction in self.story.get_all_factions():
+            factions_list.append({
+                'id': faction.id,
+                'name': faction.name,
+                'description': faction.description,
+                'goals': faction.goals,
+                'leader': faction.leader,
+                'resources': faction.resources,
+                'alignment': faction.alignment,
+                'status': faction.status,
+            })
         
         return {
             'count': len(factions_list),
@@ -1207,12 +1200,10 @@ class SegmentContextBuilder:
                 char_name = getattr(char, 'name', 'Unknown')
                 faction_id = getattr(char, 'faction_id', None)
                 
-                if faction_id and hasattr(self.story, '_factions'):
-                    # Find faction by ID
-                    for faction in self.story._factions.values():
-                        if getattr(faction, 'id', None) == faction_id:
-                            alignments[char_name] = getattr(faction, 'name', 'Unknown Faction')
-                            break
+                if faction_id:
+                    faction = self.story.get_faction(faction_id)
+                    if faction:
+                        alignments[char_name] = faction.name
         
         return alignments
     
@@ -1225,19 +1216,22 @@ class SegmentContextBuilder:
             'capabilities': [str],
             'limitations': [str],
             'costs': [str],
-            'technology_level': str
+            'technology_level': str,
+            'status': str
         }
         """
-        # Try to find magic system in story data
-        if hasattr(self.story, '_magic_system') and self.story._magic_system:
-            magic_sys = self.story._magic_system
+        magic_systems = self.story.get_all_magic_systems()
+        if magic_systems:
+            # Use the first (primary) magic system
+            magic_sys = magic_systems[0]
             return {
-                'name': getattr(magic_sys, 'name', 'Unknown System'),
-                'description': getattr(magic_sys, 'description', ''),
-                'capabilities': getattr(magic_sys, 'capabilities', [])[:3],
-                'limitations': getattr(magic_sys, 'limitations', [])[:3],
-                'costs': getattr(magic_sys, 'costs', [])[:3],
-                'technology_level': getattr(magic_sys, 'technology_level', '')
+                'name': magic_sys.name,
+                'description': magic_sys.description,
+                'capabilities': magic_sys.rules[:3],
+                'limitations': magic_sys.limitations[:3],
+                'costs': magic_sys.costs[:3],
+                'technology_level': magic_sys.technology_level,
+                'status': magic_sys.status,
             }
         
         return {
@@ -1246,5 +1240,6 @@ class SegmentContextBuilder:
             'capabilities': [],
             'limitations': [],
             'costs': [],
-            'technology_level': ''
+            'technology_level': '',
+            'status': 'unknown',
         }

@@ -1,8 +1,39 @@
 """Tests for EpisodeRecap and CharacterState models (E0-2)."""
 
 import pytest
+import shutil
 from datetime import datetime, UTC
-from app.models.episode_recap import EpisodeRecap, CharacterState
+from app.models.story import Story
+from app.models.story_base import LOCAL_DATA_DIR
+from app.models.story_episode import StoryEpisode as EpisodeRecap, CharacterState
+
+
+@pytest.fixture
+def test_story():
+    """Fixture to create and clean up test story for episode tests."""
+    test_story_id = "test_episode_recap_story"
+    test_data_dir = LOCAL_DATA_DIR / test_story_id
+
+    # Clean up any existing test data
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
+
+    story = Story(
+        id=test_story_id,
+        title="Test Story for Episode Recap",
+        description="A test story for episode recap testing",
+        genre="Test",
+        user_id="test_user_1",
+        start_segment_id="start_segment_1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    yield story
+
+    # Clean up after tests
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
 
 
 class TestCharacterState:
@@ -86,35 +117,38 @@ class TestCharacterState:
 class TestEpisodeRecap:
     """Tests for EpisodeRecap model."""
     
-    def test_episode_recap_creation(self):
+    def test_episode_recap_creation(self, test_story):
         """Create an episode recap with basic fields."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_1",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=1,
+            arc_id="arc_001",
             title="The Beginning",
             summary="The hero starts their journey in a peaceful village.",
             tone="hopeful"
         )
         
         assert recap.id == "recap_1"
-        assert recap.story_id == "story_1"
+        assert recap.story_id == test_story.id
         assert recap.episode_number == 1
         assert recap.title == "The Beginning"
         assert recap.tone == "hopeful"
     
-    def test_episode_recap_defaults(self):
+    def test_episode_recap_defaults(self, test_story):
         """Episode recap with default values."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_2",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=2,
+            arc_id="arc_001",
             title="The Challenge",
             summary="The hero faces their first real test.",
             tone="tense"
         )
         
-        assert recap.arc_id is None
         assert recap.starting_character_states == {}
         assert recap.ending_character_states == {}
         assert recap.segment_ids == []
@@ -122,7 +156,7 @@ class TestEpisodeRecap:
         assert recap.key_themes == []
         assert recap.generator_model == "gpt-4o-mini"
     
-    def test_episode_recap_with_character_states(self):
+    def test_episode_recap_with_character_states(self, test_story):
         """Episode recap with character state snapshots."""
         alice_start = CharacterState(
             id="alice",
@@ -140,9 +174,11 @@ class TestEpisodeRecap:
         )
         
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_3",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=1,
+            arc_id="arc_001",
             title="The Beginning",
             summary="Alice begins her journey.",
             tone="hopeful",
@@ -155,12 +191,14 @@ class TestEpisodeRecap:
         assert recap.ending_character_states["alice"].mood == "determined"
         assert recap.ending_character_states["alice"].loyalty == 0.5
     
-    def test_episode_recap_with_segments_and_choices(self):
+    def test_episode_recap_with_segments_and_choices(self, test_story):
         """Episode recap with segment and choice tracking."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_4",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=1,
+            arc_id="arc_001",
             title="The Beginning",
             summary="A short episode.",
             tone="neutral",
@@ -171,12 +209,14 @@ class TestEpisodeRecap:
         assert len(recap.segment_ids) == 3
         assert len(recap.choice_ids) == 2
     
-    def test_episode_recap_with_themes(self):
+    def test_episode_recap_with_themes(self, test_story):
         """Episode recap with key themes."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_5",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=2,
+            arc_id="arc_001",
             title="The Betrayal",
             summary="A dark turn of events.",
             tone="dark",
@@ -186,11 +226,12 @@ class TestEpisodeRecap:
         assert len(recap.key_themes) == 3
         assert "betrayal" in recap.key_themes
     
-    def test_episode_recap_with_arc(self):
+    def test_episode_recap_with_arc(self, test_story):
         """Episode recap associated with a story arc."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_6",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=1,
             arc_id="arc_001",
             title="Arc Beginning",
@@ -204,23 +245,25 @@ class TestEpisodeRecap:
 class TestEpisodeRecapMethods:
     """Tests for EpisodeRecap helper methods."""
     
-    def test_get_short_overview(self):
-        """Test short overview method."""
+    def test_to_context_short(self, test_story):
+        """Test short context method."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_7",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=3,
+            arc_id="arc_001",
             title="The Revelation",
             summary="The secret is revealed.",
             tone="dramatic"
         )
         
-        overview = recap.get_short_overview()
+        overview = recap.to_context_short()
         assert "Episode 3" in overview
         assert "The Revelation" in overview
     
-    def test_get_full_overview(self):
-        """Test full overview method."""
+    def test_to_context_full(self, test_story):
+        """Test full context method."""
         alice = CharacterState(
             id="alice",
             name="Alice",
@@ -230,9 +273,11 @@ class TestEpisodeRecapMethods:
         )
         
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_8",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=2,
+            arc_id="arc_001",
             title="The Triumph",
             summary="Alice achieves victory.",
             tone="triumphant",
@@ -240,7 +285,7 @@ class TestEpisodeRecapMethods:
             ending_character_states={"alice": alice}
         )
         
-        overview = recap.get_full_overview()
+        overview = recap.to_context_full()
         assert "Episode 2" in overview
         assert "The Triumph" in overview
         assert "triumphant" in overview
@@ -248,25 +293,28 @@ class TestEpisodeRecapMethods:
         assert "Alice" in overview
         assert "relieved" in overview
     
-    def test_get_full_overview_empty_characters(self):
-        """Test full overview with no character states."""
+    def test_to_context_full_empty_characters(self, test_story):
+        """Test full context with no character states."""
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_9",
-            story_id="story_1",
+            story_id=test_story.id,
             episode_number=1,
+            arc_id="arc_001",
             title="Empty",
             summary="No characters.",
             tone="neutral"
         )
         
-        overview = recap.get_full_overview()
-        assert "No character states recorded" in overview
+        overview = recap.to_context_full()
+        # With no ending character states, no Characters section appears
+        assert "Characters" not in overview
 
 
 class TestEpisodeRecapSerialization:
     """Tests for EpisodeRecap save/load."""
     
-    def test_episode_recap_save_and_load(self):
+    def test_episode_recap_save_and_load(self, test_story):
         """Save and load episode recap."""
         alice = CharacterState(
             id="alice",
@@ -277,9 +325,11 @@ class TestEpisodeRecapSerialization:
         )
         
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_10",
-            story_id="test_story",
+            story_id=test_story.id,
             episode_number=1,
+            arc_id="arc_001",
             title="The Beginning",
             summary="Alice starts her journey.",
             tone="hopeful",
@@ -293,7 +343,7 @@ class TestEpisodeRecapSerialization:
         recap.save()
         
         # Load
-        loaded = EpisodeRecap.load("test_story", "recap_10")
+        loaded = EpisodeRecap.load(test_story.id, "recap_10", story=test_story)
         
         assert loaded is not None
         assert loaded.episode_number == 1
@@ -304,7 +354,7 @@ class TestEpisodeRecapSerialization:
         assert "alice" in loaded.ending_character_states
         assert loaded.ending_character_states["alice"].mood == "hopeful"
     
-    def test_episode_recap_with_multiple_characters(self):
+    def test_episode_recap_with_multiple_characters(self, test_story):
         """Save and load recap with multiple characters."""
         alice = CharacterState(
             id="alice",
@@ -322,9 +372,11 @@ class TestEpisodeRecapSerialization:
         )
         
         recap = EpisodeRecap(
+            story=test_story,
             id="recap_11",
-            story_id="test_story",
+            story_id=test_story.id,
             episode_number=2,
+            arc_id="arc_001",
             title="The Alliance",
             summary="Alice and Bob meet.",
             tone="tense",
@@ -332,7 +384,7 @@ class TestEpisodeRecapSerialization:
         )
         
         recap.save()
-        loaded = EpisodeRecap.load("test_story", "recap_11")
+        loaded = EpisodeRecap.load(test_story.id, "recap_11", story=test_story)
         
         assert len(loaded.ending_character_states) == 2
         assert loaded.ending_character_states["alice"].loyalty == 0.8
