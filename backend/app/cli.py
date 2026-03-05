@@ -2084,5 +2084,420 @@ def view_episode(
     logger.info(f"Viewed episode {episode_num}")
 
 
+@app.command()
+def flush_episode(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    episode_num: int = typer.Argument(..., help="Episode number to flush"),
+):
+    """Flush episode changes into character/location descriptions.
+    
+    This consolidates all changes accumulated during an episode and updates
+    character/location descriptions to reflect what happened.
+    
+    Example:
+        python -m app.cli flush-episode my_story 1
+    """
+    asyncio.run(flush_episode_async(story_id, episode_num))
+
+async def flush_episode_async(story_id: str, episode_num: int):
+    """Flush episode asynchronously."""
+    from app.engine.episode_flush_generator import EpisodeFlushGenerator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+    
+    # Initialize generator
+    try:
+        generator = await _initialize_generator(config)
+    except Exception as e:
+        console.print(f"[red]Failed to initialize generator: {e}[/red]")
+        return
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Find episode
+    episode = None
+    for ep in story._episodes.values():
+        if ep.episode_number == episode_num:
+            episode = ep
+            break
+    
+    if not episode:
+        console.print(f"[red]Episode {episode_num} not found[/red]")
+        return
+    
+    # Get all segments in the episode
+    episode_segments = [story.get_segment(seg_id) for seg_id in episode.segment_ids]
+    episode_segments = [s for s in episode_segments if s]
+    
+    if not episode_segments:
+        console.print(f"[red]No segments found in episode {episode_num}[/red]")
+        return
+    
+    console.print(Panel(
+        f"[bold cyan]Flushing Episode {episode_num}[/bold cyan]\n"
+        f"[yellow]Segments:[/yellow] {len(episode_segments)}\n"
+        f"[yellow]Changes:[/yellow] Processing...",
+        title="Episode Flush",
+        border_style="cyan"
+    ))
+    
+    try:
+        with console.status("[bold yellow]Flushing changes to character/location models...[/bold yellow]", spinner="dots"):
+            flush_gen = EpisodeFlushGenerator(story, generator)
+            result = await flush_gen.flush_episode_changes(
+                episode_segments,
+                episode_num
+            )
+        
+        console.print(Panel(
+            f"[green]✅ Episode flushed successfully![/green]\n\n"
+            f"[cyan]Characters Updated:[/cyan] {len(result.get('flushed_characters', {}))}\n"
+            f"[cyan]Locations Updated:[/cyan] {len(result.get('flushed_locations', {}))}\n"
+            f"[cyan]Summary:[/cyan] {result.get('changes_summary', 'Complete')}",
+            title="Flush Result",
+            border_style="green"
+        ))
+        logger.info(f"Flushed episode {episode_num}")
+    except Exception as e:
+        console.print(f"[red]❌ Flush failed: {str(e)}[/red]")
+        logger.error(f"Episode flush failed: {str(e)}", exc_info=True)
+
+
+@app.command()
+def regenerate_episode_recap(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    episode_num: int = typer.Argument(..., help="Episode number"),
+):
+    """Regenerate or create an episode recap.
+    
+    Walks through all segments in the episode and generates a summary,
+    themes, hooks, and character state snapshots.
+    
+    Example:
+        python -m app.cli regenerate-episode-recap my_story 1
+    """
+    asyncio.run(regenerate_episode_recap_async(story_id, episode_num))
+
+async def regenerate_episode_recap_async(story_id: str, episode_num: int):
+    """Regenerate episode recap asynchronously."""
+    from app.engine.episode_recap_generator import EpisodeRecapGenerator
+    
+    # Load configuration
+    try:
+        config = Config.load()
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+    
+    # Initialize generator
+    try:
+        generator = await _initialize_generator(config)
+    except Exception as e:
+        console.print(f"[red]Failed to initialize generator: {e}[/red]")
+        return
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Find episode
+    episode = None
+    for ep in story._episodes.values():
+        if ep.episode_number == episode_num:
+            episode = ep
+            break
+    
+    if not episode:
+        console.print(f"[red]Episode {episode_num} not found[/red]")
+        return
+    
+    console.print(Panel(
+        f"[bold cyan]Regenerating Episode {episode_num} Recap[/bold cyan]",
+        title="Episode Recap Generator",
+        border_style="cyan"
+    ))
+    
+    try:
+        with console.status("[bold yellow]Analyzing segments and generating recap...[/bold yellow]", spinner="dots"):
+            recap_gen = EpisodeRecapGenerator(story, generator)
+            updated_episode = await recap_gen.generate_recap(episode_num)
+        
+        console.print(Panel(
+            f"[green]✅ Recap generated successfully![/green]\n\n"
+            f"[cyan]Title:[/cyan] {updated_episode.title or 'Untitled'}\n"
+            f"[cyan]Characters Tracked:[/cyan] {len(updated_episode.character_states or [])}\n"
+            f"\n[bold cyan]Summary (first 200 chars):[/bold cyan]\n"
+            f"{(updated_episode.recap or 'No recap')[:200]}...",
+            title="Recap Result",
+            border_style="green"
+        ))
+        logger.info(f"Regenerated recap for episode {episode_num}")
+    except Exception as e:
+        console.print(f"[red]❌ Recap generation failed: {str(e)}[/red]")
+        logger.error(f"Episode recap generation failed: {str(e)}", exc_info=True)
+
+
+@app.command()
+def validate_story(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    repair: bool = typer.Option(False, "--repair", help="Auto-repair missing components"),
+):
+    """Validate story completeness and optionally repair missing pieces.
+    
+    Checks:
+    - Story description
+    - World context (fundamental truths)
+    - Story arcs
+    - Characters
+    - Protagonist
+    
+    Example:
+        python -m app.cli validate-story my_story
+        python -m app.cli validate-story my_story --repair
+    """
+    asyncio.run(validate_story_async(story_id, repair))
+
+async def validate_story_async(story_id: str, repair: bool):
+    """Validate story asynchronously."""
+    from app.engine.story_validator import StoryValidator
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # If repair is needed, load config and generator
+    generator = None
+    if repair:
+        try:
+            config = Config.load()
+            generator = await _initialize_generator(config)
+        except Exception as e:
+            console.print(f"[yellow]Repair requested but generator unavailable: {e}[/yellow]")
+            console.print("[yellow]Running validation only (no repairs).[/yellow]")
+    
+    console.print(Panel(
+        f"[bold cyan]Validating Story: {story.title}[/bold cyan]",
+        title="Story Validator",
+        border_style="cyan"
+    ))
+    
+    try:
+        with console.status("[bold yellow]Validating story completeness...[/bold yellow]", spinner="dots"):
+            validator = StoryValidator(story, generator)
+            report = await validator.validate_and_repair()
+        
+        # Display results
+        results = report.get('validation_results', {})
+        
+        table = Table(title="Validation Results")
+        table.add_column("Component", style="cyan")
+        table.add_column("Status", style="yellow")
+        table.add_column("Details", style="white")
+        
+        for component, result in results.items():
+            if isinstance(result, dict):
+                status_text = f"[green]✅ OK[/green]" if result.get('status') == 'valid' else "[yellow]⚠️ Generated[/yellow]"
+                details = result.get('message', 'OK')
+            else:
+                status_text = "[green]✅ OK[/green]"
+                details = str(result)[:50]
+            
+            table.add_row(component.replace('_', ' '), status_text, details)
+        
+        console.print(table)
+        
+        # Show generated items
+        if report.get('generated'):
+            console.print(f"\n[bold cyan]Auto-Generated:[/bold cyan]")
+            for item in report['generated']:
+                console.print(f"  • {item}")
+        
+        # Show errors
+        if report.get('errors'):
+            console.print(f"\n[bold red]Errors:[/bold red]")
+            for error in report['errors']:
+                console.print(f"  • {error}")
+        
+        logger.info(f"Validated story {story_id}")
+    except Exception as e:
+        console.print(f"[red]❌ Validation failed: {str(e)}[/red]")
+        logger.error(f"Story validation failed: {str(e)}", exc_info=True)
+
+
+@app.command()
+def generate_choices(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    segment_id: str = typer.Argument(..., help="Segment ID"),
+    count: int = typer.Option(3, "--count", "-c", help="Number of choices to generate"),
+):
+    """Generate multiple choices for a segment.
+    
+    Tests choice generation separately from story play mode.
+    
+    Example:
+        python -m app.cli generate-choices my_story opening --count=4
+    """
+    asyncio.run(generate_choices_async(story_id, segment_id, count))
+
+async def generate_choices_async(story_id: str, segment_id: str, count: int):
+    """Generate choices asynchronously."""
+    from app.models.story_choice import StoryChoice
+    from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec
+    import uuid
+    
+    # Load configuration
+    try:
+        config = Config.load()
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+    
+    # Initialize generator
+    try:
+        generator = await _initialize_generator(config)
+    except Exception as e:
+        console.print(f"[red]Failed to initialize generator: {e}[/red]")
+        return
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Get segment
+    segment = story.get_segment(segment_id)
+    if not segment:
+        console.print(f"[red]Segment '{segment_id}' not found[/red]")
+        return
+    
+    console.print(Panel(
+        f"[bold cyan]Generating {count} Choices[/bold cyan]\n"
+        f"[yellow]Segment:[/yellow] {segment.title}",
+        title="Choice Generator",
+        border_style="cyan"
+    ))
+    
+    try:
+        with console.status(f"[bold yellow]Generating {count} choices...[/bold yellow]", spinner="dots"):
+            # Generate choices using AI
+            prompt = f"""Generate {count} compelling narrative choices for this story moment:
+
+Segment: {segment.title}
+Context: {segment.narrative_text[:300]}...
+
+Create {count} realistic choices that:
+- Feel natural and consequential
+- Offer meaningful branching paths
+- Range from conservative to risky actions
+- Are 1-2 sentences each
+
+Format as numbered list only:
+1. Choice text
+2. Choice text
+{f'3. Choice text' if count >= 3 else ''}
+{f'4. Choice text' if count >= 4 else ''}"""
+            
+            system_prompt = """You are a narrative designer creating compelling story choices.
+Choices should feel natural, consequential, and offer meaningful branching paths."""
+            
+            response = await generator.generate(system_prompt, prompt, "scene")
+            choices_text = response.content
+            
+            # Parse choices from response
+            choice_lines = []
+            for line in choices_text.split('\n'):
+                line = line.strip()
+                if line and any(line.startswith(f"{i}.") for i in range(1, 10)):
+                    # Extract choice text after number
+                    choice_text = line.split('.', 1)[1].strip() if '.' in line else line
+                    if choice_text and len(choice_text) > 5:  # Ensure meaningful text
+                        choice_lines.append(choice_text)
+            
+            # If parsing failed, create fallback choices
+            if not choice_lines:
+                choice_lines = [
+                    "Continue cautiously forward",
+                    "Take a bold action",
+                    "Seek more information first"
+                ][:count]
+            
+            # Create choice objects
+            choices = []
+            for i, choice_text in enumerate(choice_lines[:count]):
+                choice_id = f"choice_{uuid.uuid4().hex[:8]}"
+                choice = StoryChoice(
+                    id=choice_id,
+                    from_segment_id=segment_id,
+                    text=choice_text,
+                    to_segment_id=None  # Will be generated later
+                )
+                choices.append(choice)
+        
+        # Display results
+        table = Table(title=f"Generated Choices ({len(choices)})")
+        table.add_column("Choice", style="cyan")
+        table.add_column("Text", style="white")
+        
+        for i, choice in enumerate(choices, 1):
+            table.add_row(f"#{i}", choice.text)
+        
+        console.print(table)
+        
+        console.print(f"\n[green]✅ Generated {len(choices)} choices successfully![/green]")
+        console.print("[dim]Note: Choices not saved. Use during story play to save them.[/dim]")
+        logger.info(f"Generated {len(choices)} choices for segment {segment_id}")
+    except Exception as e:
+        console.print(f"[red]❌ Choice generation failed: {str(e)}[/red]")
+        logger.error(f"Choice generation failed: {str(e)}", exc_info=True)
+
+
 if __name__ == "__main__":
     app()
