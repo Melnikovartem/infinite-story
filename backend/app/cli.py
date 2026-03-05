@@ -1328,26 +1328,58 @@ async def create_story_step_by_step_async(
         status = step_manager.get_all_steps_status()
         summary = step_manager.get_step_summary()
         
-        console.print(Panel(
-            f"Progress: {summary['progress']} | Status: {summary['overall_status']}",
-            title="Generation Status",
-            border_style="cyan"
-        ))
+        # Create rich status panel
+        status_table = Table(title="Story Generation Pipeline", show_header=True)
+        status_table.add_column("Step", style="cyan", width=6)
+        status_table.add_column("Name", style="white")
+        status_table.add_column("Status", style="yellow")
+        status_table.add_column("Info", style="dim")
         
-        console.print("\n[bold cyan]Step Status:[/bold cyan]")
         for i in range(10):
             s = status[i]
-            icon = "✅" if s["status"] == "completed" else (
-                "⏭️" if s["status"] == "skipped" else (
-                    "❌" if s["status"] == "failed" else "⏳"
-                )
-            )
-            can_run = "✓" if s["can_run"] else "✗"
-            console.print(f"{icon} Step {i}: {s['name']} [{s['status']}] (runnable: {can_run})")
+            
+            # Icon and status
+            if s["status"] == "completed":
+                icon = "✅"
+                status_text = "[green]Completed[/green]"
+            elif s["status"] == "skipped":
+                icon = "⏭️"
+                status_text = "[yellow]Skipped[/yellow]"
+            elif s["status"] == "failed":
+                icon = "❌"
+                status_text = "[red]Failed[/red]"
+            elif s["can_run"]:
+                icon = "⏳"
+                status_text = "[cyan]Ready[/cyan]"
+            else:
+                icon = "🔒"
+                status_text = "[dim]Blocked[/dim]"
+            
+            # Info column
+            info = ""
             if s["status"] == "failed" and s.get("error_message"):
-                console.print(f"   Error: {s['error_message'][:80]}...")
-            if s["missing_deps"]:
-                console.print(f"   Missing: {s['missing_deps']}")
+                info = f"Error: {s['error_message'][:40]}"
+            elif s["missing_deps"]:
+                dep_names = [f"Step {d}" for d in s["missing_deps"]]
+                info = f"Needs: {', '.join(dep_names)}"
+            elif s["status"] == "completed" and s.get("completed_at"):
+                info = "✓ Done"
+            
+            status_table.add_row(f"{icon} {i}", s['name'], status_text, info)
+        
+        console.print(Panel(
+            f"[bold cyan]Overall Progress[/bold cyan]: {summary['progress']}\n"
+            f"[bold cyan]Status[/bold cyan]: {summary['overall_status']}",
+            title="Generation Summary",
+            border_style="cyan"
+        ))
+        console.print(status_table)
+        console.print("\n[dim]Next step to run:[/dim] ", end="")
+        next_step = step_manager.get_next_runnable_step()
+        if next_step is not None:
+            console.print(f"[bold cyan]Step {next_step}: {step_manager.steps[next_step].name}[/bold cyan]")
+        else:
+            console.print("[green]All steps completed! ✨[/green]")
         
         return
     
@@ -1712,6 +1744,345 @@ def inspect_story(
         console.print(f"\n[bold yellow]{label} ({len(items)}):[/bold yellow]")
         for item in items:
             _print_item_summary(item, cls.__name__)
+
+@app.command()
+def generate_segment(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    from_segment_id: str = typer.Argument(..., help="Current segment ID"),
+    choice_text: str = typer.Argument(..., help="Choice text made by user"),
+):
+    """Generate a new segment from a choice.
+    
+    This command generates the next segment based on a user's choice.
+    Useful for testing segment generation independently from story play mode.
+    
+    Example:
+        python -m app.cli generate-segment my_story opening "I enter the tavern"
+    """
+    asyncio.run(generate_segment_async(story_id, from_segment_id, choice_text))
+
+async def generate_segment_async(story_id: str, from_segment_id: str, choice_text: str):
+    """Generate a new segment asynchronously."""
+    # Load configuration
+    try:
+        config = Config.load()
+    except ValueError as e:
+        message, suggestion = ErrorHandler.handle_error(
+            ErrorType.MISSING_CONFIG,
+            e,
+            "Loading configuration"
+        )
+        console.print(f"[red]Error: {message}[/red]")
+        console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+        return
+    
+    # Initialize generator
+    try:
+        generator = await _initialize_generator(config)
+    except Exception as e:
+        console.print(f"[red]Failed to initialize generator: {e}[/red]")
+        return
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Get source segment
+    from_segment = story.get_segment(from_segment_id)
+    if not from_segment:
+        console.print(f"[red]Segment '{from_segment_id}' not found[/red]")
+        return
+    
+    # Find or create choice
+    matching_choice = None
+    for choice in from_segment.outgoing_choices.values():
+        if choice.text.lower() == choice_text.lower():
+            matching_choice = choice
+            break
+    
+    if not matching_choice:
+        console.print(f"[yellow]No existing choice matches '{choice_text}'[/yellow]")
+        console.print(f"[cyan]Available choices:[/cyan]")
+        for choice in from_segment.outgoing_choices.values():
+            console.print(f"  • {choice.text}")
+        return
+    
+    # Generate next segment
+    console.print(Panel(
+        f"[bold cyan]Generating segment from choice[/bold cyan]\n[yellow]{choice_text}[/yellow]",
+        title="Generate Segment",
+        border_style="cyan"
+    ))
+    
+    try:
+        with console.status("[bold yellow]Building context and generating...[/bold yellow]", spinner="dots"):
+            new_segment = await from_segment.generate_next_scene(matching_choice, generator)
+        
+        console.print(Panel(
+            f"[green]✅ Segment generated successfully![/green]\n\n"
+            f"[cyan]Segment ID:[/cyan] {new_segment.id}\n"
+            f"[cyan]Title:[/cyan] {new_segment.title}\n"
+            f"[cyan]Choices:[/cyan] {len(new_segment.outgoing_choices)}\n\n"
+            f"[bold cyan]Preview (first 200 chars):[/bold cyan]\n{new_segment.narrative_text[:200]}...",
+            title="Generation Result",
+            border_style="green"
+        ))
+        logger.info(f"Generated segment {new_segment.id} from choice in {from_segment_id}")
+    except Exception as e:
+        console.print(f"[red]❌ Generation failed: {str(e)}[/red]")
+        logger.error(f"Segment generation failed: {str(e)}", exc_info=True)
+
+
+@app.command()
+def view_segment_context(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    segment_id: str = typer.Argument(..., help="Current segment ID"),
+    choice_text: str = typer.Argument(..., help="Choice text"),
+    detail: str = typer.Option(
+        "summary",
+        "--detail",
+        help="Detail level: summary, characters, episodes, arcs, full"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Preview the generation context that will be sent to AI for the next segment.
+    
+    This shows what the AI will 'see' when generating the next segment, helping debug
+    why the generation might produce unexpected content.
+    
+    Example:
+        python -m app.cli view-segment-context my_story opening "I enter the tavern" --detail=full
+    """
+    asyncio.run(view_segment_context_async(story_id, segment_id, choice_text, detail, json_output))
+
+async def view_segment_context_async(story_id: str, segment_id: str, choice_text: str, detail: str, json_output: bool):
+    """View segment generation context asynchronously."""
+    from app.engine.segment_context_builder import SegmentContextBuilder
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Get segment
+    segment = story.get_segment(segment_id)
+    if not segment:
+        console.print(f"[red]Segment '{segment_id}' not found[/red]")
+        return
+    
+    # Build context
+    console.print("[yellow]Building generation context...[/yellow]")
+    try:
+        context_builder = SegmentContextBuilder(story)
+        context = await context_builder.build_context(segment_id, choice_text)
+        
+        if json_output:
+            console.print(json.dumps(context, indent=2))
+        else:
+            # Display formatted context
+            console.print(Panel(
+                f"[bold cyan]Generation Context for: {segment_id}[/bold cyan]\n"
+                f"[yellow]Choice:[/yellow] {choice_text}",
+                title="Context Preview",
+                border_style="cyan"
+            ))
+            
+            if detail in ["summary", "full"]:
+                console.print(f"\n[bold cyan]Characters ({len(context.get('characters', {}))}):[/bold cyan]")
+                for char_id, char_info in list(context.get('characters', {}).items())[:5]:
+                    console.print(f"  • {char_info.get('name', char_id)}")
+                if len(context.get('characters', {})) > 5:
+                    console.print(f"  ... and {len(context.get('characters', {})) - 5} more")
+            
+            if detail in ["episodes", "full"]:
+                console.print(f"\n[bold cyan]Episodes ({len(context.get('episodes', []))}):[/bold cyan]")
+                for ep in context.get('episodes', [])[-3:]:
+                    console.print(f"  • Episode {ep.get('episode_number')}: {ep.get('recap', '')[:60]}...")
+            
+            if detail in ["arcs", "full"]:
+                console.print(f"\n[bold cyan]Story Arcs ({len(context.get('arcs', {}))}):[/bold cyan]")
+                for arc_id, arc_info in context.get('arcs', {}).items():
+                    console.print(f"  • {arc_info.get('name', arc_id)}")
+            
+            if detail == "full":
+                console.print(f"\n[bold cyan]Last 3 Segments:[/bold cyan]")
+                for seg_recap in context.get('recent_segments', [])[:3]:
+                    console.print(f"  • {seg_recap.get('id')}: {seg_recap.get('summary', '')[:60]}...")
+        
+        logger.info(f"Generated context for segment {segment_id}")
+    except Exception as e:
+        console.print(f"[red]Failed to build context: {str(e)}[/red]")
+        logger.error(f"Context building failed: {str(e)}", exc_info=True)
+
+
+@app.command()
+def view_character_state(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    character_id: str = typer.Argument(..., help="Character ID"),
+    episode: Optional[int] = typer.Option(None, "--episode", "-e", help="Show state at specific episode"),
+):
+    """View character state at current point in story.
+    
+    Shows health, emotional state, relationships, goals, and other tracked state.
+    
+    Example:
+        python -m app.cli view-character-state my_story hero_main
+        python -m app.cli view-character-state my_story hero_main --episode 3
+    """
+    from app.models.story_episode import StoryEpisode
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Get character
+    character = story.get_character(character_id)
+    if not character:
+        console.print(f"[red]Character '{character_id}' not found[/red]")
+        return
+    
+    console.print(Panel(
+        f"[bold cyan]{character.name}[/bold cyan] (ID: {character.id})",
+        title="Character State",
+        border_style="cyan"
+    ))
+    
+    # Get state at specific episode or latest
+    state_snapshot = None
+    if episode:
+        # Find episode and get state snapshot
+        episodes = [ep for ep in story._episodes.values() if ep.episode_number == episode]
+        if episodes:
+            ep = episodes[0]
+            if ep.character_states and character_id in [cs.character_id for cs in ep.character_states]:
+                state_snapshot = next((cs for cs in ep.character_states if cs.character_id == character_id), None)
+    else:
+        # Get latest state from last episode
+        if story._episodes:
+            last_episode = max(story._episodes.values(), key=lambda e: e.episode_number)
+            if last_episode.character_states:
+                state_snapshot = next((cs for cs in last_episode.character_states if cs.character_id == character_id), None)
+    
+    if not state_snapshot:
+        console.print("[yellow]No state snapshot found for this character[/yellow]")
+        return
+    
+    # Display state
+    table = Table(title="Character State")
+    table.add_column("Property", style="cyan")
+    table.add_column("Value", style="green")
+    
+    table.add_row("Health", state_snapshot.health_status)
+    table.add_row("Emotional Status", state_snapshot.emotional_status)
+    table.add_row("Disposition", f"{state_snapshot.disposition:+.1f}")
+    table.add_row("Location", state_snapshot.current_location or "Unknown")
+    
+    if state_snapshot.goals:
+        table.add_row("Goals", ", ".join(state_snapshot.goals[:3]))
+    
+    if state_snapshot.relationships:
+        rels = [f"{k}: {v}" for k, v in list(state_snapshot.relationships.items())[:3]]
+        table.add_row("Relationships", ", ".join(rels) if rels else "None")
+    
+    console.print(table)
+    logger.info(f"Viewed character state for {character_id}")
+
+
+@app.command()
+def view_episode(
+    story_id: str = typer.Argument(..., help="Story ID"),
+    episode_num: int = typer.Argument(..., help="Episode number"),
+    detail: str = typer.Option(
+        "summary",
+        "--detail",
+        help="Detail level: summary, full, recap"
+    ),
+):
+    """View episode information and state.
+    
+    Shows episode metadata, character states at episode end, and recap.
+    
+    Example:
+        python -m app.cli view-episode my_story 1
+        python -m app.cli view-episode my_story 2 --detail=full
+    """
+    from app.models.story_episode import StoryEpisode
+    
+    # Load story
+    story = Story.load(story_id, story_id)
+    if not story:
+        console.print(f"[red]Story '{story_id}' not found[/red]")
+        return
+    
+    # Load story components
+    runner = StoryRunner(story)
+    runner.load_all_components(story)
+    
+    # Find episode
+    episode = None
+    for ep in story._episodes.values():
+        if ep.episode_number == episode_num:
+            episode = ep
+            break
+    
+    if not episode:
+        console.print(f"[red]Episode {episode_num} not found[/red]")
+        return
+    
+    console.print(Panel(
+        f"[bold cyan]Episode {episode_num}[/bold cyan]\n"
+        f"[yellow]Segments:[/yellow] {len(episode.segment_ids)}\n"
+        f"[yellow]Status:[/yellow] {episode.status if hasattr(episode, 'status') else 'active'}",
+        title="Episode Info",
+        border_style="cyan"
+    ))
+    
+    if detail in ["summary", "full"]:
+        console.print(f"\n[bold cyan]Character States at Episode End:[/bold cyan]")
+        if episode.character_states:
+            table = Table()
+            table.add_column("Character", style="cyan")
+            table.add_column("Health", style="yellow")
+            table.add_column("Mood", style="magenta")
+            table.add_column("Location", style="green")
+            
+            for state in episode.character_states[:10]:
+                table.add_row(
+                    state.name or state.character_id,
+                    state.health_status or "—",
+                    state.emotional_status or "—",
+                    state.current_location or "—"
+                )
+            console.print(table)
+        else:
+            console.print("[dim]No character states recorded[/dim]")
+    
+    if detail in ["recap", "full"]:
+        console.print(f"\n[bold cyan]Episode Recap:[/bold cyan]")
+        if episode.recap:
+            console.print(f"{episode.recap}")
+        else:
+            console.print("[dim]No recap available[/dim]")
+    
+    logger.info(f"Viewed episode {episode_num}")
+
 
 if __name__ == "__main__":
     app()
