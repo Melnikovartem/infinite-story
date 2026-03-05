@@ -51,17 +51,14 @@ class StoryShapeCalculator:
                 world_context
             )
             
-            # Request structured response
-            response_text = await self.generator.generate(
+            # Request structured response with fallback
+            response_text = await self.generator.generate_with_fallback(
+                context_type="world",
                 system_prompt="""You are a story structure expert.
 Analyze a story and determine its optimal structure.
 Return ONLY valid JSON with no additional text.""",
-                user_prompt=prompt,
-                context_type="world"
+                user_prompt=prompt
             )
-            
-            if hasattr(response_text, 'error') and response_text.error:
-                raise ValueError(f"Shape calculation failed: {response_text.error}")
             
             # Extract JSON
             shape_data = self._parse_shape_response(response_text)
