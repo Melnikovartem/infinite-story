@@ -143,10 +143,6 @@ class StoryEpisode(StoryBlock):
         default_factory=list,
         description="2-3 themes selected for this episode via ThemeSelector"
     )
-    theme_rationale: str = Field(
-        default="",
-        description="Why these specific themes were selected"
-    )
     
     # Generation focus
     episode_focus: str = Field(
@@ -248,10 +244,6 @@ class StoryEpisode(StoryBlock):
         default_factory=list,
         description="Which themes from selected_themes were actually explored"
     )
-    theme_depth: Dict[str, str] = Field(
-        default_factory=dict,
-        description="theme_name -> how deeply was it explored"
-    )
     tone: str = Field(
         default="",
         description="Overall tone/mood of the episode (e.g., 'dark_and_mysterious')"
@@ -267,14 +259,14 @@ class StoryEpisode(StoryBlock):
         description="New mysteries/questions raised this episode"
     )
     
-    # World object state snapshots at episode end
-    episode_character_descriptions: Dict[str, str] = Field(
-        default_factory=dict,
-        description="character_id -> updated description at episode end"
+    # Previous episode recap (stored for LLM context — recap of the episode before this one)
+    previous_episode_recap: str = Field(
+        default="",
+        description="Short recap of the previous episode, used for LLM context continuity"
     )
-    episode_location_descriptions: Dict[str, str] = Field(
-        default_factory=dict,
-        description="location_id -> updated description at episode end"
+    previous_episode_title: str = Field(
+        default="",
+        description="Title of the previous episode"
     )
     
     # Generation metadata
@@ -295,7 +287,14 @@ class StoryEpisode(StoryBlock):
     
     def to_context_full(self) -> str:
         """Full context for LLM prompts."""
-        parts = [f"Episode {self.episode_number}: {self.title}"]
+        parts = []
+        
+        # Include previous episode recap for continuity
+        if self.previous_episode_recap:
+            parts.append(f"Previously ({self.previous_episode_title or 'Last Episode'}): {self.previous_episode_recap}")
+            parts.append("")
+        
+        parts.append(f"Episode {self.episode_number}: {self.title}")
         
         if self.recap:
             parts.append(f"Recap: {self.recap}")

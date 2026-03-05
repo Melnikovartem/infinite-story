@@ -8,8 +8,23 @@ from app.models.story_episode import StoryEpisode as EpisodeRecap, CharacterStat
 from app.models.story_segment import SegmentStatus
 from app.engine.generator import TextGenerator
 from app.engine.character_state_updater import CharacterStateUpdater
+from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.episode_recap_generator")
+
+
+# Schema for episode recap parsing
+RECAP_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("title", type="str", required=True, aliases=["episode_title", "name"]),
+        FieldSpec("summary", type="str", required=True, aliases=["recap", "description", "overview"]),
+        FieldSpec("key_themes", type="list", aliases=["themes", "major_themes"]),
+        FieldSpec("themes_explored", type="list", aliases=["explored_themes", "themes_covered"]),
+        FieldSpec("hook_for_next", type="str", aliases=["hook", "next_episode_hook", "bridge", "cliffhanger"]),
+        FieldSpec("unresolved_new", type="list", aliases=["unresolved", "new_mysteries", "questions", "mysteries"]),
+    ],
+    expect_array=False,
+)
 
 
 class EpisodeRecapGenerator:
@@ -22,33 +37,34 @@ class EpisodeRecapGenerator:
     async def generate_recap(
         self,
         episode_number: int,
-        arc_id: Optional[str] = None
+        arc_id: Optional[str] = None,
+        triggering_segment_id: Optional[str] = None
     ) -> EpisodeRecap:
         """
-        Generate a recap for completed episode (E2-1 Enhanced).
+        Generate a recap for a completed episode by updating its existing StoryEpisode.
+        
+        The recap is stored ON the existing episode meta (single object per episode).
+        The recap text will later be copied into the NEXT episode's
+        previous_episode_recap field for LLM context continuity.
         
         Steps:
         1. Walk episode backward to collect all segments
         2. Extract all character changes
-        3. Load EpisodeMeta to get selected_themes
+        3. Load existing EpisodeMeta (created at episode start)
         4. Build enhanced recap prompt
-        5. Call AI to generate:
-           - title (auto-generated episode name)
-           - summary
-           - themes_explored
-           - hook_for_next (bridges to next episode)
-           - unresolved_new (new mysteries raised)
-        6. Reconcile character states (apply changes)
-        7. Create EpisodeRecap object with new fields
-        8. Update EpisodeMeta.episode_name
-        9. Save to disk
+        5. Call AI to generate title, summary, themes_explored, hook, mysteries
+        6. Reconcile character states
+        7. Update the existing EpisodeMeta with recap fields
+        8. Update character states via CharacterStateUpdater
+        9. Save
         
         Args:
             episode_number: The episode number to recap
             arc_id: Optional arc ID to scope the recap
+            triggering_segment_id: Segment that triggered the transition (for ID lookup)
             
         Returns:
-            The generated EpisodeRecap
+            The updated EpisodeRecap (same object as the meta)
             
         Raises:
             ValueError: If no segments found for the episode
@@ -68,18 +84,26 @@ class EpisodeRecapGenerator:
         all_changes = self._collect_changes(episode_segments)
         starting_states = self._extract_starting_states(episode_segments)
         
-        # 3. Load EpisodeMeta for selected themes
+        # 3. Try to load existing EpisodeMeta (created when this episode started)
         episode_meta = None
         selected_themes = []
+        
+        # Try to find by various ID patterns (transition-based or sequential)
+        meta_id_candidates = []
+        if triggering_segment_id and arc_id:
+            meta_id_candidates.append(f"episode_{arc_id}_{triggering_segment_id}")
         if arc_id:
+            meta_id_candidates.append(f"episode_meta_{episode_number}_{arc_id}")
+        
+        for meta_id in meta_id_candidates:
             try:
-                episode_meta_id = f"episode_meta_{episode_number}_{arc_id}"
-                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                episode_meta = EpisodeMeta.load(self.story.id, meta_id)
                 if episode_meta:
                     selected_themes = episode_meta.selected_themes
-                    logger.debug(f"Loaded EpisodeMeta, selected themes: {selected_themes}")
+                    logger.debug(f"Loaded EpisodeMeta '{meta_id}', selected themes: {selected_themes}")
+                    break
             except Exception as e:
-                logger.debug(f"EpisodeMeta not found: {e}")
+                logger.debug(f"EpisodeMeta '{meta_id}' not found: {e}")
         
         # 4. Build enhanced recap prompt with theme extraction
         recap_prompt = self._build_recap_prompt(
@@ -101,32 +125,29 @@ Additionally, extract:
 - UNRESOLVED_NEW: Any NEW mysteries/questions raised this episode
 """
         
-        # 5. Call AI
+        # 5. Call AI via generate_structured
         logger.debug(f"Calling AI for episode {episode_number} recap generation")
-        recap_response = await self.generator.generate(
+        fallback = {
+            "title": f"Episode {episode_number}",
+            "summary": "Episode summary unavailable",
+            "key_themes": [],
+            "themes_explored": [],
+            "hook_for_next": "",
+            "unresolved_new": [],
+        }
+        recap_data = await self.generator.generate_structured(
             system_prompt="",
             user_prompt=recap_prompt,
-            context_type="scene"
+            schema=RECAP_SCHEMA,
+            fallback_defaults=[fallback],
         )
         
-        # Handle AI response errors
-        if recap_response.error:
-            logger.warning(f"AI generation error for recap: {recap_response.error}")
-            # Use fallback values
-            ai_title = f"Episode {episode_number}"
-            ai_summary = "Episode summary unavailable"
-            ai_themes = []
-            ai_themes_explored = []
-            ai_hook_for_next = ""
-            ai_unresolved_new = []
-        else:
-            # Extract AI-generated values from response
-            ai_title = getattr(recap_response, 'title', f"Episode {episode_number}")
-            ai_summary = getattr(recap_response, 'summary', "Episode summary unavailable")
-            ai_themes = getattr(recap_response, 'key_themes', [])
-            ai_themes_explored = getattr(recap_response, 'themes_explored', [])
-            ai_hook_for_next = getattr(recap_response, 'hook_for_next', "")
-            ai_unresolved_new = getattr(recap_response, 'unresolved_new', [])
+        ai_title = recap_data.get('title', fallback['title'])
+        ai_summary = recap_data.get('summary', fallback['summary'])
+        ai_themes = recap_data.get('key_themes', fallback['key_themes'])
+        ai_themes_explored = recap_data.get('themes_explored', fallback['themes_explored'])
+        ai_hook_for_next = recap_data.get('hook_for_next', fallback['hook_for_next'])
+        ai_unresolved_new = recap_data.get('unresolved_new', fallback['unresolved_new'])
         
         # 6. Reconcile character states
         ending_states = self._reconcile_character_states(
@@ -134,54 +155,67 @@ Additionally, extract:
             all_changes
         )
         
-        # 7. Create EpisodeRecap with enhanced fields
-        recap_id = f"recap_{self.story.id}_ep{episode_number}_{arc_id or 'main'}"
-        recap = EpisodeRecap(
-            story=self.story,
-            id=recap_id,
-            story_id=self.story.id,
-            episode_number=episode_number,
-            arc_id=arc_id or "main",
-            title=ai_title,  # Auto-generated from AI
-            summary=ai_summary,
-            key_themes=selected_themes if selected_themes else (ai_themes if isinstance(ai_themes, list) else []),
-            tone=episode_segments[0].episode_tone or "neutral",
-            segment_ids=[seg.id for seg in episode_segments],
-            starting_character_states=starting_states,
-            ending_character_states=ending_states,
-            
-            # NEW FIELDS (E2 Enhanced)
-            themes_explored=ai_themes_explored if isinstance(ai_themes_explored, list) else [],
-            hook_for_next=ai_hook_for_next,
-            unresolved_new=ai_unresolved_new if isinstance(ai_unresolved_new, list) else [],
-            episode_complete=True,
-            segment_count=len(episode_segments),
-        )
+        # 7. Update existing EpisodeMeta with recap fields (or create if not found)
+        recap_short = f"{ai_title}: {ai_summary[:200]}" if ai_summary else ai_title
         
-        # 8. Update EpisodeMeta with episode_name
         if episode_meta:
-            try:
-                episode_meta.episode_name = ai_title
-                episode_meta.save()
-                logger.info(f"Updated EpisodeMeta with episode name: {ai_title}")
-            except Exception as e:
-                logger.warning(f"Failed to update EpisodeMeta: {e}")
+            # Update existing meta with recap data
+            episode_meta.recap = recap_short
+            episode_meta.title = ai_title
+            episode_meta.summary = ai_summary
+            episode_meta.key_themes = selected_themes if selected_themes else (ai_themes if isinstance(ai_themes, list) else [])
+            episode_meta.tone = episode_segments[0].episode_tone or "neutral"
+            episode_meta.segment_ids = [seg.id for seg in episode_segments]
+            episode_meta.start_segment_id = episode_segments[0].id
+            episode_meta.end_segment_id = episode_segments[-1].id
+            episode_meta.starting_character_states = starting_states
+            episode_meta.ending_character_states = ending_states
+            episode_meta.themes_explored = ai_themes_explored if isinstance(ai_themes_explored, list) else []
+            episode_meta.hook_for_next = ai_hook_for_next
+            episode_meta.unresolved_new = ai_unresolved_new if isinstance(ai_unresolved_new, list) else []
+            episode_meta.episode_complete = True
+            episode_meta.segment_count = len(episode_segments)
+            recap = episode_meta
+        else:
+            # No existing meta found — create one (backward compatibility)
+            recap_id = f"episode_{arc_id or 'main'}_{episode_segments[-1].id}"
+            recap = EpisodeRecap(
+                story=self.story,
+                id=recap_id,
+                story_id=self.story.id,
+                episode_number=episode_number,
+                arc_id=arc_id or "main",
+                recap=recap_short,
+                title=ai_title,
+                summary=ai_summary,
+                key_themes=selected_themes if selected_themes else (ai_themes if isinstance(ai_themes, list) else []),
+                tone=episode_segments[0].episode_tone or "neutral",
+                segment_ids=[seg.id for seg in episode_segments],
+                start_segment_id=episode_segments[0].id,
+                end_segment_id=episode_segments[-1].id,
+                starting_character_states=starting_states,
+                ending_character_states=ending_states,
+                themes_explored=ai_themes_explored if isinstance(ai_themes_explored, list) else [],
+                hook_for_next=ai_hook_for_next,
+                unresolved_new=ai_unresolved_new if isinstance(ai_unresolved_new, list) else [],
+                episode_complete=True,
+                segment_count=len(episode_segments),
+            )
         
-        # 9. Update character states based on episode events (E2-3 Enhanced)
+        # 8. Update character states based on episode events
         try:
             updater = CharacterStateUpdater(self.story, self.generator)
             character_updates = await updater.update_character_states(
                 episode_number=episode_number,
                 arc_id=arc_id,
                 segment_ids=episode_segments,
-                prev_recap=prev_recap
+                prev_recap=recap
             )
             logger.info(f"Updated states for {len(character_updates)} characters after episode {episode_number}")
         except Exception as e:
             logger.warning(f"Failed to update character states: {e}")
-            character_updates = {}
         
-        # 10. Check themes and generate new characters if theme event triggers (E2-4 Enhanced)
+        # 9. Check themes and generate new characters if needed
         try:
             updater = CharacterStateUpdater(self.story, self.generator)
             for theme in recap.themes_explored:
@@ -196,7 +230,7 @@ Additionally, extract:
         except Exception as e:
             logger.warning(f"Failed to generate new characters: {e}")
         
-        # 11. Save recap
+        # 10. Save
         recap.save()
         logger.info(f"Generated recap for episode {episode_number}: {ai_title}")
         
@@ -239,7 +273,9 @@ Additionally, extract:
         logger.info(f"Generating episode context for arc {arc_id}")
         
         # Step 2: Select themes for this episode
-        next_episode_num = arc.episode_count + 1
+        # episode_count is already incremented by the caller (generate_next_scene)
+        # so we use it directly as the next episode number
+        next_episode_num = arc.episode_count if arc.episode_count > 0 else 1
         selected_themes = ThemeSelector.select_themes(
             arc,
             previous_recap,
@@ -255,36 +291,45 @@ Additionally, extract:
             selected_themes
         )
         
-        # Step 4: Call AI
+        # Step 4: Call AI via generate_structured
         logger.debug(f"Calling AI for episode {next_episode_num} context generation")
-        response = await self.generator.generate(
+        ep_ctx_schema = ResponseSchema(
+            fields=[
+                FieldSpec("tone_tags", type="list", aliases=["tone", "tones"]),
+                FieldSpec("end_condition", type="str", aliases=["ending", "resolution"]),
+                FieldSpec("narrative_direction", type="str", aliases=["direction", "narrative"]),
+                FieldSpec("episode_focus", type="str", aliases=["focus"]),
+                FieldSpec("story_hooks", type="list", aliases=["hooks", "plot_hooks"]),
+            ],
+            expect_array=False,
+        )
+        ep_fallback = {
+            "tone_tags": ["neutral"],
+            "end_condition": "Episode completion",
+            "narrative_direction": "Story progresses forward",
+            "episode_focus": "",
+            "story_hooks": [],
+        }
+        ep_data = await self.generator.generate_structured(
             system_prompt="",
             user_prompt=prompt,
-            context_type="scene"
+            schema=ep_ctx_schema,
+            fallback_defaults=[ep_fallback],
         )
         
-        # Handle AI response errors
-        if response.error:
-            logger.warning(f"AI generation error for episode context: {response.error}")
-            # Use fallback values
-            context = {
-                'tone_tags': ['neutral'],
-                'end_condition': 'Episode completion',
-                'narrative_direction': 'Story progresses forward',
-                'selected_themes': selected_themes,
-                'episode_focus': list(arc.character_arc_goals.values())[0] if arc.character_arc_goals else '',
-                'story_hooks': arc.plot_hooks[:2] if arc.plot_hooks else [],
-            }
-        else:
-            # Extract values from response
-            context = {
-                'tone_tags': getattr(response, 'tone_tags', ['neutral']),
-                'end_condition': getattr(response, 'end_condition', 'Episode completion'),
-                'narrative_direction': getattr(response, 'narrative_direction', 'Story progresses'),
-                'selected_themes': selected_themes,
-                'episode_focus': getattr(response, 'episode_focus', ''),
-                'story_hooks': getattr(response, 'story_hooks', []),
-            }
+        # Ensure tone_tags is a list
+        tone_tags = ep_data.get('tone_tags', ['neutral'])
+        if isinstance(tone_tags, str):
+            tone_tags = [tone_tags]
+        
+        context = {
+            'tone_tags': tone_tags,
+            'end_condition': ep_data.get('end_condition', 'Episode completion'),
+            'narrative_direction': ep_data.get('narrative_direction', 'Story progresses'),
+            'selected_themes': selected_themes,
+            'episode_focus': ep_data.get('episode_focus', ''),
+            'story_hooks': ep_data.get('story_hooks', []),
+        }
         
         logger.info(f"Generated episode {next_episode_num} context: {context}")
         
@@ -324,6 +369,7 @@ Additionally, extract:
         # Step 7: Create EpisodeMeta and save it
         try:
             episode_meta = EpisodeMeta(
+                story=self.story,
                 id=f"episode_meta_{next_episode_num}_{arc_id}",
                 story_id=self.story.id,
                 episode_number=next_episode_num,
@@ -410,7 +456,8 @@ Additionally, extract:
                (arc_id is None or seg.arc_id == arc_id)
         ]
         
-        return max(matching, key=lambda s: s.id) if matching else None
+        # Sort by segment_number_in_episode (numeric), falling back to id length then id
+        return max(matching, key=lambda s: (s.segment_number_in_episode or 0, len(s.id), s.id)) if matching else None
     
     def _collect_changes(self, segments: List[StorySegment]) -> List[str]:
         """
@@ -524,7 +571,8 @@ Respond with JSON:
     def _build_episode_generation_prompt(
         self,
         arc: StoryArc,
-        previous_recap: Optional[EpisodeRecap]
+        previous_recap: Optional[EpisodeRecap],
+        selected_themes: Optional[List[str]] = None
     ) -> str:
         """
         Build prompt for new episode context.
@@ -532,6 +580,7 @@ Respond with JSON:
         Args:
             arc: The story arc for the new episode
             previous_recap: Optional recap from the previous episode
+            selected_themes: Optional list of themes selected for this episode
             
         Returns:
             The prompt to send to the AI
@@ -547,13 +596,17 @@ Key Themes: {', '.join(previous_recap.key_themes) if previous_recap.key_themes e
 
 """
         
+        themes_context = ""
+        if selected_themes:
+            themes_context = f"\nSELECTED THEMES FOR THIS EPISODE: {', '.join(selected_themes)}\n"
+        
         prompt = f"""
 You are a narrative architect designing episodes for a story arc.
 
 ARC: {arc.title}
 Premise: {arc.premise}
 Direction: {arc.narrative_direction}
-
+{themes_context}
 {prev_context}
 
 Generate context for the NEXT EPISODE:
@@ -610,13 +663,10 @@ Respond with JSON:
                 custom_data=dict(state.custom_data) if state.custom_data else {}
             )
         
-        # Apply changes (simplified: trust the changes are valid)
-        # Full reconciliation would parse change notes more carefully
-        # and handle contradictions with AI fallback
+        # Apply changes using the simple keyword-based parser
         for change in changes:
-            # Simple parsing: "CharName's mood changed to angry"
-            # More complex logic would be needed for production use
             logger.debug(f"Applying change: {change}")
+            self._apply_single_change(final_states, change)
         
         return final_states
     
@@ -762,20 +812,56 @@ character states as JSON object mapping character IDs to their final states.
 }}
 """
         
-        response = await self.generator.generate(
-            system_prompt="",
-            user_prompt=prompt,
-            context_type="scene"
+        # Use generate_structured with a minimal schema — the real structure is dynamic
+        # (character IDs as keys), so we just need the raw parsed dict
+        reconcile_schema = ResponseSchema(
+            fields=[
+                FieldSpec("__any__", type="dict"),  # Dynamic keys
+            ],
+            expect_array=False,
         )
         
-        if response.error:
-            logger.warning(f"AI reconciliation failed: {response.error}, using starting states")
-            return starting_states
-        
-        # Try to extract final states from response
         try:
-            # The response should have the JSON data
-            return starting_states  # Fallback to starting states
+            parsed = await self.generator.generate_structured(
+                system_prompt="",
+                user_prompt=prompt,
+                schema=reconcile_schema,
+                fallback_defaults=[{}],
+            )
+            
+            if not parsed:
+                logger.warning("Empty AI reconciliation response, using starting states")
+                return starting_states
+            
+            # Convert parsed data back into CharacterState objects
+            resolved_states = {}
+            for char_id, state_data in parsed.items():
+                if isinstance(state_data, dict):
+                    base = starting_states.get(char_id)
+                    if base:
+                        resolved_states[char_id] = CharacterState(
+                            id=char_id,
+                            name=base.name,
+                            status=state_data.get('status', base.status),
+                            mood=state_data.get('mood', base.mood),
+                            loyalty=state_data.get('loyalty', base.loyalty),
+                            location=state_data.get('location', base.location),
+                            relationships=state_data.get('relationships', base.relationships),
+                            goals=state_data.get('goals', base.goals),
+                            custom_data=state_data.get('custom_data', base.custom_data)
+                        )
+                    else:
+                        resolved_states[char_id] = CharacterState(
+                            id=char_id,
+                            name=state_data.get('name', char_id),
+                            status=state_data.get('status', 'alive'),
+                            mood=state_data.get('mood', 'neutral'),
+                        )
+            # Merge: keep starting states for chars not in resolution
+            for char_id, state in starting_states.items():
+                if char_id not in resolved_states:
+                    resolved_states[char_id] = state
+            return resolved_states
         except Exception as e:
             logger.error(f"Failed to parse AI reconciliation response: {e}")
             return starting_states
@@ -916,38 +1002,35 @@ Respond with a JSON object:
 
 Include exactly the character IDs. Be selective - focus on the most important characters."""
             
-            response = await self.generator.generate(
+            active_char_schema = ResponseSchema(
+                fields=[
+                    FieldSpec("active_characters", type="list", required=True, aliases=["characters"]),
+                ],
+                expect_array=False,
+            )
+            result = await self.generator.generate_structured(
                 system_prompt="You are a narrative director selecting which characters will be most prominent in an episode.",
                 user_prompt=prompt,
-                context_type="scene"
+                schema=active_char_schema,
+                fallback_defaults=[{"active_characters": []}],
             )
             
-            if response.error:
-                logger.debug(f"Failed to select active characters: {response.error}")
-                return []
+            # Extract character IDs from the parsed result
+            active_chars = result.get("active_characters", [])
+            active_ids = []
+            for char in active_chars:
+                if isinstance(char, dict):
+                    cid = char.get("character_id")
+                    if cid:
+                        active_ids.append(cid)
+                elif isinstance(char, str):
+                    active_ids.append(char)
             
-            # Parse response
-            import json
-            import re
-            response_text = response.content if hasattr(response, 'content') else str(response)
-            
-            try:
-                # Try to extract JSON
-                json_match = re.search(r'\{[\s\S]*\}', response_text)
-                if json_match:
-                    parsed = json.loads(json_match.group())
-                    active_ids = [char.get("character_id") for char in parsed.get("active_characters", [])]
-                    active_ids = [cid for cid in active_ids if cid]  # Filter out None values
-                    logger.debug(f"Selected {len(active_ids)} active characters for episode {episode_number}: {active_ids}")
-                    return active_ids
-            except (json.JSONDecodeError, AttributeError, KeyError) as e:
-                logger.debug(f"Failed to parse active characters JSON: {e}")
-            
-            return []
+            logger.debug(f"Selected {len(active_ids)} active characters for episode {episode_number}: {active_ids}")
+            return active_ids
             
         except Exception as e:
             logger.warning(f"Failed to select active characters for episode: {e}")
-
             return []
     
     def collect_running_state_from_episode(
@@ -1497,82 +1580,76 @@ Return ONLY valid JSON in this format:
         
         try:
             logger.debug(f"Calling LLM to regenerate character {char.name} from running state")
-            response = await self.generator.generate(
-                system_prompt="You are a creative writer updating character states based on narrative changes. "
-                             "Always return valid JSON. Never return commentary outside the JSON.",
+            
+            regen_schema = ResponseSchema(
+                fields=[
+                    FieldSpec("description", type="str", aliases=["char_description"]),
+                    FieldSpec("health_status", type="str", aliases=["health"]),
+                    FieldSpec("emotional_status", type="str", aliases=["emotion", "mood"]),
+                    FieldSpec("inventory", type="dict", aliases=["items"]),
+                    FieldSpec("goal_progress", type="float", aliases=["progress"]),
+                    FieldSpec("goal_notes", type="str", aliases=["notes"]),
+                ],
+                expect_array=False,
+            )
+            parsed = await self.generator.generate_structured(
+                system_prompt="You are a creative writer updating character states based on narrative changes.",
                 user_prompt=prompt,
-                context_type="character_update"
+                schema=regen_schema,
+                fallback_defaults=[{}],
             )
             
-            if response.error:
-                logger.warning(f"LLM error regenerating character {character_id}: {response.error}")
+            if not parsed:
+                logger.warning(f"Empty result regenerating character {character_id}")
                 return False
             
-            # Parse response
-            import json
-            import re
-            response_text = response.content if hasattr(response, 'content') else str(response)
+            # Update character fields
+            if parsed.get('description'):
+                char.description = parsed['description']
             
+            # Update CharacterStateSnapshot in EpisodeMeta
+            from app.models.story_episode import CharacterStateSnapshot
+            from app.models.story_episode import StoryEpisode as EpisodeMeta
+            
+            # Try to find and update current episode's metadata
+            if hasattr(self, 'current_episode_number'):
+                episode_num = self.current_episode_number
+            else:
+                # Default to latest episode
+                arc = StoryArc.load(self.story.id, getattr(self, 'current_arc_id', None))
+                episode_num = arc.episode_count if arc else 1
+            
+            # Create/update snapshot with new fields
+            snapshot = CharacterStateSnapshot(
+                character_id=character_id,
+                description=parsed.get('description', char.description),
+                health_status=parsed.get('health_status', ''),
+                emotional_status=parsed.get('emotional_status', ''),
+                relationship_notes={},
+                inventory=parsed.get('inventory', {}),
+                character_arc_goal=getattr(char, 'character_arc_goal', ''),
+                goal_progress=float(parsed.get('goal_progress', 0.0)),
+                goal_notes=parsed.get('goal_notes', '')
+            )
+            
+            # Try to update EpisodeMeta if available
             try:
-                # Extract JSON from response
-                json_match = re.search(r'\{[\s\S]*\}', response_text)
-                if not json_match:
-                    logger.warning(f"No JSON found in LLM response for character {character_id}")
-                    return False
-                
-                parsed = json.loads(json_match.group())
-                
-                # Update character fields
-                if 'description' in parsed:
-                    char.description = parsed['description']
-                
-                # Update CharacterStateSnapshot in EpisodeMeta
-                from app.models.story_episode import CharacterStateSnapshot
-                from app.models.story_episode import StoryEpisode as EpisodeMeta
-                
-                # Try to find and update current episode's metadata
-                if hasattr(self, 'current_episode_number'):
-                    episode_num = self.current_episode_number
-                else:
-                    # Default to latest episode
-                    arc = StoryArc.load(self.story.id, getattr(self, 'current_arc_id', None))
-                    episode_num = arc.episode_count if arc else 1
-                
-                # Create/update snapshot with new fields
-                snapshot = CharacterStateSnapshot(
-                    character_id=character_id,
-                    description=parsed.get('description', char.description),
-                    health_status=parsed.get('health_status', ''),
-                    emotional_status=parsed.get('emotional_status', ''),
-                    relationship_notes={},  # Preserved from existing
-                    inventory=parsed.get('inventory', {}),
-                    character_arc_goal=getattr(char, 'character_arc_goal', ''),
-                    goal_progress=float(parsed.get('goal_progress', 0.0)),
-                    goal_notes=parsed.get('goal_notes', '')
-                )
-                
-                # Try to update EpisodeMeta if available
-                try:
-                    episode_meta_id = f"episode_meta_{episode_num}_{getattr(self, 'current_arc_id', 'unknown')}"
-                    episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
-                    if episode_meta:
-                        episode_meta.character_state_snapshot[character_id] = snapshot
-                        episode_meta.save()
-                        logger.debug(f"Updated EpisodeMeta for character {char.name}")
-                except Exception as e:
-                    logger.debug(f"Could not update EpisodeMeta: {e}")
-                
-                # Save character
-                char.save()
-                logger.info(f"Regenerated character {char.name} from running state: "
-                           f"health={parsed.get('health_status')}, "
-                           f"emotion={parsed.get('emotional_status')}, "
-                           f"items={len(parsed.get('inventory', {}))}")
-                return True
-                
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning(f"Failed to parse LLM response for character {character_id}: {e}")
-                return False
+                episode_meta_id = f"episode_meta_{episode_num}_{getattr(self, 'current_arc_id', 'unknown')}"
+                episode_meta = EpisodeMeta.load(self.story.id, episode_meta_id)
+                if episode_meta:
+                    episode_meta.character_state_snapshot[character_id] = snapshot
+                    episode_meta.save()
+                    logger.debug(f"Updated EpisodeMeta for character {char.name}")
+            except Exception as e:
+                logger.debug(f"Could not update EpisodeMeta: {e}")
+            
+            # Save character
+            char.save()
+            logger.info(f"Regenerated character {char.name} from running state: "
+                       f"health={parsed.get('health_status')}, "
+                       f"emotion={parsed.get('emotional_status')}, "
+                       f"items={len(parsed.get('inventory', {}))}")
+            return True
         
         except Exception as e:
             logger.error(f"Failed to regenerate character {character_id}: {e}")

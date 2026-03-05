@@ -42,14 +42,14 @@ class OpeningSceneGenerator(TextGenerator):
         if hasattr(world_context, 'plot_description') and world_context.plot_description:
             plot_summary = world_context.plot_description
         
-        # Get fractions context
-        fractions_context = ""
-        fractions = story.get_all_fractions()
-        if fractions:
-            fractions_context = "\n\nKey Factions:\n"
-            for frac in fractions[:3]:  # Limit to 3 for context
-                frac_desc = frac.to_context_short()
-                fractions_context += f"- {frac_desc}\n"
+        # Get factions context
+        factions_context = ""
+        factions = story.get_all_factions()
+        if factions:
+            factions_context = "\n\nKey Factions:\n"
+            for fac in factions[:3]:  # Limit to 3 for context
+                fac_desc = fac.to_context_short()
+                factions_context += f"- {fac_desc}\n"
         
         # Get locations context
         locations_context = ""
@@ -72,7 +72,7 @@ WORLD:
 
 PLOT:
 {plot_summary}
-{fractions_context}
+{factions_context}
 {locations_context}
 
 Write an opening scene that:
@@ -96,7 +96,7 @@ Your opening scenes hook readers immediately and establish mood, setting, and st
             context_type="scene"
         )
         
-        opening_text = response.content if hasattr(response, 'content') else str(response)
+        opening_text = response.raw_response or ""
         
         # Create opening segment
         opening_segment = StorySegment(
@@ -141,18 +141,18 @@ Your opening scenes hook readers immediately and establish mood, setting, and st
         if opening_segment.text_blocks:
             opening_text = opening_segment.text_blocks[0].content if hasattr(opening_segment.text_blocks[0], 'content') else str(opening_segment.text_blocks[0])
         
-        # Get fractions for context
-        fractions_context = ""
-        fractions = story.get_all_fractions()
-        if fractions:
-            fractions_context = "\nFactions present: "
-            fractions_context += ", ".join([f.name if hasattr(f, 'name') else str(f) for f in fractions[:3]])
+        # Get factions for context
+        factions_context = ""
+        factions = story.get_all_factions()
+        if factions:
+            factions_context = "\nFactions present: "
+            factions_context += ", ".join([f.name if hasattr(f, 'name') else str(f) for f in factions[:3]])
         
         prompt = f"""Generate 2-3 compelling opening choices for this story:
 
 Story: {story.title}
 Genre: {story.genre}
-Description: {story.description}{fractions_context}
+Description: {story.description}{factions_context}
 
 Opening Scene (first 200 chars):
 {opening_text[:200]}...
@@ -176,7 +176,7 @@ The choices should feel natural, consequential, and offer meaningful branching p
             context_type="scene"
         )
         
-        choices_text = response.content if hasattr(response, 'content') else str(response)
+        choices_text = response.raw_response or ""
         
         # Parse choices from response
         choice_lines = []

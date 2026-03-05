@@ -127,8 +127,26 @@ class ArcTransitionManager:
             archived_count = len(arc_segments) - len(mainline_ids)
             logger.info(f"Archived {archived_count} non-mainline segments in arc {arc_id}")
             
-            # 5. Mark arc as finalized
+            # 5. Generate arc recap from mainline segments
+            try:
+                arc_summary = await self._build_arc_summary(arc_id)
+                
+                # Build a concise recap and populate arc fields
+                arc.recap = f"{arc.title}: {arc_summary[:200]}" if arc_summary else arc.title
+                arc.recap_title = arc.title
+                arc.recap_summary = arc_summary
+                
+                # Collect unresolved mysteries for next arc
+                if arc.unresolved_mysteries:
+                    arc.unresolved_for_next = list(arc.unresolved_mysteries)
+                
+                logger.info(f"Generated recap for arc {arc_id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate arc recap: {e}")
+            
+            # 6. Mark arc as finalized and deactivate it
             arc.is_finalized = True
+            arc.is_active = False
             arc.mainline_segment_count = len(mainline_ids)
             arc.save()
             
@@ -325,7 +343,7 @@ class ArcTransitionManager:
             all_segments = self.story.get_all_segments()
             arc_segments = [
                 s for s in all_segments
-                if s.arc_id == arc_id and (s.is_mainline or not s.status == SegmentStatus.ARCHIVED)
+                if s.arc_id == arc_id and s.is_mainline
             ]
             
             if not arc_segments:
@@ -368,10 +386,17 @@ class ArcTransitionManager:
             
             generator = ArcGenerator(self.story, self.generator)
             
+            # Build context from completed arc to pass as user_input
+            arc_context = (
+                f"Previous arc: {completed_arc.title}. "
+                f"Premise: {completed_arc.premise}. "
+                f"Direction: {completed_arc.narrative_direction}."
+            )
+            
             # Generate 3 future arcs with context from completed arc
             new_arcs = await generator.generate_future_arcs(
-                previous_arc=completed_arc,
-                count=3
+                count=3,
+                user_input=arc_context
             )
             
             if not new_arcs:

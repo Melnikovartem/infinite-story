@@ -348,6 +348,7 @@ class StoryBuilder:
         
         # Create and save first episode recap
         episode_recap = EpisodeRecap(
+            story=self.story,
             story_id=self.story.id,
             id="episode_1",
             episode_number=1,

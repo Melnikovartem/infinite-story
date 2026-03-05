@@ -143,8 +143,8 @@ Make the world feel alive, internally consistent, and full of potential for conf
         if hasattr(response, 'backstory') and response.backstory:
             return response.backstory[:500]
         
-        if hasattr(response, 'content') and response.content:
-            return response.content[:500]
+        if hasattr(response, 'raw_response') and response.raw_response:
+            return response.raw_response[:500]
         
         return "A mysterious world waiting to be discovered"
     

@@ -139,8 +139,8 @@ Make the plot feel inevitable yet surprising, with clear stakes and compelling c
             sentences = response.backstory.split('.')[:3]
             return '.'.join(sentences).strip() + '.'
         
-        if hasattr(response, 'content') and response.content:
-            sentences = response.content.split('.')[:3]
+        if hasattr(response, 'raw_response') and response.raw_response:
+            sentences = response.raw_response.split('.')[:3]
             return '.'.join(sentences).strip() + '.'
         
         return "A story of conflict, growth, and discovery"

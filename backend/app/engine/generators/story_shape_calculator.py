@@ -142,12 +142,10 @@ Consider:
     def _parse_shape_response(self, response: Any) -> Dict[str, Any]:
         """Parse shape response into structured data."""
         
-        # Try to extract content if it's an object
+        # Extract raw text from response object
         content = response
-        if hasattr(response, 'content'):
-            content = response.content
-        elif hasattr(response, 'text'):
-            content = response.text
+        if hasattr(response, 'raw_response'):
+            content = response.raw_response or ""
         else:
             content = str(response)
         

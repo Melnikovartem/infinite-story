@@ -40,22 +40,39 @@ def sample_arc(sample_story):
 
 @pytest.fixture
 def mock_generator():
-    """Create a mock TextGenerator."""
+    """Create a mock TextGenerator that supports both generate() and generate_structured()."""
     gen = AsyncMock()
     
-    # Default response for generate
+    _default_data = {
+        "title": "Test Episode Title",
+        "summary": "A test episode summary",
+        "key_themes": ["theme1", "theme2"],
+        "themes_explored": ["theme1"],
+        "hook_for_next": "The story continues...",
+        "unresolved_new": [],
+        "tone_tags": ["dramatic"],
+        "end_condition": "Test condition met",
+        "narrative_direction": "Story progresses",
+        "episode_focus": "",
+        "story_hooks": [],
+        "active_characters": [],
+    }
+    
+    # Default response for generate (legacy path — used by code that still calls generate())
     async def mock_generate(system_prompt, user_prompt, context_type):
         response = MagicMock()
         response.error = None
-        response.title = "Test Episode Title"
-        response.summary = "A test episode summary"
-        response.key_themes = ["theme1", "theme2"]
-        response.tone_tags = ["dramatic"]
-        response.end_condition = "Test condition met"
-        response.narrative_direction = "Story progresses"
+        response.raw_response = json.dumps(_default_data)
         return response
     
+    # generate_structured returns parsed data directly
+    async def mock_generate_structured(system_prompt, user_prompt, schema, fallback_defaults=None, output_format=None):
+        if schema.expect_array:
+            return [dict(_default_data)]
+        return dict(_default_data)
+    
     gen.generate = mock_generate
+    gen.generate_structured = mock_generate_structured
     return gen
 
 
@@ -383,14 +400,23 @@ class TestEpisodeRecapGeneratorCharacterReconciliation:
     @pytest.mark.asyncio
     async def test_generate_recap_handles_ai_error(self, sample_story, mock_generator):
         """Generate recap handles AI generation errors gracefully."""
-        # Mock generator that returns error
+        # Mock generator that simulates errors — generate_structured returns fallback
         error_gen = AsyncMock()
         async def mock_generate_with_error(system_prompt, user_prompt, context_type):
             response = MagicMock()
             response.error = "AI generation failed"
             return response
         
+        async def mock_generate_structured_error(system_prompt, user_prompt, schema, fallback_defaults=None, output_format=None):
+            """Simulate failure by returning fallback defaults."""
+            if fallback_defaults:
+                if schema.expect_array:
+                    return fallback_defaults
+                return fallback_defaults[0]
+            return {} if not schema.expect_array else []
+        
         error_gen.generate = mock_generate_with_error
+        error_gen.generate_structured = mock_generate_structured_error
         
         seg = StorySegment(
             story=sample_story,

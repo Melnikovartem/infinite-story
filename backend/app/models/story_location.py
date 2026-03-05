@@ -7,7 +7,7 @@ class StoryLocation(StoryBlock):
     """A location in a story.
     
     This represents a location with its name and descriptions,
-    and optional association with story fractions.
+    and optional association with story factions.
     The description field evolves over episodes as episodes are flushed.
     current_state tracks the latest state during an episode.
     """
@@ -24,8 +24,8 @@ class StoryLocation(StoryBlock):
         description="Current state during episode: {stability, accessibility, corruption, ownership, inhabitants, etc.}"
     )
     
-    # Fraction association
-    associated_fractions: List[str] = Field(default_factory=list)  # Fraction IDs associated with this location
+    # Faction association
+    associated_factions: List[str] = Field(default_factory=list)  # Faction IDs associated with this location
     importance: str = "minor"  # "major" or "minor"
 
     def __init__(self, **data):

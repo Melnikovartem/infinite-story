@@ -497,6 +497,8 @@ class SegmentContextBuilder:
         """Get context for previous arcs (up to N).
         
         Loads recaps for previous arcs to provide long-form story context.
+        Includes recap text, unresolved threads, and character arc resolutions
+        so the AI has full continuity across arc transitions.
         
         Args:
             current_arc_id: The current arc ID (to exclude from results)
@@ -508,24 +510,36 @@ class SegmentContextBuilder:
         arcs = []
         all_arcs = self.story.get_all_arcs() if hasattr(self.story, 'get_all_arcs') else []
         
-        # Get previous arcs (before current) - recap is now a field on StoryArc
+        # Get previous arcs (finalized or with recap) — not the current active one
         for arc in all_arcs:
             if current_arc_id and arc.id == current_arc_id:
                 continue
+            # Skip future arcs that haven't been played yet
+            if arc.is_future_arc:
+                continue
             
-            if arc.recap or arc.recap_summary:
-                arcs.append({
+            # Include any arc that has been finalized or has a recap
+            if arc.is_finalized or arc.recap or arc.recap_summary:
+                # Prefer recap_summary (full narrative) over recap (short)
+                recap_text = arc.recap_summary or arc.recap or ""
+                
+                arc_info = {
                     'arc_id': arc.id,
                     'name': arc.title,
                     'premise': arc.premise,
-                    'resolution': arc.outcome,
-                    'recap': arc.recap or arc.recap_summary,
-                    'character_arcs': arc.character_arc_resolutions,
-                })
+                    'resolution': arc.outcome or "",
+                    'recap': recap_text,
+                    'character_arcs': arc.character_arc_resolutions or {},
+                    'unresolved': arc.unresolved_for_next or arc.unresolved_mysteries or [],
+                    'hook_for_next': arc.hook_for_next_arc or "",
+                    'new_status_quo': arc.new_status_quo or "",
+                    'episode_count': arc.episode_count,
+                }
+                arcs.append(arc_info)
                 if len(arcs) >= count:
                     break
         
-        logger.debug(f"Extracted {len(arcs)} previous arcs")
+        logger.debug(f"Extracted {len(arcs)} previous arcs with recaps")
         return arcs
     
     # ========================================================================
@@ -680,12 +694,16 @@ class SegmentContextBuilder:
         arc_id: Optional[str],
         count: int = 3
     ) -> List[Dict[str, Any]]:
-        """Get last N episode recaps."""
+        """Get last N episode recaps, crossing arc boundaries if needed.
+        
+        When in early episodes of a new arc, includes recaps from the
+        previous arc's final episodes to maintain narrative continuity.
+        """
         from app.models.story_episode import StoryEpisode
         
         recaps = []
         
-        # Look back from current episode
+        # 1. Look back within current arc
         for ep_num in range(current_episode - 1, max(0, current_episode - count - 1), -1):
             try:
                 recap_id = f"recap_{self.story.id}_ep{ep_num}_{arc_id or 'main'}"
@@ -693,6 +711,7 @@ class SegmentContextBuilder:
                 if recap:
                     recaps.append({
                         'episode': ep_num,
+                        'arc_id': arc_id,
                         'title': recap.title,
                         'summary': recap.summary,
                         'themes': recap.key_themes,
@@ -701,10 +720,48 @@ class SegmentContextBuilder:
             except:
                 pass
         
+        # 2. If we don't have enough recaps, look at previous arc's episodes
+        if len(recaps) < count and arc_id:
+            try:
+                from app.models.story_arc import StoryArc
+                current_arc = StoryArc.load(self.story.id, arc_id)
+                if current_arc and current_arc.previous_arc_id:
+                    prev_arc_id = current_arc.previous_arc_id
+                    prev_arc = StoryArc.load(self.story.id, prev_arc_id)
+                    if prev_arc and prev_arc.episode_count:
+                        # Get the last few episodes of the previous arc
+                        remaining = count - len(recaps)
+                        start_ep = max(1, prev_arc.episode_count - remaining + 1)
+                        for ep_num in range(prev_arc.episode_count, start_ep - 1, -1):
+                            if len(recaps) >= count:
+                                break
+                            try:
+                                recap_id = f"recap_{self.story.id}_ep{ep_num}_{prev_arc_id}"
+                                recap = StoryEpisode.load(self.story.id, recap_id, story=self.story)
+                                if recap:
+                                    recaps.append({
+                                        'episode': ep_num,
+                                        'arc_id': prev_arc_id,
+                                        'arc_name': prev_arc.title,
+                                        'title': recap.title,
+                                        'summary': recap.summary,
+                                        'themes': recap.key_themes,
+                                        'hook_for_next': recap.hook_for_next,
+                                        'from_previous_arc': True,
+                                    })
+                            except:
+                                pass
+            except Exception as e:
+                logger.debug(f"Could not load previous arc episode recaps: {e}")
+        
         return recaps
     
     def _get_current_arc_info(self, arc_id: Optional[str]) -> Dict[str, Any]:
-        """Get full current arc information."""
+        """Get full current arc information including cross-arc context.
+        
+        Includes previous_arc_summary and inherited context so the AI
+        knows what happened before this arc started.
+        """
         if not arc_id:
             return {}
         
@@ -712,7 +769,7 @@ class SegmentContextBuilder:
             from app.models.story_arc import StoryArc
             arc = StoryArc.load(self.story.id, arc_id)
             if arc:
-                return {
+                info = {
                     'title': arc.title,
                     'premise': arc.premise,
                     'narrative_direction': arc.narrative_direction,
@@ -724,17 +781,39 @@ class SegmentContextBuilder:
                     'episode_count': arc.episode_count,
                     'tone': arc.arc_tone,
                     'mood': arc.arc_mood,
+                    # Cross-arc continuity: what happened before this arc
+                    'previous_arc_summary': arc.previous_arc_summary or "",
+                    'previous_arc_id': arc.previous_arc_id or "",
                 }
+                return info
         except Exception as e:
             logger.warning(f"Failed to get arc info: {e}")
         
         return {}
     
     def _get_recent_arc_recaps(self, count: int = 10) -> List[Dict[str, Any]]:
-        """Get last N arc recaps from story."""
-        # TODO: Implement arc recap storage and loading
-        # For now, return empty as arcs are tracked in StoryArc model
-        return []
+        """Get last N arc recaps from story.
+        
+        Reads recap data directly from finalized StoryArc objects.
+        """
+        recaps = []
+        all_arcs = self.story.get_all_arcs() if hasattr(self.story, 'get_all_arcs') else []
+        
+        for arc in all_arcs:
+            if arc.is_finalized and (arc.recap or arc.recap_summary):
+                recaps.append({
+                    'arc_id': arc.id,
+                    'title': arc.recap_title or arc.title,
+                    'recap': arc.recap_summary or arc.recap or "",
+                    'outcome': arc.outcome or "",
+                    'unresolved': arc.unresolved_for_next or [],
+                    'episode_count': arc.episode_count,
+                })
+                if len(recaps) >= count:
+                    break
+        
+        logger.debug(f"Loaded {len(recaps)} arc recaps")
+        return recaps
     
     def _get_segment_recaps(self, segment_chain: List[str], count: int = 10) -> List[Dict[str, Any]]:
         """Get recaps for recent segments from segment.recap field."""

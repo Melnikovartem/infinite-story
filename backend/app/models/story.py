@@ -13,10 +13,10 @@ if TYPE_CHECKING:
     from .story_choice import StoryChoice
     from .story_context import StoryContext
     from .story_segment import SegmentStatus
-    from .story_fraction import StoryFraction
     from .story_episode import StoryEpisode
     from .story_faction import StoryFaction
     from .story_magic_system import StoryMagicSystem
+    from .story_arc import StoryArc
 
 class Story(StoryBase):
     """A story in the system.
@@ -35,10 +35,10 @@ class Story(StoryBase):
     _segments: Dict[str, 'StorySegment'] = PrivateAttr(default_factory=dict)
     _choices: Dict[str, 'StoryChoice'] = PrivateAttr(default_factory=dict)
     _context: Optional['StoryContext'] = PrivateAttr(default=None)
-    _fractions: Dict[str, 'StoryFraction'] = PrivateAttr(default_factory=dict)
     _episodes: Dict[str, 'StoryEpisode'] = PrivateAttr(default_factory=dict)
     _factions: Dict[str, 'StoryFaction'] = PrivateAttr(default_factory=dict)
     _magic_systems: Dict[str, 'StoryMagicSystem'] = PrivateAttr(default_factory=dict)
+    _arcs: Dict[str, 'StoryArc'] = PrivateAttr(default_factory=dict)
     
     def __init__(self, **data):
         """Initialize a Story instance.
@@ -194,37 +194,6 @@ class Story(StoryBase):
         episodes = list(self._episodes.values())
         return sorted(episodes, key=lambda e: e.episode_number)
     
-    def add_fraction(self, fraction: 'StoryFraction') -> None:
-        """Add a fraction to the story.
-
-        Args:
-            fraction: The fraction to add
-        """
-        if fraction.story_id != self.id:
-            raise ValueError(f"Fraction {fraction.id} belongs to story {fraction.story_id}, not {self.id}")
-        logger.debug(f"Adding fraction '{fraction.id}' ({fraction.title}) to story '{self.id}'")
-        self._fractions[fraction.id] = fraction
-    
-    def get_fraction(self, fraction_id: str) -> Optional['StoryFraction']:
-        """Get a fraction by ID.
-        
-        Args:
-            fraction_id: The ID of the fraction to get
-            
-        Returns:
-            The fraction, or None if not found
-        """
-        return self._fractions.get(fraction_id)
-    
-    def get_all_fractions(self) -> List['StoryFraction']:
-        """Get all fractions in the story.
-        
-        Returns:
-            A list of all fractions, sorted by order
-        """
-        fractions = list(self._fractions.values())
-        return sorted(fractions, key=lambda f: f.order)
-    
     # ========================================================================
     # Faction (political groups/organizations) cache
     # ========================================================================
@@ -280,6 +249,40 @@ class Story(StoryBase):
     def get_magic_systems_for_arc(self, arc_id: str) -> List['StoryMagicSystem']:
         """Get magic systems active in a specific arc."""
         return [m for m in self._magic_systems.values() if m.arc_id == arc_id]
+    
+    # ========================================================================
+    # Arc (story arc) cache
+    # ========================================================================
+    
+    def add_arc(self, arc: 'StoryArc') -> None:
+        """Add an arc to the story.
+
+        Args:
+            arc: The arc to add
+        """
+        if arc.story_id != self.id:
+            raise ValueError(f"Arc {arc.id} belongs to story {arc.story_id}, not {self.id}")
+        logger.debug(f"Adding arc '{arc.id}' ({arc.title}) to story '{self.id}'")
+        self._arcs[arc.id] = arc
+    
+    def get_arc(self, arc_id: str) -> Optional['StoryArc']:
+        """Get an arc by ID."""
+        return self._arcs.get(arc_id)
+    
+    def get_all_arcs(self) -> List['StoryArc']:
+        """Get all arcs in the story."""
+        return list(self._arcs.values())
+    
+    def get_active_arc(self) -> Optional['StoryArc']:
+        """Get the currently active arc."""
+        for arc in self._arcs.values():
+            if arc.is_active and not arc.is_finalized:
+                return arc
+        return None
+    
+    def get_future_arcs(self) -> List['StoryArc']:
+        """Get all future (pre-generated, not yet active) arcs."""
+        return [a for a in self._arcs.values() if a.is_future_arc]
     
     def get_available_choices(self, segment_id: str) -> List['StoryChoice']:
         """Get available choices from a segment, excluding archived destinations.

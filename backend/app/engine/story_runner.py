@@ -1,18 +1,15 @@
-from typing import Dict, List, Optional, Set, Any
+from typing import List, Optional, Set
 import json
 import logging
-import uuid
 from pathlib import Path
 from ..models.story import Story
-from ..models.story_segment import StorySegment, SegmentStatus
+from ..models.story_segment import StorySegment
 from ..models.story_character import StoryCharacter
 from ..models.story_location import StoryLocation
 from ..models.story_choice import StoryChoice
 from ..models.story_context import StoryContext
 from ..models.story_base import LOCAL_DATA_DIR
-from ..models.story_episode import StoryEpisode as EpisodeRecap
-from ..engine.segment_context_builder import SegmentContextBuilder
-from ..engine.episode_recap_generator import EpisodeRecapGenerator
+
 
 logger = logging.getLogger("infinite_story.engine.story_runner")
 
@@ -24,7 +21,6 @@ class StoryRunner:
         self.current_segment: Optional[StorySegment] = None
         self.visited_segments: Set[str] = set()  # Set of segment IDs we've visited
         self.generator = generator  # Optional TextGenerator for AI-based generation
-        self.current_arc_id: Optional[str] = None  # Track current arc for new segments
     
     @property
     def is_running(self) -> bool:
@@ -45,11 +41,6 @@ class StoryRunner:
         logger.debug(f"Current segment set to '{self.current_segment.id}': {self.current_segment.short_description}")
         # Mark the start segment as visited
         self.visited_segments.add(self.story.start_segment_id)
-        
-        # Initialize current arc from the start segment (E2-5)
-        if self.current_segment.arc_id:
-            self.current_arc_id = self.current_segment.arc_id
-            logger.debug(f"Set current arc to {self.current_arc_id}")
         
     def get_available_choices(self) -> List[StoryChoice]:
         """Get the choices available in the current segment, sorted by logged clicks then click count."""
@@ -248,33 +239,23 @@ class StoryRunner:
             magic_count += 1
         logger.info(f"Loaded {magic_count} magic systems")
 
+        # Load all arcs
+        from ..models.story_arc import StoryArc
+        arc_dir = StoryArc.get_storage_dir(story.id)
+        logger.debug(f"Loading arcs from {arc_dir}")
+        arc_count = 0
+        for arc_file in arc_dir.glob("*.json"):
+            arc_id = arc_file.stem
+            logger.debug(f"  Loading arc: {arc_id}")
+            arc = StoryArc.load(story.id, arc_id)
+            if not arc:
+                logger.warning(f"Failed to load arc {arc_id}")
+                continue
+            story.add_arc(arc)
+            arc_count += 1
+        logger.info(f"Loaded {arc_count} arcs")
+
         logger.info(f"Finished loading all components for story '{story.id}'")
-
-    def save_all_components(self, story) -> None:
-        """Save all story components (characters, locations, segments, choices, context).
-        
-        This method saves all components in the story's internal caches to their
-        respective storage directories.
-        """
-        # Save all characters
-        for character in story._characters.values():
-            character.save()
-                
-        # Save all locations
-        for location in story._locations.values():
-            location.save()
-
-        # Save all segments
-        for segment in story._segments.values():
-            segment.save()
-
-        # Save all choices
-        for choice in story._choices.values():
-            choice.save()
-
-        # Save story context
-        if story._context:
-            story._context.save()
 
     def get_state_file_path(self) -> Path:
         """Get the path to the state file for this story.
@@ -352,351 +333,3 @@ class StoryRunner:
 
         self.current_segment = segment
         self.visited_segments.add(segment_id)
-        
-        # Initialize current arc from the segment (E2-5)
-        if segment.arc_id:
-            self.current_arc_id = segment.arc_id
-            logger.debug(f"Set current arc to {self.current_arc_id}")
-    
-    # ========================================================================
-    # E1-2: Generation Pipeline
-    # ========================================================================
-    
-    async def traverse_or_generate(
-        self,
-        choice: StoryChoice
-    ) -> StorySegment:
-        """Main pipeline decision: traverse existing segment or generate new one.
-        
-        When a user makes a choice, this decides whether to:
-        1. Traverse to an existing segment (if to_segment_id is set)
-        2. Generate a new segment (if to_segment_id is null)
-        
-        Uses choice locking to prevent race conditions during generation.
-        
-        Args:
-            choice: The choice the user made
-            
-        Returns:
-            The destination segment (either existing or newly generated)
-            
-        Raises:
-            ValueError: If destination segment not found or generation fails
-        """
-        # Case 1: Choice already has a destination
-        if choice.to_segment_id:
-            dest = self.story.get_segment(choice.to_segment_id)
-            if not dest:
-                raise ValueError(f"Destination segment {choice.to_segment_id} not found")
-            logger.debug(f"Traversing to existing segment {choice.to_segment_id}")
-            return dest
-        
-        # Case 2: Choice needs generation
-        # Lock the choice to prevent duplicate generation by other requests
-        choice.lock()
-        logger.debug(f"Locked choice {choice.id} for generation")
-        
-        try:
-            # Build rich context for generation
-            builder = SegmentContextBuilder(self.story, self.generator)
-            context = await builder.build_context(
-                self.current_segment.id,
-                choice.text
-            )
-            logger.debug(f"Built generation context for choice from segment {self.current_segment.id}")
-            
-            # Generate new segment using context
-            new_segment = await self._generate_segment(context)
-            logger.info(f"Generated new segment {new_segment.id}")
-            
-            # Link choice to new segment
-            choice.to_segment_id = new_segment.id
-            choice.save()
-            logger.debug(f"Linked choice {choice.id} to segment {new_segment.id}")
-            
-            return new_segment
-        
-        except Exception as e:
-            # Unlock on failure so retry is possible
-            logger.error(f"Generation failed: {str(e)}", exc_info=True)
-            choice.unlock()
-            raise e
-        
-        finally:
-            # Always unlock at the end
-            choice.unlock()
-            logger.debug(f"Unlocked choice {choice.id}")
-    
-    async def _generate_segment(self, context: Dict[str, Any]) -> StorySegment:
-        """Generate a new story segment using AI and context.
-        
-        Creates a complete segment with all fields, generates 2 outgoing choices,
-        and saves everything to disk.
-        
-        Args:
-            context: Generation context dict from SegmentContextBuilder
-            
-        Returns:
-            The newly created StorySegment
-            
-        Raises:
-            ValueError: If generation fails or segment creation fails
-        """
-        if not self.current_segment:
-            raise ValueError("No current segment set")
-        
-        try:
-            # Build detailed prompt for generation
-            prompt = self._build_generation_prompt(context)
-            logger.debug(f"Built generation prompt ({len(prompt)} chars)")
-            
-            # Call AI generator (would need generator initialized in __init__)
-            # For now, this creates a placeholder segment
-            # In real implementation, would call: response = await self.generator.generate(...)
-            
-            # Check if this segment transitions to a new episode
-            should_transition = context['should_transition_episode']
-            
-            # Determine episode number and context for new episode
-            next_episode_number = context['episode_number']
-            next_episode_tone = context['episode_tone']
-            next_episode_end_condition = context['episode_end_condition']
-            next_segment_number = context['segment_number_in_episode'] + 1
-            next_arc_id = self.current_arc_id  # Default: stay in current arc
-            
-            # If transitioning to new episode, generate new episode context via E2-2
-            if should_transition and self.generator and self.current_arc_id:
-                try:
-                    recap_generator = EpisodeRecapGenerator(self.story, self.generator)
-                    # Get previous episode recap for continuity
-                    prev_recap = EpisodeRecap.load(
-                        self.story.id, 
-                        f"recap_{self.story.id}_ep{context['episode_number']}_{self.current_arc_id}"
-                    ) if context['episode_number'] > 0 else None
-                    
-                    # Generate new episode context (E2-2)
-                    new_ep_context = await recap_generator.generate_new_episode_context(
-                        self.current_arc_id,
-                        prev_recap
-                    )
-                    
-                    next_episode_number = context['episode_number'] + 1
-                    next_episode_tone = new_ep_context.get('tone_tags', [context['episode_tone']])[0]
-                    next_episode_end_condition = new_ep_context.get('end_condition', '')
-                    next_segment_number = 1  # Reset segment counter for new episode
-                    logger.info(f"Generated new episode context for episode {next_episode_number}")
-                    
-                    # Check for arc transition (E2-5 NEW)
-                    # After generating episode {threshold}, check if arc completed
-                    if next_episode_number > 15:  # Completed 15 episodes
-                        next_arc_id = await self._check_arc_transition(self.current_arc_id)
-                        if next_arc_id and next_arc_id != self.current_arc_id:
-                            logger.info(f"Arc transition detected: {self.current_arc_id} -> {next_arc_id}")
-                            self.current_arc_id = next_arc_id
-                            next_episode_number = 1  # Reset episode count for new arc
-                
-                except Exception as e:
-                    logger.warning(f"Failed to generate new episode context: {e}, using defaults")
-            
-            # Create segment with all fields from context
-            segment_id = f"seg_{uuid.uuid4().hex[:12]}"
-            new_segment = StorySegment(
-                story=self.story,
-                id=segment_id,
-                short_description="A scene in the story",  # Would come from AI response
-                text_blocks=[],  # Would come from AI response
-                arc_id=next_arc_id,  # Use next_arc_id (may be new arc after transition) (E2-5)
-                episode_number=next_episode_number,
-                episode_tone=next_episode_tone,
-                episode_end_condition=next_episode_end_condition,
-                segment_number_in_episode=next_segment_number,
-                pacing_weight=context['pacing_weight'],
-                protagonist_id=context['protagonist_id'],
-                parent_segment_id=self.current_segment.id,
-                character_states=context.get('character_states', {}),
-                change_notes=context.get('accumulated_changes', []),
-                end_condition_proximity=0.0,  # Would come from AI response
-                triggers_episode_transition=False,  # New segment doesn't trigger transition yet
-                status=SegmentStatus.GENERATED,
-                
-                # NEW FIELDS (E2 Enhanced)
-                episode_selected_themes=context.get('episode_selected_themes', []),
-                episode_focus=context.get('episode_focus', ''),
-                story_hooks=context.get('story_hooks', []),
-            )
-            logger.debug(f"Created segment {segment_id}")
-            
-            # Create 2 outgoing choices
-            choice_texts = ["Continue forward", "Take a different approach"]  # Would come from AI response
-            for i, choice_text in enumerate(choice_texts):
-                choice_id = f"choice_{uuid.uuid4().hex[:12]}"
-                choice = StoryChoice(
-                    story=self.story,
-                    id=choice_id,
-                    from_segment_id=new_segment.id,
-                    to_segment_id=None,
-                    text=choice_text,
-                )
-                choice.save()
-                logger.debug(f"Created choice {choice_id}")
-            
-            # Save segment
-            new_segment.save()
-            logger.info(f"Saved segment {segment_id} and choices")
-            
-            # Set recap field on segment for context building
-            self._save_segment_recap(new_segment, context)
-            
-            return new_segment
-        
-        except Exception as e:
-            logger.error(f"Error in _generate_segment: {str(e)}", exc_info=True)
-            raise ValueError(f"Segment generation failed: {str(e)}")
-    
-    def _build_generation_prompt(self, context: Dict[str, Any]) -> str:
-        """Build a detailed prompt for AI generation (E2 Enhanced).
-        
-        Combines context information into a structured prompt that guides the AI
-        to generate a coherent, paced, and consistent story segment.
-        
-        Now includes arc context, themes, and character arc goals.
-        
-        Args:
-            context: Generation context dict from SegmentContextBuilder
-            
-        Returns:
-            A formatted prompt string for the AI
-        """
-        prev_scenes = "\n".join(context['previous_segments']) if context['previous_segments'] else "(none)"
-        changes_str = "\n".join(context['accumulated_changes']) if context['accumulated_changes'] else "(none)"
-        
-        prompt = f"""You are a creative storyteller continuing a narrative.
-
-ARC CONTEXT:
-────────────
-Arc Premise: {context.get('arc_premise', 'N/A')}
-Central Conflict: {context.get('central_conflict', 'N/A')}
-Arc Themes: {', '.join(context.get('arc_themes', []))}
-Arc Tone: {context.get('arc_tone', 'neutral')} - {context.get('arc_mood', '')}
-
-Character Arc Goals:
-"""
-        
-        for char_id, goal in context.get('character_arc_goals', {}).items():
-            prompt += f"  • {char_id}: {goal}\n"
-        
-        prompt += f"""
-EPISODE CONTEXT:
-────────────────
-Episode: {context['episode_number']}
-Focus: {context.get('episode_focus', 'Main narrative')}
-Selected Themes: {', '.join(context.get('episode_selected_themes', []))}
-Tone: {context['episode_tone']}
-End Condition: {context['episode_end_condition']}
-Scene {context['segment_number_in_episode']} of ~20
-Pacing: {context['pacing_weight']:.0%} toward episode end
-
-Episode Hooks to Explore:
-"""
-        
-        for hook in context.get('story_hooks', []):
-            prompt += f"  • {hook}\n"
-        
-        prompt += f"""
-Unresolved Arc Mysteries:
-"""
-        
-        for mystery in context.get('unresolved_mysteries', [])[:3]:  # Limit to 3
-            prompt += f"  • {mystery}\n"
-        
-        prompt += f"""
-PREVIOUS SCENES:
-────────────────
-{prev_scenes}
-
-CHARACTER STATES:
-─────────────────
-{json.dumps(context.get('character_states', {{}}), indent=2, default=str)}
-
-ACCUMULATED CHANGES THIS EPISODE:
-──────────────────────────────────
-{changes_str}
-
-USER CHOSE: "{context['user_choice']}"
-
-Generate the next scene that:
-1. Follows naturally from the user's choice
-2. Respects current character states (emotions, health, relationships)
-3. Maintains the selected themes: {', '.join(context.get('episode_selected_themes', []))}
-4. Advances the episode focus: {context.get('episode_focus', 'main narrative')}
-5. Moves toward the end condition: {context['episode_end_condition']}
-6. Stays true to arc premise: {context.get('arc_premise', 'the overarching narrative')}
-7. Explores at least one hook: {', '.join(context.get('story_hooks', [])[:1])}
-
-Respond with:
-- A 2-3 sentence scene description
-- Track any character state changes (mood, health, relationships, items)
-- Provide change_notes in format: "Character X did Y" or "Relationship changed"
-"""
-        return prompt
-    
-    def _save_segment_recap(
-        self,
-        segment: StorySegment,
-        context: Dict[str, Any]
-    ) -> None:
-        """Set the recap field on the segment and save it.
-        
-        Called after segment generation to populate the recap field
-        for quick context building without loading full segment text_blocks.
-        
-        Args:
-            segment: The newly generated StorySegment
-            context: The generation context dict
-        """
-        try:
-            segment.recap = segment.short_description or ""
-            segment.save()
-            logger.debug(f"Saved segment recap for segment {segment.id}")
-        except Exception as e:
-            logger.warning(f"Failed to save segment recap for segment {segment.id}: {e}")
-    
-    async def _check_arc_transition(self, current_arc_id: str) -> Optional[str]:
-        """
-        Check if arc transition should occur and return next arc ID.
-        
-        This is called when transitioning to episode 16 (after 15 episodes completed).
-        It queries the ArcTransitionManager to see if a next arc has been determined.
-        
-        Args:
-            current_arc_id: The currently active arc ID
-            
-        Returns:
-            The next arc ID if transition occurs, or current_arc_id if no transition
-        """
-        try:
-            from app.engine.arc_transition_manager import ArcTransitionManager
-            
-            # Get the next arc from transition manager
-            transition_mgr = ArcTransitionManager(self.story, self.generator)
-            
-            # Check if we should transition and get the next arc
-            # Note: check_and_handle_arc_completion is async and handles everything
-            # including finalization and context feeding
-            # This method should have already been called during episode recap generation
-            # So we just need to find the active arc
-            
-            all_arcs = transition_mgr._get_all_arcs()
-            active_arcs = [a for a in all_arcs if a.is_active and a.id != current_arc_id]
-            
-            if active_arcs:
-                next_arc = active_arcs[0]
-                logger.info(f"Arc transition: next active arc is {next_arc.id}")
-                return next_arc.id
-            else:
-                logger.debug("No arc transition: current arc continues")
-                return current_arc_id
-        
-        except Exception as e:
-            logger.error(f"Error checking arc transition: {e}", exc_info=True)
-            return current_arc_id

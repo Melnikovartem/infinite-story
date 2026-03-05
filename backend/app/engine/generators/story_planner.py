@@ -72,7 +72,7 @@ Output as JSON:
             )
             
             # Extract JSON from response
-            response_text = response.content if hasattr(response, 'content') else str(response)
+            response_text = response.raw_response or ""
             
             # Try to parse JSON
             json_match = response_text.find('{')

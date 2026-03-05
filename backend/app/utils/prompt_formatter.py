@@ -29,70 +29,232 @@ class PromptFormatter:
             context['user_choice'] = choice_text
         parts = []
         
-        # Story context
-        parts.append("=== STORY CONTEXT ===")
-        if context.get('user_choice'):
-            parts.append(f"The player chose: {context['user_choice']}")
+        # ================================================================
+        # PREVIOUS ARCS — long-term story memory (most important for continuity)
+        # ================================================================
+        if context.get('previous_arcs'):
+            parts.append("=== STORY SO FAR (PREVIOUS ARCS) ===")
+            for arc in context['previous_arcs'][:3]:
+                arc_name = arc.get('name', arc.get('arc_id', 'Unknown'))
+                # Guard against raw JSON stored as title (pre-existing data issue)
+                if arc_name and (arc_name.startswith('{') or arc_name.startswith('"') or len(arc_name) > 100):
+                    arc_name = f"Arc ({arc.get('arc_id', 'previous')[:20]})"
+                parts.append(f"\n--- {arc_name} ---")
+                if arc.get('premise'):
+                    parts.append(f"Premise: {arc['premise']}")
+                if arc.get('recap'):
+                    # Include the actual recap text (the whole point of this section)
+                    recap_text = arc['recap']
+                    if len(recap_text) > 500:
+                        recap_text = recap_text[:500] + "..."
+                    parts.append(f"What happened: {recap_text}")
+                if arc.get('resolution'):
+                    parts.append(f"Outcome: {arc['resolution']}")
+                if arc.get('unresolved'):
+                    parts.append(f"Unresolved threads: {', '.join(arc['unresolved'][:5])}")
+                if arc.get('character_arcs'):
+                    for char_id, resolution in list(arc['character_arcs'].items())[:3]:
+                        parts.append(f"  • {char_id}: {resolution}")
         
-        # Episode info
+        # ================================================================
+        # CURRENT ARC — what the story is about right now
+        # ================================================================
+        current_arc = context.get('current_arc', {})
+        if current_arc:
+            parts.append("\n=== CURRENT ARC ===")
+            if current_arc.get('title'):
+                parts.append(f"Arc: {current_arc['title']}")
+            if current_arc.get('premise'):
+                parts.append(f"Premise: {current_arc['premise']}")
+            if current_arc.get('narrative_direction'):
+                parts.append(f"Direction: {current_arc['narrative_direction']}")
+            if current_arc.get('central_conflict'):
+                parts.append(f"Central conflict: {current_arc['central_conflict']}")
+            if current_arc.get('themes'):
+                parts.append(f"Themes: {', '.join(current_arc['themes'][:5])}")
+            if current_arc.get('previous_arc_summary'):
+                parts.append(f"\nPrevious arc context: {current_arc['previous_arc_summary'][:300]}")
+            if current_arc.get('unresolved_mysteries'):
+                parts.append(f"Open mysteries: {', '.join(current_arc['unresolved_mysteries'][:5])}")
+            if current_arc.get('plot_hooks'):
+                parts.append(f"Active hooks: {', '.join(current_arc['plot_hooks'][:5])}")
+        
+        # ================================================================
+        # EPISODE RECAPS — what happened in recent episodes of this arc
+        # ================================================================
+        if context.get('recent_episode_recaps'):
+            parts.append("\n=== RECENT EPISODES ===")
+            for recap in context['recent_episode_recaps']:
+                ep_line = f"Episode {recap.get('episode', '?')}"
+                if recap.get('title'):
+                    ep_line += f": {recap['title']}"
+                parts.append(ep_line)
+                if recap.get('summary'):
+                    parts.append(f"  {recap['summary'][:200]}")
+                if recap.get('hook_for_next'):
+                    parts.append(f"  Hook: {recap['hook_for_next']}")
+        
+        # ================================================================
+        # CURRENT EPISODE & SCENE
+        # ================================================================
+        parts.append("\n=== CURRENT EPISODE ===")
         ep_num = context.get('episode_number', 1)
         seg_num = context.get('segment_number_in_episode', 1)
-        parts.append(f"\nEpisode {ep_num}, Scene {seg_num}")
+        parts.append(f"Episode {ep_num}, Scene {seg_num}")
         
         if context.get('episode_tone'):
             parts.append(f"Tone: {context['episode_tone']}")
         if context.get('episode_end_condition'):
             parts.append(f"Episode goal: {context['episode_end_condition']}")
+        if context.get('episode_selected_themes'):
+            parts.append(f"Episode themes: {', '.join(context['episode_selected_themes'])}")
+        if context.get('episode_focus'):
+            parts.append(f"Focus: {context['episode_focus']}")
+        if context.get('story_hooks'):
+            parts.append(f"Active hooks: {', '.join(context['story_hooks'][:3])}")
         
-        # Recent story
-        if context.get('previous_segments'):
-            parts.append("\n=== RECENT STORY ===")
+        # ================================================================
+        # RECENT SCENES — what just happened
+        # ================================================================
+        # Full text of last 1-2 scenes for narrative flow
+        if context.get('recent_segments_full'):
+            parts.append("\n=== RECENT SCENES (FULL) ===")
+            for seg_info in context['recent_segments_full'][-2:]:
+                if isinstance(seg_info, dict):
+                    if seg_info.get('description'):
+                        parts.append(f"[{seg_info.get('segment_id', '?')}] {seg_info['description']}")
+                    if seg_info.get('text'):
+                        text = seg_info['text']
+                        if len(text) > 400:
+                            text = text[:400] + "..."
+                        parts.append(text)
+                elif isinstance(seg_info, str):
+                    parts.append(seg_info[:400])
+        elif context.get('previous_segments'):
+            parts.append("\n=== RECENT SCENES ===")
             for seg in context['previous_segments'][-3:]:
                 parts.append(f"• {seg}")
         
-        # All episodes in arc
-        if context.get('episodes_in_arc'):
-            parts.append("\n=== EPISODES IN THIS ARC ===")
-            for ep in context['episodes_in_arc']:
-                ep_line = f"Episode {ep.get('episode_number')}: {ep.get('tone', 'Unknown tone')}"
-                if ep.get('segments'):
-                    ep_line += f" ({len(ep['segments'])} scenes)"
-                parts.append(f"• {ep_line}")
+        # ================================================================
+        # CHARACTERS — who is involved
+        # ================================================================
+        # Try hierarchical character context first (arc > episode > segment)
+        char_sections = []
+        if context.get('arc_characters'):
+            for char_id, info in list(context['arc_characters'].items())[:8]:
+                name = info.get('name', char_id) if isinstance(info, dict) else char_id
+                desc = info.get('description', '') if isinstance(info, dict) else str(info)
+                status = info.get('status', '') if isinstance(info, dict) else ''
+                line = name
+                if status:
+                    line += f" ({status})"
+                if desc:
+                    line += f" — {desc[:80]}"
+                char_sections.append(f"• {line}")
         
-        # Previous arcs for context
-        if context.get('previous_arcs'):
-            parts.append("\n=== PREVIOUS STORY ARCS ===")
-            for arc in context['previous_arcs'][:3]:  # Show last 3 arcs
-                arc_line = f"{arc.get('name', arc.get('arc_id'))}"
-                if arc.get('resolution'):
-                    arc_line += f": {arc['resolution']}"
-                parts.append(f"• {arc_line}")
+        # Override with episode-level updates
+        if context.get('episode_characters'):
+            for char_id, info in list(context['episode_characters'].items())[:5]:
+                name = info.get('name', char_id) if isinstance(info, dict) else char_id
+                status = info.get('status', '') if isinstance(info, dict) else str(info)
+                if status:
+                    char_sections.append(f"• {name} [updated]: {status[:100]}")
         
-        # Character context
-        if context.get('all_characters'):
-            parts.append("\n=== CHARACTER REFERENCE ===")
+        # Fallback: all_characters key (old format)
+        if not char_sections and context.get('all_characters'):
             for char_id, char_info in list(context['all_characters'].items())[:5]:
-                char_line = f"{char_info.get('name', char_id)}"
-                if char_info.get('status'):
-                    char_line += f" ({char_info['status']})"
-                parts.append(f"• {char_line}")
+                char_line = char_info.get('name', char_id) if isinstance(char_info, dict) else char_id
+                status = char_info.get('status', '') if isinstance(char_info, dict) else ''
+                if status:
+                    char_line += f" ({status})"
+                char_sections.append(f"• {char_line}")
         
-        # Pacing signal
+        if char_sections:
+            parts.append("\n=== CHARACTERS ===")
+            parts.extend(char_sections)
+        
+        # ================================================================
+        # FACTIONS & MAGIC — world systems
+        # ================================================================
+        if context.get('factions'):
+            factions_data = context['factions']
+            # Unwrap {count: N, factions: [...]} structure if present
+            if isinstance(factions_data, dict) and 'factions' in factions_data:
+                factions_list = factions_data['factions']
+            elif isinstance(factions_data, list):
+                factions_list = factions_data
+            elif isinstance(factions_data, dict):
+                factions_list = list(factions_data.values())
+            else:
+                factions_list = []
+            
+            if factions_list:
+                parts.append("\n=== FACTIONS ===")
+                for f in factions_list[:4]:
+                    if isinstance(f, dict):
+                        name = f.get('name', f.get('id', '?'))
+                        desc = f.get('description', f.get('status', ''))
+                        goals = f.get('goals', [])
+                        line = f"• {name}: {desc[:80]}"
+                        if goals and isinstance(goals, list):
+                            line += f" (goals: {', '.join(goals[:2])})"
+                        parts.append(line)
+                    else:
+                        parts.append(f"• {str(f)[:100]}")
+        
+        if context.get('magic_system'):
+            ms = context['magic_system']
+            if isinstance(ms, dict) and ms.get('name'):
+                parts.append(f"\n=== MAGIC/TECH SYSTEM ===")
+                parts.append(f"{ms['name']}: {ms.get('description', ms.get('summary', ''))[:150]}")
+            elif isinstance(ms, str) and ms:
+                parts.append(f"\n=== MAGIC/TECH SYSTEM ===")
+                parts.append(ms[:150])
+        
+        # ================================================================
+        # MYSTERIES & THEMES — narrative tracking
+        # ================================================================
+        if context.get('mysteries_tracking'):
+            mysteries = context['mysteries_tracking']
+            if isinstance(mysteries, list) and mysteries:
+                parts.append("\n=== OPEN MYSTERIES ===")
+                for m in mysteries[:5]:
+                    if isinstance(m, dict):
+                        parts.append(f"• {m.get('mystery', m.get('name', str(m)))[:100]}")
+                    else:
+                        parts.append(f"• {str(m)[:100]}")
+            elif isinstance(mysteries, dict) and mysteries:
+                parts.append("\n=== OPEN MYSTERIES ===")
+                for k, v in list(mysteries.items())[:5]:
+                    parts.append(f"• {k}: {str(v)[:100]}")
+        
+        # ================================================================
+        # PLAYER CHOICE — what the player decided
+        # ================================================================
+        if context.get('user_choice'):
+            parts.append(f"\n=== PLAYER'S CHOICE ===")
+            parts.append(f"The player chose: {context['user_choice']}")
+        
+        # ================================================================
+        # PACING — where we are in the episode
+        # ================================================================
         pacing = context.get('pacing_weight', 0)
-        parts.append(f"\n=== PACING ===")
         pacing_desc = "Just starting" if pacing < 0.25 else \
                      "Mid-episode" if pacing < 0.6 else \
                      "Approaching climax" if pacing < 0.85 else \
                      "Near the end"
+        parts.append(f"\n=== PACING ===")
         parts.append(f"Progress through episode: {pacing_desc} ({pacing:.0%})")
         
-        # Instructions
+        # ================================================================
+        # INSTRUCTIONS
+        # ================================================================
         parts.append("\n=== GENERATION INSTRUCTIONS ===")
         parts.append("Write the next scene that:")
         parts.append("1. Follows naturally from the player's choice")
-        parts.append("2. Maintains the episode tone and goals")
-        parts.append("3. Respects character states and relationships")
-        parts.append("4. Advances the story forward")
+        parts.append("2. Maintains continuity with previous arcs and episodes")
+        parts.append("3. Respects character states, relationships, and established world facts")
+        parts.append("4. Advances the current arc's premise and central conflict")
         parts.append("5. Provides meaningful next choices")
         
         parts.append("\nRespond with JSON containing: short_description, text, atmosphere, ")
@@ -258,13 +420,13 @@ class PromptFormatter:
             parts.append("Key events:")
             for event in recap_context['events']:
                 parts.append(f"• {event}")
-            parts.append()
+            parts.append("")
         
         if recap_context.get('character_changes'):
             parts.append("Character developments:")
             for char, change in recap_context['character_changes'].items():
                 parts.append(f"• {char}: {change}")
-            parts.append()
+            parts.append("")
         
         parts.append("Write a concise recap (2-3 paragraphs) summarizing:")
         parts.append("• Major events and turning points")

@@ -1,15 +1,44 @@
 """Character state updater service for updating character states after episodes (E2-3 Enhanced)."""
 
 import logging
+import uuid
 from typing import Dict, List, Optional, Set
-import json
 
 from app.models.story import Story
+from app.models.story_arc import StoryArc
 from app.models.story_episode import CharacterStateSnapshot, StoryEpisode as EpisodeRecap
 from app.models.story_segment import StorySegment
 from app.models.story_character import StoryCharacter
+from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.character_state_updater")
+
+
+# Schema for AI-enhanced character state updates
+_ENHANCE_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("description", type="str", aliases=["updated_description", "new_description"]),
+        FieldSpec("emotional_status", type="str", aliases=["emotion", "mood", "emotional_state"]),
+        FieldSpec("health_status", type="str", aliases=["health", "physical_status"]),
+        FieldSpec("goal_progress", type="float", aliases=["progress"]),
+        FieldSpec("goal_notes", type="str", aliases=["progress_notes", "arc_progress"]),
+        FieldSpec("relationship_notes", type="list", aliases=["relationships", "relationship_changes"]),
+    ],
+    expect_array=False,
+)
+
+# Schema for new character generation
+_NEW_CHAR_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("name", type="str", required=True, aliases=["character_name"]),
+        FieldSpec("description", type="str", required=True, aliases=["appearance", "desc"]),
+        FieldSpec("background", type="str", required=True, aliases=["backstory"]),
+        FieldSpec("personality_traits", type="list", aliases=["personality", "traits"]),
+        FieldSpec("goals", type="str", aliases=["goal", "motivation"]),
+        FieldSpec("role_in_theme", type="str", aliases=["role", "thematic_role"]),
+    ],
+    expect_array=False,
+)
 
 
 class CharacterStateUpdater:
@@ -83,7 +112,16 @@ class CharacterStateUpdater:
                         continue
                     
                     # Extract changes specific to this character
-                    char_changes = [c for c in all_changes if char_id in c.lower()]
+                    # Match on character name (case-insensitive) since change_notes
+                    # use display names like "Knight received order", not IDs
+                    char_name_lower = char.name.lower()
+                    # Also try matching individual name parts (e.g., "Kael" from "Kael Ashford")
+                    name_parts = [p.lower() for p in char.name.split() if len(p) > 2]
+                    char_changes = [
+                        c for c in all_changes
+                        if char_name_lower in c.lower()
+                        or any(part in c.lower() for part in name_parts)
+                    ]
                     
                     # Build new state snapshot
                     snapshot = self._build_character_state_snapshot(
@@ -104,8 +142,9 @@ class CharacterStateUpdater:
                             arc_id=arc_id
                         )
                     
-                    # Save the updated snapshot
-                    snapshot.save()
+                    # Store the updated snapshot (CharacterStateSnapshot is a BaseModel,
+                    # not a StoryBase, so it doesn't have save() — it's stored as part
+                    # of the EpisodeRecap's ending_character_states)
                     updated_states[char_id] = snapshot
                     
                     # Update character's permanent description with new narrative
@@ -125,41 +164,52 @@ class CharacterStateUpdater:
             logger.error(f"Error updating character states: {e}", exc_info=True)
             return {}
     
-    def _collect_characters_from_segments(self, segment_ids: List[str]) -> Set[str]:
+    def _collect_characters_from_segments(self, segment_ids) -> Set[str]:
         """Collect all character IDs mentioned in segments.
         
         Args:
-            segment_ids: List of segment IDs in the episode
+            segment_ids: List of segment IDs (str) or StorySegment objects
             
         Returns:
             Set of unique character IDs involved
         """
         characters: Set[str] = set()
         
-        for seg_id in segment_ids:
-            segment = self.story.get_segment(seg_id)
+        for seg_or_id in segment_ids:
+            # Accept both StorySegment objects and string IDs
+            if isinstance(seg_or_id, StorySegment):
+                segment = seg_or_id
+            else:
+                segment = self.story.get_segment(seg_or_id)
             if not segment:
                 continue
             
             # Add characters from character_states
             if segment.character_states:
                 characters.update(segment.character_states.keys())
+            # Also check characters_present
+            if hasattr(segment, 'characters_present') and segment.characters_present:
+                characters.update(segment.characters_present)
         
         return characters
     
-    def _collect_all_changes(self, segment_ids: List[str]) -> List[str]:
+    def _collect_all_changes(self, segment_ids) -> List[str]:
         """Collect all change notes from segments.
         
         Args:
-            segment_ids: List of segment IDs in the episode
+            segment_ids: List of segment IDs (str) or StorySegment objects
             
         Returns:
             List of all change_notes from all segments
         """
         all_changes: List[str] = []
         
-        for seg_id in segment_ids:
-            segment = self.story.get_segment(seg_id)
+        for seg_or_id in segment_ids:
+            # Accept both StorySegment objects and string IDs
+            if isinstance(seg_or_id, StorySegment):
+                segment = seg_or_id
+            else:
+                segment = self.story.get_segment(seg_or_id)
             if segment and segment.change_notes:
                 all_changes.extend(segment.change_notes)
         
@@ -192,10 +242,14 @@ class CharacterStateUpdater:
         inventory = self._extract_inventory(changes)
         
         # Get arc goal for this character
-        arc = self.story.get_arc(arc_id)
+        arc = None
+        try:
+            arc = StoryArc.load(self.story.id, arc_id)
+        except Exception:
+            pass
         char_arc_goal = ""
         goal_progress = 0.0
-        if arc and arc.character_arc_goals:
+        if arc and hasattr(arc, 'character_arc_goals') and arc.character_arc_goals:
             char_arc_goal = arc.character_arc_goals.get(char_id, "")
         
         return CharacterStateSnapshot(
@@ -218,15 +272,12 @@ class CharacterStateUpdater:
         all_changes: List[str],
         arc_id: str
     ) -> CharacterStateSnapshot:
-        """Enhance character state with AI-generated updates (TODO - placeholder).
+        """Enhance character state with AI-generated updates.
         
-        This would call AI to:
-        1. Generate natural language description updates
-        2. Enhance emotional status based on episode events
-        3. Update relationship narratives
-        4. Track goal progress
+        Calls AI to update character description, emotional status,
+        relationship narratives, and goal progress based on episode events.
         
-        For now, returns snapshot as-is.
+        Falls back to the unmodified snapshot if AI call fails.
         
         Args:
             char: The StoryCharacter
@@ -236,17 +287,89 @@ class CharacterStateUpdater:
             arc_id: Arc ID
             
         Returns:
-            Enhanced CharacterStateSnapshot (or unchanged if no AI)
+            Enhanced CharacterStateSnapshot
         """
-        # TODO: Implement AI enhancement
-        # Would prompt AI with:
-        # "Based on these episode events for {char.name}, update their state:
-        #  Events: {all_changes}
-        #  Current state: {snapshot}
-        #  Arc goal: {snapshot.character_arc_goal}
-        #  Generate: new description, updated emotional status, goal progress"
+        if not self.generator:
+            return snapshot
         
-        return snapshot
+        try:
+            # Filter changes relevant to this character
+            char_name_lower = char.name.lower()
+            name_parts = [p.lower() for p in char.name.split() if len(p) > 2]
+            relevant_changes = [
+                c for c in all_changes
+                if char_name_lower in c.lower()
+                or any(part in c.lower() for part in name_parts)
+            ]
+            
+            if not relevant_changes:
+                return snapshot
+            
+            changes_text = "\n".join(f"- {c}" for c in relevant_changes[:10])
+            
+            format_instruction = AIResponseParser.get_prompt_instruction(
+                _ENHANCE_SCHEMA, OutputFormat.JSON,
+                example={
+                    "description": "A weathered knight now bearing fresh scars from the ambush, her confidence visibly shaken",
+                    "emotional_status": "shaken but resolute",
+                    "health_status": "wounded",
+                    "goal_progress": 0.4,
+                    "goal_notes": "Closer to uncovering the conspiracy but at great personal cost",
+                    "relationship_notes": ["Trust in the captain deepened after the rescue", "Growing suspicion of the merchant guild"],
+                }
+            )
+            
+            prompt = f"""Update this character's state based on what happened this episode:
+
+CHARACTER: {char.name}
+Current Description: {char.description}
+Current Emotional Status: {snapshot.emotional_status}
+Current Health: {snapshot.health_status}
+Arc Goal: {snapshot.character_arc_goal or 'None set'}
+Current Goal Progress: {snapshot.goal_progress:.0%}
+
+EPISODE {episode_number} EVENTS INVOLVING {char.name.upper()}:
+{changes_text}
+
+Based on these events, provide updated character state. Only change fields that the events actually affected.
+For goal_progress, use a value from 0.0 (no progress) to 1.0 (goal achieved).
+
+{format_instruction}"""
+
+            data = await self.generator.generate_structured(
+                system_prompt="You are a character analyst tracking how story events affect a character's state, emotions, and arc progress.",
+                user_prompt=prompt,
+                schema=_ENHANCE_SCHEMA,
+                fallback_defaults=[{}],
+            )
+            
+            if not data:
+                return snapshot
+            
+            # Only update fields the AI actually returned (non-empty)
+            if data.get('description'):
+                snapshot.description = data['description']
+            if data.get('emotional_status'):
+                snapshot.emotional_status = data['emotional_status']
+            if data.get('health_status'):
+                snapshot.health_status = data['health_status']
+            if data.get('goal_progress') is not None:
+                try:
+                    progress = float(data['goal_progress'])
+                    snapshot.goal_progress = max(0.0, min(1.0, progress))
+                except (ValueError, TypeError):
+                    pass
+            if data.get('goal_notes'):
+                snapshot.goal_notes = data['goal_notes']
+            if data.get('relationship_notes') and isinstance(data['relationship_notes'], list):
+                snapshot.relationship_notes = data['relationship_notes']
+            
+            logger.debug(f"AI-enhanced state for {char.name}: emotion={snapshot.emotional_status}, health={snapshot.health_status}")
+            return snapshot
+            
+        except Exception as e:
+            logger.warning(f"AI enhancement failed for {char.name}: {e}")
+            return snapshot
     
     async def generate_new_character_for_theme(
         self,
@@ -295,18 +418,75 @@ class CharacterStateUpdater:
             
             character_hint = theme_character_hooks[theme.lower()]
             
-            # TODO: AI Generate new character based on theme
-            # Prompt AI with:
-            # f"For theme '{theme}', create a new character who is {character_hint}.
-            #  This character should fit the current arc and episode context.
-            #  Generate: name, description, background, personality_traits, goals, fears"
+            # Gather world context for the AI
+            arc = None
+            try:
+                arc = StoryArc.load(self.story.id, arc_id)
+            except Exception:
+                pass
             
-            # For now, log that this would happen
-            logger.info(
-                f"[TODO] Would generate new character for theme '{theme}': {character_hint}"
+            arc_context = ""
+            if arc:
+                arc_context = f"\nArc: {arc.title}\nPremise: {arc.premise}"
+            
+            format_instruction = AIResponseParser.get_prompt_instruction(
+                _NEW_CHAR_SCHEMA, OutputFormat.JSON,
+                example={
+                    "name": "Sera Nighthollow",
+                    "description": "A gaunt woman in a threadbare cloak, her eyes carrying the weight of too many secrets",
+                    "background": "Once a court archivist, she vanished the night the royal library burned. Now she trades in whispered truths from the shadows.",
+                    "personality_traits": ["secretive", "perceptive", "haunted", "fiercely loyal to the truth"],
+                    "goals": "Expose the conspiracy behind the library fire before the evidence disappears forever",
+                    "role_in_theme": "She represents the cost of seeking truth — knowledge gained at the price of safety",
+                }
             )
             
-            return None
+            prompt = f"""Create a new character for this story. The theme "{theme}" has naturally called for {character_hint}.
+
+Story: {self.story.title}
+{arc_context}
+Episode: {episode_number}
+
+The character should:
+- Fit naturally into the current story and arc
+- Embody the theme of "{theme}" in their role and backstory
+- Be {character_hint}
+- Have clear motivations tied to the theme
+- Feel like they belong in this world, not forced
+
+{format_instruction}"""
+            
+            data = await self.generator.generate_structured(
+                system_prompt="You are a character designer creating a new character that emerges naturally from story themes.",
+                user_prompt=prompt,
+                schema=_NEW_CHAR_SCHEMA,
+                fallback_defaults=[{
+                    "name": f"The {theme.title()} Stranger",
+                    "description": f"A mysterious figure who is {character_hint}",
+                    "background": "Origins unknown",
+                    "personality_traits": ["mysterious"],
+                    "goals": "",
+                    "role_in_theme": "",
+                }],
+            )
+            
+            if not data:
+                return None
+            
+            char = StoryCharacter(
+                story=self.story,
+                id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
+                story_id=self.story.id,
+                name=data.get('name', f"The {theme.title()} Stranger"),
+                description=data.get('description', f"A mysterious figure who is {character_hint}"),
+                background=data.get('background', 'Origins unknown'),
+                personality=data.get('personality_traits', []),
+                goals=data.get('goals', ''),
+                importance_tier="minor",
+            )
+            char.save()
+            logger.info(f"Generated new character for theme '{theme}': {char.name}")
+            return char
             
         except Exception as e:
             logger.warning(f"Failed to generate new character for theme '{theme}': {e}")

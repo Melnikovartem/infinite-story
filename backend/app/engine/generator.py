@@ -1,10 +1,11 @@
-from typing import TypeVar, Generic, Type, Optional, Dict, Any
+from typing import TypeVar, Generic, Type, Optional, Dict, Any, List, Union
 from pydantic import BaseModel, ValidationError
 import json
 import re
 import logging
 from abc import ABC, abstractmethod
 from ..models.text_types import TextGeneratorResponse, WorldTextGeneratorResponse, CharacterTextGeneratorResponse, LocationTextGeneratorResponse, SceneTextGeneratorResponse
+from ..utils.ai_response_parser import AIResponseParser, ResponseSchema, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.generator")
 
@@ -163,6 +164,75 @@ Return ONLY a valid JSON object with all required fields filled in. Do not inclu
                 error=error_msg
             )
             
+    async def generate_structured(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        schema: ResponseSchema,
+        fallback_defaults: Optional[List[dict]] = None,
+        output_format: OutputFormat = OutputFormat.JSON,
+    ) -> Union[dict, List[dict]]:
+        """Generate AI content and parse it into structured data via AIResponseParser.
+
+        This is the preferred method for all generators that need structured data
+        back from the LLM. It handles prompt instruction injection, raw text
+        extraction, and robust multi-strategy parsing in one call.
+
+        Args:
+            system_prompt: System prompt for the AI. If empty, uses default.
+            user_prompt: User prompt describing what to generate. The schema's
+                         format instruction is appended automatically.
+            schema: ResponseSchema defining expected fields, types, and whether
+                    to expect an array or single object.
+            fallback_defaults: Default dicts returned if parsing completely fails.
+            output_format: Which format instruction to inject into the prompt
+                          (JSON, XML, or XML_JSON hybrid).
+
+        Returns:
+            If schema.expect_array is False: a single dict (first parsed item).
+            If schema.expect_array is True: a list of dicts.
+            On total failure: fallback_defaults (or empty dict / empty list).
+        """
+        if fallback_defaults is None:
+            fallback_defaults = []
+
+        # Build the format instruction from the schema
+        format_instruction = AIResponseParser.get_prompt_instruction(schema, output_format)
+
+        # Append format instruction to user prompt
+        full_user_prompt = f"{user_prompt}\n\n{format_instruction}"
+
+        # Use default prompt if system_prompt is empty
+        effective_system_prompt = system_prompt.strip() if system_prompt.strip() else self.DEFAULT_SYSTEM_PROMPT
+
+        try:
+            # Call the raw AI generation (subclasses implement this)
+            raw_response = await self._generate_content(effective_system_prompt, full_user_prompt)
+
+            logger.debug(f"[generate_structured] Raw response length: {len(raw_response)}")
+
+            # Parse with AIResponseParser (multi-strategy, robust)
+            parsed = AIResponseParser.parse(
+                raw_response,
+                schema,
+                fallback_defaults=fallback_defaults,
+                preferred_format=output_format,
+            )
+
+            if schema.expect_array:
+                return parsed  # List[dict]
+            else:
+                # Single object mode: return first item or fallback
+                if parsed:
+                    return parsed[0]
+                return fallback_defaults[0] if fallback_defaults else {}
+
+        except Exception as e:
+            logger.error(f"[generate_structured] Generation failed: {e}", exc_info=True)
+            if schema.expect_array:
+                return fallback_defaults
+            return fallback_defaults[0] if fallback_defaults else {}
+
     def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
         """Internal method to generate content using the AI model.
         

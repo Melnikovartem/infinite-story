@@ -7,8 +7,38 @@ import uuid
 from app.models.story import Story
 from app.models.story_arc import StoryArc
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.generators.arc_generator")
+
+# Schema for arc outlines
+ARC_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("title", type="str", required=True, aliases=["name", "arc_title", "arc_name"]),
+        FieldSpec("premise", type="str", required=True, aliases=["description", "overview"]),
+        FieldSpec("central_conflict", type="str", required=True, aliases=["conflict", "main_conflict"]),
+        FieldSpec("narrative_direction", type="str", aliases=["direction", "arc_direction"]),
+        FieldSpec("themes", type="list", required=True, aliases=["theme_list", "major_themes"]),
+        FieldSpec("mysteries", type="list", aliases=["questions", "unresolved_mysteries", "mysteries_questions"]),
+        FieldSpec("hooks", type="list", aliases=["plot_hooks", "key_events", "turning_points"]),
+    ],
+    expect_array=True,
+    min_items=3,
+    max_items=5,
+    item_tag="arc",
+    root_tag="arcs",
+)
+
+# Example for prompt instruction
+ARC_EXAMPLE = {
+    "title": "The Age of Fractured Thrones",
+    "premise": "Political turmoil tears kingdoms apart as old alliances crumble",
+    "central_conflict": "Rival factions clash for dominance over the shattered realm",
+    "narrative_direction": "Chaos gives way to new power structures",
+    "themes": ["corruption", "loyalty", "survival"],
+    "mysteries": ["Who assassinated the High King?", "What lies beneath the Sunken Citadel?"],
+    "hooks": ["The Great Schism splits the largest faction", "A prophet emerges from the wasteland"],
+}
 
 
 class ArcGenerator:
@@ -44,33 +74,41 @@ class ArcGenerator:
         try:
             logger.info(f"Generating {count} future arc outlines for story '{self.story.id}'")
             
-            # Build prompt
-            prompt = self._build_arc_prompt(count, user_input)
+            # Build schema with correct count
+            schema = ResponseSchema(
+                fields=ARC_SCHEMA.fields,
+                expect_array=True,
+                min_items=count,
+                max_items=count + 2,
+                item_tag="arc",
+                root_tag="arcs",
+            )
             
-            # Generate via AI
-            response = await self.generator.generate(
+            # Build prompt with format-agnostic instructions
+            prompt = self._build_arc_prompt(count, user_input, schema)
+            
+            # Generate via AI with structured parsing
+            fallback_defaults = [self._create_placeholder_arc(i) for i in range(count)]
+            arc_outlines = await self.generator.generate_structured(
                 system_prompt="""You are a world-level story architect designing narrative progressions.
 Your arcs describe how the WORLD ITSELF evolves and changes through major events.
 Focus on world-scale conflicts, mysteries, and transformations - NOT individual character journeys.
 Each arc shows a different phase of the world's evolution.""",
                 user_prompt=prompt,
-                context_type="world"  # Use world context type for structured generation
+                schema=schema,
+                fallback_defaults=fallback_defaults,
             )
             
-            if response.error:
-                raise ValueError(f"Arc generation failed: {response.error}")
-            
-            # Parse arc outlines
-            arc_outlines = self._parse_arc_outlines(response, count)
+            logger.debug(f"Parsed {len(arc_outlines)} arc outlines")
             
             # Create and save StoryArc objects
             arcs = []
-            for i, outline in enumerate(arc_outlines):
+            for i, outline in enumerate(arc_outlines[:count]):
                 arc = StoryArc(
                     id=f"arc_{self.story.id}_{uuid.uuid4().hex[:8]}",
                     story_id=self.story.id,
                     title=outline.get('title', f"Arc {i+1}: Unknown"),
-                    description=outline.get('description', ''),
+                    description=outline.get('premise', ''),
                     premise=outline.get('premise', ''),
                     central_conflict=outline.get('central_conflict', ''),
                     narrative_direction=outline.get('narrative_direction', ''),
@@ -91,7 +129,7 @@ Each arc shows a different phase of the world's evolution.""",
             logger.error(f"Failed to generate arcs: {e}", exc_info=True)
             raise ValueError(f"Arc generation failed: {str(e)}")
     
-    def _build_arc_prompt(self, count: int, user_input: str) -> str:
+    def _build_arc_prompt(self, count: int, user_input: str, schema: ResponseSchema) -> str:
         """Build prompt for arc generation."""
         world_context = ""
         if self.story._context:
@@ -106,6 +144,11 @@ Description: {self.story.description}"""
         
         user_guidance = f"\n\nUser's Arc Direction: {user_input}" if user_input else ""
         
+        # Get format-agnostic response instructions
+        format_instruction = AIResponseParser.get_prompt_instruction(
+            schema, OutputFormat.JSON, example=ARC_EXAMPLE
+        )
+        
         return f"""Design {count} major WORLD-LEVEL story arcs showing how this world evolves:
 {world_context}
 {story_context}
@@ -114,168 +157,34 @@ Description: {self.story.description}"""
 IMPORTANT: Focus on how the WORLD ITSELF changes, not individual character journeys.
 These are world phases, not personal arcs.
 
-For each arc, describe:
-
-TITLE: The phase/era of the world
-(e.g., "The Age of Fractured Thrones", "The Rise of the Hidden Order")
-
-PREMISE: What the world is experiencing in this phase
-(e.g., "Political turmoil tears kingdoms apart", "Ancient powers awaken")
-
-CENTRAL CONFLICT: The world-scale conflict that defines this phase
-(e.g., "Factions clash for dominance", "Old magic vs. new order", "Civilization faces extinction")
-
-THEMES: 3-5 major themes the world experiences
-(e.g., corruption, survival, rebirth, decay, transformation)
-
-NARRATIVE DIRECTION: How the world changes from arc to arc
-(e.g., "Chaos of Arc 1 gives way to organization in Arc 2", "Hidden truths revealed")
-
-MYSTERIES/QUESTIONS: 2-3 world mysteries that unfold in this phase
-(e.g., "What caused the cataclysm?", "Who controls the shadow order?")
-
-PLOT HOOKS: 2-3 major world events or turning points
-(e.g., "The Great Schism splits the largest faction", "Prophecy of the return begins to manifest")
+For each arc, provide:
+- title: The phase/era name (e.g., "The Age of Fractured Thrones")
+- premise: What the world is experiencing in this phase
+- central_conflict: The world-scale conflict defining this phase
+- themes: 3-5 major themes (e.g., corruption, survival, rebirth)
+- narrative_direction: How the world changes from arc to arc
+- mysteries: 2-3 world mysteries that unfold in this phase
+- hooks: 2-3 major world events or turning points
 
 Make sure the arcs:
-- Show clear world evolution (Arc 1 → Arc 2 → Arc 3)
+- Show clear world evolution (Arc 1 -> Arc 2 -> Arc 3)
 - Each introduces new world conditions or conflicts
 - Build progressively toward a climax
-- Are driven by WORLD EVENTS not character choices"""
-    
-    def _parse_arc_outlines(self, response: Any, count: int) -> List[Dict[str, any]]:
-        """Parse arc outlines from AI response."""
-        import re
-        import json
-        outlines = []
-        
-        # Get response text
-        response_text = ""
-        if hasattr(response, 'content'):
-            response_text = response.content
-        elif hasattr(response, 'text'):
-            response_text = response.text
-        else:
-            response_text = str(response)
-        
-        logger.debug(f"Parsing arc response ({len(response_text)} chars)")
-        logger.debug(f"First 200 chars of response: {response_text[:200]}")
-        
-        # Try to parse as JSON first (may be wrapped in markdown code blocks)
-        try:
-            # Remove markdown code blocks if present
-            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
-            if json_match:
-                json_text = json_match.group(1)
-            else:
-                json_text = response_text
-            
-            parsed_json = json.loads(json_text)
-            
-            # Extract arcs from JSON structure
-            if isinstance(parsed_json, dict):
-                # Try different possible keys for arcs
-                arcs_data = parsed_json.get('arcs') or parsed_json.get('story_arcs') or []
-                
-                if not arcs_data and len(parsed_json) >= count:
-                    # Try to use top-level keys like "arc_1", "arc_2", etc
-                    arcs_data = [parsed_json.get(f'arc_{i+1}') or parsed_json.get(f'Arc {i+1}') 
-                                 for i in range(count)]
-                    arcs_data = [a for a in arcs_data if a]
-            else:
-                arcs_data = parsed_json if isinstance(parsed_json, list) else []
-            
-            # Build outlines from parsed data
-            for i in range(count):
-                if i < len(arcs_data) and isinstance(arcs_data[i], dict):
-                    arc_data = arcs_data[i]
-                    outline = {
-                        'title': arc_data.get('title') or arc_data.get('name') or f"Arc {i+1}",
-                        'description': arc_data.get('description') or arc_data.get('premise') or "",
-                        'premise': arc_data.get('premise') or arc_data.get('description') or "",
-                        'central_conflict': arc_data.get('central_conflict') or arc_data.get('conflict') or "",
-                        'narrative_direction': arc_data.get('narrative_direction') or arc_data.get('direction') or "",
-                        'themes': arc_data.get('themes') or [],
-                        'mysteries': arc_data.get('mysteries') or arc_data.get('questions') or [],
-                        'hooks': arc_data.get('hooks') or arc_data.get('plot_hooks') or []
-                    }
-                else:
-                    outline = self._create_placeholder_arc(i)
-                
-                logger.debug(f"Parsed arc {i+1}: {outline['title']}")
-                outlines.append(outline)
-                
-            return outlines
-            
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.debug(f"Could not parse as JSON: {e}, falling back to text parsing")
-        
-        # Fallback: Parse as text with field markers
-        # Try splitting by common arc delimiters
-        arc_sections = re.split(r'(?:^|\n)(?:ARC\s+\d+|TITLE:|##\s+|^Arc\s+|^\d+\.)', response_text, flags=re.MULTILINE | re.IGNORECASE)
-        
-        # First section is usually preamble, skip it
-        if len(arc_sections) > 1:
-            arc_sections = arc_sections[1:]
-        
-        logger.debug(f"Found {len(arc_sections)} arc sections via text parsing")
-        
-        for i in range(count):
-            section = arc_sections[i].strip() if i < len(arc_sections) else ""
-            
-            outline = {
-                'title': self._extract_field(section, r'(?:TITLE|NAME):?\s*([^\n]+)', f"Arc {i+1}"),
-                'description': self._extract_field(section, r'(?:PREMISE|DESCRIPTION):?\s*([^\n]+)', ""),
-                'premise': self._extract_field(section, r'(?:PREMISE|DESCRIPTION):?\s*([^\n]+)', ""),
-                'central_conflict': self._extract_field(section, r'(?:CENTRAL\s+CONFLICT|CONFLICT):?\s*([^\n]+)', ""),
-                'narrative_direction': self._extract_field(section, r'(?:NARRATIVE\s+DIRECTION|DIRECTION):?\s*([^\n]+)', ""),
-                'themes': self._extract_list(section, r'THEMES:?\s*([^\n]+)', []),
-                'mysteries': self._extract_list(section, r'MYSTERIES?(?:\s*/\s*QUESTIONS)?:?\s*([^\n]+)', []),
-                'hooks': self._extract_list(section, r'(?:PLOT\s+HOOKS|HOOKS):?\s*([^\n]+)', [])
-            }
-            
-            logger.debug(f"Parsed arc {i+1}: {outline['title']} - {len(outline.get('themes', []))} themes")
-            outlines.append(outline)
-        
-        return outlines
+- Are driven by WORLD EVENTS not character choices
+
+{format_instruction}"""
     
     def _create_placeholder_arc(self, index: int) -> Dict[str, Any]:
         """Create a placeholder arc when parsing fails."""
         return {
             'title': f"Arc {index+1}",
-            'description': "High-level narrative outline to be filled in",
-            'premise': "",
+            'premise': "High-level narrative outline to be filled in",
             'central_conflict': "",
             'narrative_direction': "",
             'themes': [],
             'mysteries': [],
             'hooks': []
         }
-    
-    def _extract_field(self, text: str, pattern: str, default: str = "") -> str:
-        """Extract a single field from text using regex."""
-        import re
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        return default
-    
-    def _extract_list(self, text: str, pattern: str, default: List[str] = None) -> List[str]:
-        """Extract a list of items from text."""
-        import re
-        if default is None:
-            default = []
-        
-        match = re.search(pattern, text, re.IGNORECASE)
-        if not match:
-            return default
-        
-        items_text = match.group(1)
-        # Split by comma, dash, or numbers
-        items = re.split(r'[,\-\n]|\d+\.\s*', items_text)
-        items = [item.strip() for item in items if item.strip()]
-        
-        return items[:5]  # Return max 5 items
     
     async def select_active_characters_for_arc(
         self,
@@ -327,34 +236,31 @@ Respond with a JSON object:
 
 Include exactly the character IDs. Be selective - focus on the most important characters."""
             
-            response = await self.generator.generate(
+            active_char_schema = ResponseSchema(
+                fields=[
+                    FieldSpec("active_characters", type="list", required=True, aliases=["characters"]),
+                ],
+                expect_array=False,
+            )
+            result = await self.generator.generate_structured(
                 system_prompt="You are a narrative director selecting which characters will be most prominent in an upcoming arc.",
                 user_prompt=prompt,
-                context_type="arc"
+                schema=active_char_schema,
+                fallback_defaults=[{"active_characters": []}],
             )
             
-            if response.error:
-                logger.warning(f"Failed to select active characters: {response.error}")
-                return []
+            active_chars = result.get("active_characters", [])
+            active_ids = []
+            for char in active_chars:
+                if isinstance(char, dict):
+                    cid = char.get("character_id")
+                    if cid:
+                        active_ids.append(cid)
+                elif isinstance(char, str):
+                    active_ids.append(char)
             
-            # Parse response
-            import json
-            import re
-            response_text = response.content if hasattr(response, 'content') else str(response)
-            
-            try:
-                # Try to extract JSON
-                json_match = re.search(r'\{[\s\S]*\}', response_text)
-                if json_match:
-                    parsed = json.loads(json_match.group())
-                    active_ids = [char.get("character_id") for char in parsed.get("active_characters", [])]
-                    active_ids = [cid for cid in active_ids if cid]  # Filter out None values
-                    logger.info(f"Selected {len(active_ids)} active characters for arc {arc.id}: {active_ids}")
-                    return active_ids
-            except (json.JSONDecodeError, AttributeError, KeyError) as e:
-                logger.debug(f"Failed to parse active characters JSON: {e}")
-            
-            return []
+            logger.info(f"Selected {len(active_ids)} active characters for arc {arc.id}: {active_ids}")
+            return active_ids
             
         except Exception as e:
             logger.error(f"Failed to select active characters: {e}", exc_info=True)

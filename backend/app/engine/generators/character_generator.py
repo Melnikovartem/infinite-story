@@ -1,16 +1,57 @@
 """Character generator for creating and parsing characters."""
 
 import logging
-from typing import List, Optional, Dict, Set, Any
-import re
 import uuid
+from typing import List, Optional, Dict, Any
 
 from app.models.story import Story
 from app.models.story_character import StoryCharacter
 from app.models.story_segment import StorySegment
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.generators.character_generator")
+
+
+# Schema for character generation
+CHARACTER_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("name", type="str", required=True, aliases=["character_name", "full_name"]),
+        FieldSpec("description", type="str", required=True, aliases=["appearance", "physical", "desc"]),
+        FieldSpec("background", type="str", required=True, aliases=["backstory", "history", "life_story"]),
+        FieldSpec("personality_traits", type="list", aliases=["personality", "traits", "key_traits"]),
+        FieldSpec("goals", type="str", aliases=["goal", "motivation", "desire", "wants"]),
+        FieldSpec("fears", type="str", aliases=["fear", "weakness", "vulnerability"]),
+        FieldSpec("skills", type="list", aliases=["abilities", "skills_abilities", "talents"]),
+    ],
+    expect_array=True,
+    min_items=1,
+    max_items=10,
+    item_tag="character",
+    root_tag="characters",
+)
+
+# Example for prompt instruction
+CHARACTER_EXAMPLE = {
+    "name": "Kael Ashford",
+    "description": "A lean, sharp-eyed woman in her thirties with burn scars trailing up her left arm and silver-streaked hair pulled into a tight braid",
+    "background": "Former blacksmith's apprentice who discovered she could sense metal through touch. Fled her village after accidentally collapsing a mine shaft. Now works as a freelance surveyor, mapping underground resources for whoever pays.",
+    "personality_traits": ["pragmatic", "self-reliant", "quietly compassionate", "distrustful of authority"],
+    "goals": "Find a way to control her ability without destroying what she touches",
+    "fears": "Losing control and hurting someone she cares about",
+    "skills": ["metalworking", "geological surveying", "hand-to-hand combat", "wilderness survival"],
+}
+
+# Fallback defaults
+CHARACTER_FALLBACK = {
+    "name": "Unnamed Character",
+    "description": "A mysterious figure whose nature remains to be discovered",
+    "background": "Origins unknown — to be revealed through the story",
+    "personality_traits": ["determined", "cautious"],
+    "goals": "Survive and find purpose",
+    "fears": "The unknown",
+    "skills": ["adaptability"],
+}
 
 
 class CharacterGenerator:
@@ -39,7 +80,7 @@ class CharacterGenerator:
             logger.info(f"Parsing characters from existing segments")
             
             # Collect all character mentions from segments
-            character_mentions: Dict[str, Set[str]] = {}  # char_name -> {context snippets}
+            character_mentions: Dict[str, set] = {}  # char_name -> {context snippets}
             
             for segment in self.story._segments.values():
                 if segment.text_blocks:
@@ -109,27 +150,36 @@ class CharacterGenerator:
         try:
             logger.info(f"Generating {count} initial characters for story")
             
-            # Build prompt
-            prompt = self._build_character_prompt(count, user_input)
+            # Build schema with correct count
+            schema = ResponseSchema(
+                fields=CHARACTER_SCHEMA.fields,
+                expect_array=True,
+                min_items=count,
+                max_items=count + 2,
+                item_tag="character",
+                root_tag="characters",
+            )
             
-            # Generate via AI
-            response = await self.generator.generate(
+            prompt = self._build_character_prompt(count, user_input, schema)
+            
+            fallback_defaults = [
+                {**CHARACTER_FALLBACK, "name": name}
+                for name in ["The Protagonist", "The Mentor", "The Rival"][:count]
+            ]
+            parsed_chars = await self.generator.generate_structured(
                 system_prompt="""You are a character creation expert designing compelling, diverse characters 
 with clear motivations, backgrounds, and potential for growth. 
 Create characters that will drive the story forward and create interesting conflicts.""",
                 user_prompt=prompt,
-                context_type="character"
+                schema=schema,
+                fallback_defaults=fallback_defaults,
             )
             
-            if response.error:
-                raise ValueError(f"Character generation failed: {response.error}")
-            
-            # Parse character details
-            char_details = self._parse_character_details(response, count)
+            logger.debug(f"Parsed {len(parsed_chars)} character outlines")
             
             # Create and save character objects
             created_chars = []
-            for i, details in enumerate(char_details):
+            for i, raw in enumerate(parsed_chars[:count]):
                 # Assign faction if available
                 faction_id = None
                 if factions and i < len(factions):
@@ -142,12 +192,14 @@ Create characters that will drive the story forward and create interesting confl
                     story=self.story,
                     id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
                     story_id=self.story.id,
-                    name=details.get('name', 'Unnamed Character'),
-                    description=details.get('description', ''),
-                    background=details.get('background', ''),
+                    name=raw.get('name', CHARACTER_FALLBACK['name']),
+                    description=raw.get('description', CHARACTER_FALLBACK['description']),
+                    background=raw.get('background', CHARACTER_FALLBACK['background']),
+                    personality=raw.get('personality_traits', []),
+                    goals=raw.get('goals', ''),
                     avatar_color=self._select_avatar_color(),
                     faction_id=faction_id,
-                    importance_tier=importance_tier
+                    importance_tier=importance_tier,
                 )
                 char.save()
                 created_chars.append(char)
@@ -159,86 +211,49 @@ Create characters that will drive the story forward and create interesting confl
             logger.error(f"Failed to generate characters: {e}", exc_info=True)
             raise ValueError(f"Character generation failed: {str(e)}")
     
-    def _build_character_prompt(self, count: int, user_input: str) -> str:
+    def _build_character_prompt(self, count: int, user_input: str, schema: ResponseSchema) -> str:
         """Build prompt for character generation."""
         world_context = ""
         if self.story._context:
             truths = self.story._context.fundamental_truths[:3]
             world_context = f"\nWorld Themes: {', '.join(truths)}"
         
-        arc_context = ""
-        if self.story._segments:
-            # Get any arc info from segments
-            segments = list(self.story._segments.values())[:3]
-            if segments and segments[0].arc_id:
-                arc_context = f"\nStory is set in an arc-based narrative structure"
+        faction_context = ""
+        all_factions = self.story.get_all_factions()
+        if all_factions:
+            faction_lines = [f"- {f.name}: {f.description}" for f in all_factions[:5]]
+            faction_context = f"\nFactions:\n" + "\n".join(faction_lines)
         
         user_guidance = f"\n\nUser Character Preferences: {user_input}" if user_input else ""
+        
+        # Get format-agnostic response instructions
+        format_instruction = AIResponseParser.get_prompt_instruction(
+            schema, OutputFormat.JSON, example=CHARACTER_EXAMPLE
+        )
         
         return f"""Create {count} compelling characters for the story: {self.story.title}
 
 Story Description: {self.story.description}
 {world_context}
-{arc_context}
+{faction_context}
 {user_guidance}
 
 For EACH character, provide:
-
-NAME: A memorable, fitting name
-
-DESCRIPTION: Physical appearance and immediate impression (2-3 sentences)
-
-BACKGROUND: Life story and how they got here (2-3 sentences)
-
-PERSONALITY TRAITS: 3-4 key traits (e.g., cautious, ambitious, compassionate)
-
-GOALS: What do they want? (primary goal for the story)
-
-FEARS: What do they fear most?
-
-SKILLS/ABILITIES: What are they good at?
-
-RELATIONSHIPS: How might they relate to other characters? (general)
-
-CHARACTER ARC POTENTIAL: What could they learn/discover/overcome?
+- name: A memorable, fitting name
+- description: Physical appearance and immediate impression (2-3 sentences)
+- background: Life story and how they got here (2-3 sentences)
+- personality_traits: 3-4 key traits (e.g., cautious, ambitious, compassionate)
+- goals: What do they want? (primary motivation)
+- fears: What do they fear most?
+- skills: 2-4 skills or abilities
 
 Make sure the characters:
 - Are diverse in personality and background
-- Have clear motivations
-- Can create interesting conflicts with each other
-- Have room for growth and change through the story"""
-    
-    def _parse_character_details(self, response: Any, count: int) -> List[Dict[str, str]]:
-        """Parse character details from AI response."""
-        details = []
-        
-        # Try to extract from response
-        if hasattr(response, 'displayed_name') and response.displayed_name:
-            details.append({
-                'name': response.displayed_name,
-                'description': getattr(response, 'short_description', ''),
-                'background': getattr(response, 'background', '')
-            })
-        
-        # Create placeholder characters if parsing failed
-        if len(details) < count:
-            character_archetypes = [
-                {'name': 'The Hero', 'desc': 'A brave and determined character'},
-                {'name': 'The Mentor', 'desc': 'A wise guide with hidden depths'},
-                {'name': 'The Ally', 'desc': 'A loyal companion with their own story'},
-                {'name': 'The Rival', 'desc': 'A challenging opponent or antagonist'},
-            ]
-            
-            for i in range(count - len(details)):
-                if i < len(character_archetypes):
-                    arch = character_archetypes[i]
-                    details.append({
-                        'name': arch['name'],
-                        'description': arch['desc'],
-                        'background': 'To be developed'
-                    })
-        
-        return details[:count]
+- Have clear motivations that can conflict with each other
+- Can create interesting tensions when they interact
+- Have room for growth and change through the story
+
+{format_instruction}"""
     
     async def generate_faction_characters(
         self,
@@ -268,15 +283,30 @@ Make sure the characters:
             created_chars = []
             
             for faction in factions:
-                # Generate 1-3 characters per faction
                 num_chars = min(chars_per_faction_max, max(chars_per_faction_min, 2))
                 
-                # Build faction-specific prompt
+                # Build schema for this batch
+                schema = ResponseSchema(
+                    fields=CHARACTER_SCHEMA.fields,
+                    expect_array=True,
+                    min_items=num_chars,
+                    max_items=num_chars + 1,
+                    item_tag="character",
+                    root_tag="characters",
+                )
+                
+                format_instruction = AIResponseParser.get_prompt_instruction(
+                    schema, OutputFormat.JSON, example=CHARACTER_EXAMPLE
+                )
+                
+                faction_goals = ', '.join(faction.goals) if hasattr(faction, 'goals') and faction.goals else 'Unknown'
+                faction_resources = faction.resources if hasattr(faction, 'resources') else 'Unknown'
+                
                 prompt = f"""Create {num_chars} compelling characters for the {faction.name} faction:
 
 Faction Description: {faction.description}
-Faction Goals: {', '.join(faction.goals) if hasattr(faction, 'goals') else 'Unknown'}
-Faction Resources: {', '.join(faction.resources) if hasattr(faction, 'resources') else 'Unknown'}
+Faction Goals: {faction_goals}
+Faction Resources: {faction_resources}
 
 These characters should:
 - Be aligned with the faction's values and goals
@@ -285,38 +315,46 @@ These characters should:
 - Have potential for interesting conflicts
 
 For EACH character, provide:
-NAME: A fitting name
-DESCRIPTION: Physical appearance (1-2 sentences)
-BACKGROUND: How they came to this faction (1-2 sentences)
-ROLE IN FACTION: Their position/function"""
+- name: A fitting name
+- description: Physical appearance and impression (1-2 sentences)
+- background: How they came to this faction (1-2 sentences)
+- personality_traits: 3-4 key traits
+- goals: Their personal motivation within the faction
+- fears: What they fear most
+- skills: 2-4 skills or abilities
+
+{format_instruction}"""
                 
-                response = await self.generator.generate(
+                fallback_defaults = [
+                    {**CHARACTER_FALLBACK, "name": f"{faction.name} Member {i+1}"}
+                    for i in range(num_chars)
+                ]
+                parsed_chars = await self.generator.generate_structured(
                     system_prompt="You are creating characters aligned with specific factions and organizations.",
                     user_prompt=prompt,
-                    context_type="character"
+                    schema=schema,
+                    fallback_defaults=fallback_defaults,
                 )
                 
-                if not response.error:
-                    char_details = self._parse_character_details(response, num_chars)
+                for i, raw in enumerate(parsed_chars[:num_chars]):
+                    importance_tier = "major" if i == 0 else "minor"
                     
-                    for i, details in enumerate(char_details):
-                        # First character per faction is major, rest are minor
-                        importance_tier = "major" if i == 0 else "minor"
-                        
-                        char = StoryCharacter(
-                            story=self.story,
-                            id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
-                            story_id=self.story.id,
-                            name=details.get('name', 'Unnamed Character'),
-                            description=details.get('description', ''),
-                            background=details.get('background', ''),
-                            avatar_color=self._select_avatar_color(),
-                            faction_id=faction.id,
-                            importance_tier=importance_tier
-                        )
-                        char.save()
-                        created_chars.append(char)
-                        logger.info(f"Generated {faction.name} character: {char.name}")
+                    char = StoryCharacter(
+                        story=self.story,
+                        id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
+                        story_id=self.story.id,
+                        name=raw.get('name', CHARACTER_FALLBACK['name']),
+                        description=raw.get('description', CHARACTER_FALLBACK['description']),
+                        background=raw.get('background', CHARACTER_FALLBACK['background']),
+                        personality=raw.get('personality_traits', []),
+                        goals=raw.get('goals', ''),
+                        avatar_color=self._select_avatar_color(),
+                        faction_id=faction.id,
+                        importance_tier=importance_tier,
+                    )
+                    char.save()
+                    created_chars.append(char)
+                    logger.info(f"Generated {faction.name} character: {char.name}")
             
             logger.info(f"Generated {len(created_chars)} faction-aligned characters")
             return created_chars

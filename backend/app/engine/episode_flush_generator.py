@@ -386,15 +386,10 @@ EVOLVED DESCRIPTION:
         Returns:
             Evolved description string
         """
-        # Try different response fields
-        if hasattr(response, 'evolved_description'):
-            return response.evolved_description
-        if hasattr(response, 'description'):
-            return response.description
-        if hasattr(response, 'content'):
-            return response.content
-        if hasattr(response, 'text'):
-            return response.text
+        # Extract from raw_response — the typed response models don't have
+        # evolved_description/description/content fields
+        if hasattr(response, 'raw_response') and response.raw_response:
+            return response.raw_response
         
         return ""
     

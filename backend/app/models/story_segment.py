@@ -438,6 +438,113 @@ class StorySegment(StoryBlock):
         new_segment_id = f"segment_{segment_count + 1}_{uuid.uuid4().hex[:8]}"
         logger.debug(f"[GEN_SCENE_ID_CREATED] New segment ID: {new_segment_id}")
 
+        # ================================================================
+        # Episode & Arc Lifecycle Management
+        # ================================================================
+        # Check if this segment should trigger an episode transition
+        should_transition = context.get('should_transition_episode', False)
+        
+        # Default: inherit from parent
+        next_episode_number = self.episode_number
+        next_episode_tone = self.episode_tone
+        next_episode_end_condition = self.episode_end_condition
+        next_segment_number = self.segment_number_in_episode + 1
+        next_arc_id = self.arc_id
+        next_episode_selected_themes = self.episode_selected_themes
+        next_episode_focus = self.episode_focus
+        next_story_hooks = self.story_hooks
+        
+        if should_transition and self.arc_id:
+            logger.info(f"[GEN_SCENE_EP_TRANSITION] Episode transition detected at segment {self.segment_number_in_episode}")
+            try:
+                from ..engine.episode_recap_generator import EpisodeRecapGenerator
+                from ..engine.arc_transition_manager import ArcTransitionManager, ARC_COMPLETION_THRESHOLD
+                from ..models.story_arc import StoryArc
+                
+                recap_generator = EpisodeRecapGenerator(self.story, generator)
+                
+                # Step 1: Generate recap for the ending episode
+                try:
+                    recap = await recap_generator.generate_recap(
+                        episode_number=self.episode_number,
+                        arc_id=self.arc_id
+                    )
+                    logger.info(f"[GEN_SCENE_RECAP_OK] Generated recap for episode {self.episode_number}: {recap.title}")
+                except Exception as e:
+                    logger.warning(f"[GEN_SCENE_RECAP_FAIL] Failed to generate episode recap: {e}")
+                    recap = None
+                
+                # Step 1b: Flush episode changes to character/location descriptions
+                try:
+                    from ..engine.episode_flush_generator import EpisodeFlushGenerator
+                    flush_gen = EpisodeFlushGenerator(self.story, generator)
+                    # Walk the episode segments for flushing
+                    episode_segs = recap_generator._walk_episode_segments(self.episode_number, self.arc_id)
+                    if episode_segs:
+                        flush_result = await flush_gen.flush_episode_changes(
+                            episode_segs,
+                            self.episode_number,
+                            self.arc_id
+                        )
+                        flushed_chars = len(flush_result.get('flushed_characters', {}))
+                        flushed_locs = len(flush_result.get('flushed_locations', {}))
+                        logger.info(f"[GEN_SCENE_FLUSH_OK] Flushed {flushed_chars} characters, {flushed_locs} locations")
+                except Exception as e:
+                    logger.warning(f"[GEN_SCENE_FLUSH_FAIL] Episode flush failed (non-fatal): {e}")
+                
+                # Step 2: Increment arc.episode_count and save
+                arc = StoryArc.load(self.story.id, self.arc_id)
+                if arc:
+                    arc.episode_count = (arc.episode_count or 0) + 1
+                    arc.save()
+                    # Update in-memory cache too
+                    if self.story.get_arc(self.arc_id):
+                        self.story.get_arc(self.arc_id).episode_count = arc.episode_count
+                    logger.info(f"[GEN_SCENE_ARC_EP_COUNT] Arc {self.arc_id} episode_count now {arc.episode_count}")
+                
+                # Step 3: Check for arc transition (after ARC_COMPLETION_THRESHOLD episodes)
+                if arc and arc.episode_count >= ARC_COMPLETION_THRESHOLD:
+                    logger.info(f"[GEN_SCENE_ARC_TRANSITION] Arc {self.arc_id} reached {ARC_COMPLETION_THRESHOLD} episodes, checking transition")
+                    try:
+                        transition_manager = ArcTransitionManager(self.story, generator)
+                        new_arc_id = await transition_manager.check_and_handle_arc_completion(
+                            self.arc_id,
+                            arc.episode_count
+                        )
+                        if new_arc_id and new_arc_id != self.arc_id:
+                            logger.info(f"[GEN_SCENE_ARC_SWITCH] Switching arc: {self.arc_id} -> {new_arc_id}")
+                            next_arc_id = new_arc_id
+                            next_episode_number = 1  # Reset episode count for new arc
+                        else:
+                            next_episode_number = self.episode_number + 1
+                    except Exception as e:
+                        logger.warning(f"[GEN_SCENE_ARC_TRANSITION_FAIL] Arc transition failed: {e}")
+                        next_episode_number = self.episode_number + 1
+                else:
+                    next_episode_number = self.episode_number + 1
+                
+                # Step 4: Generate new episode context
+                try:
+                    new_ep_context = await recap_generator.generate_new_episode_context(
+                        next_arc_id,
+                        recap
+                    )
+                    next_episode_tone = new_ep_context.get('tone_tags', [next_episode_tone])[0] if new_ep_context.get('tone_tags') else next_episode_tone
+                    next_episode_end_condition = new_ep_context.get('end_condition', next_episode_end_condition)
+                    next_episode_selected_themes = new_ep_context.get('selected_themes', [])
+                    next_episode_focus = new_ep_context.get('episode_focus', '')
+                    next_story_hooks = new_ep_context.get('story_hooks', [])
+                    logger.info(f"[GEN_SCENE_NEW_EP_OK] Generated context for episode {next_episode_number}")
+                except Exception as e:
+                    logger.warning(f"[GEN_SCENE_NEW_EP_FAIL] Failed to generate new episode context: {e}")
+                
+                # Reset segment counter for new episode
+                next_segment_number = 1
+                
+            except Exception as e:
+                logger.error(f"[GEN_SCENE_LIFECYCLE_ERROR] Episode/arc lifecycle error: {e}", exc_info=True)
+                # Fall through with inherited values — story continues even if lifecycle fails
+        
         # Create new segment
         logger.debug(f"[GEN_SCENE_CREATE_OBJ] Creating new StorySegment object")
         new_segment = StorySegment(
@@ -453,21 +560,37 @@ class StorySegment(StoryBlock):
             locations_present=scene_response.locations_present,
             # Link to parent segment for genealogy tracking
             parent_segment_id=self.id,
-            # Inherit arc and episode info from parent segment
-            arc_id=self.arc_id,
-            episode_number=self.episode_number,
-            episode_tone=self.episode_tone,
-            episode_end_condition=self.episode_end_condition,
-            segment_number_in_episode=self.segment_number_in_episode + 1,
-            protagonist_id=self.protagonist_id
+            # Episode/arc info (may be updated by lifecycle management above)
+            arc_id=next_arc_id,
+            episode_number=next_episode_number,
+            episode_tone=next_episode_tone,
+            episode_end_condition=next_episode_end_condition,
+            segment_number_in_episode=next_segment_number,
+            protagonist_id=self.protagonist_id,
+            # Episode metadata
+            episode_selected_themes=next_episode_selected_themes,
+            episode_focus=next_episode_focus,
+            story_hooks=next_story_hooks,
+            # Mark if this was the start of a new episode
+            triggers_episode_transition=should_transition,
         )
         logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
-        logger.debug(f"[GEN_SCENE_ARC_INHERIT] Inherited arc_id={new_segment.arc_id}, episode={new_segment.episode_number}")
+        logger.debug(f"[GEN_SCENE_ARC_INFO] arc_id={new_segment.arc_id}, episode={new_segment.episode_number}, seg_in_ep={new_segment.segment_number_in_episode}")
 
         # Copy over existing running status from current segment
+        # On episode transition, reset running status (it's been captured in the recap)
+        # Otherwise, carry forward but prune to last 50 entries per list to prevent unbounded growth
+        MAX_RUNNING_STATUS = 50
         logger.debug(f"[GEN_SCENE_COPY_STATUS] Copying character and location statuses")
-        new_segment.characters_running_status.extend(self.characters_running_status)
-        new_segment.locations_running_status.extend(self.locations_running_status)
+        if should_transition:
+            # Episode boundary: start fresh — running status was captured in the episode recap
+            logger.debug(f"[GEN_SCENE_STATUS_RESET] Resetting running status for new episode")
+        else:
+            # Within episode: carry forward, pruning old entries if needed
+            carried_chars = self.characters_running_status[-MAX_RUNNING_STATUS:] if len(self.characters_running_status) > MAX_RUNNING_STATUS else self.characters_running_status
+            carried_locs = self.locations_running_status[-MAX_RUNNING_STATUS:] if len(self.locations_running_status) > MAX_RUNNING_STATUS else self.locations_running_status
+            new_segment.characters_running_status.extend(carried_chars)
+            new_segment.locations_running_status.extend(carried_locs)
 
         # Update character and location statuses based on changes
         logger.debug(f"Processing {len(scene_response.character_status_change)} character status changes")

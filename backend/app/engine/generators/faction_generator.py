@@ -1,19 +1,56 @@
 """Faction generator for creating world factions and politics."""
 
 import logging
-import json
-import re
 import uuid
 from typing import List, Dict, Any
 from app.models.story import Story
 from app.models.story_faction import StoryFaction
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.generators.faction_generator")
 
 
 # Backward-compatible alias - old code that imports Faction gets StoryFaction
 Faction = StoryFaction
+
+
+# Schema for faction generation
+FACTION_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("name", type="str", required=True, aliases=["faction_name", "title"]),
+        FieldSpec("description", type="str", required=True, aliases=["desc", "summary", "overview"]),
+        FieldSpec("goals", type="list", required=True, aliases=["objectives", "aims", "goal_list"]),
+        FieldSpec("leader", type="str", aliases=["leader_name", "head", "ruler"]),
+        FieldSpec("resources", type="str", aliases=["assets", "power", "capabilities"]),
+        FieldSpec("alignment", type="str", aliases=["morality", "stance", "moral_stance"]),
+    ],
+    expect_array=True,
+    min_items=2,
+    max_items=8,
+    item_tag="faction",
+    root_tag="factions",
+)
+
+# Example for prompt instruction
+FACTION_EXAMPLE = {
+    "name": "The Ashen Covenant",
+    "description": "A secretive order of pyromancers seeking to restore the old fire temples",
+    "goals": ["Reclaim the Ember Sanctum", "Convert nobles to the flame faith", "Undermine the water guilds"],
+    "leader": "High Pyromancer Veshra",
+    "resources": "Ancient fire magic, network of loyal acolytes, hidden caches of ember crystals",
+    "alignment": "Chaotic Neutral",
+}
+
+# Fallback defaults when parsing fails completely
+FACTION_FALLBACK = {
+    "name": "Unknown Faction",
+    "description": "A faction with distinct goals and resources",
+    "goals": ["Gain influence", "Protect their interests", "Advance their agenda"],
+    "leader": "Unknown",
+    "resources": "Unknown",
+    "alignment": "Neutral",
+}
 
 
 class FactionGenerator:
@@ -50,25 +87,56 @@ class FactionGenerator:
         try:
             logger.info(f"Generating {count} factions for story '{self.story.id}'")
             
+            # Build schema with correct count
+            schema = ResponseSchema(
+                fields=FACTION_SCHEMA.fields,
+                expect_array=True,
+                min_items=count,
+                max_items=count + 2,
+                item_tag="faction",
+                root_tag="factions",
+            )
+            
             prompt = self._build_faction_prompt(
                 count,
                 world_description,
                 major_tensions,
-                user_input
+                user_input,
+                schema,
             )
             
-            response = await self.generator.generate(
+            fallback_defaults = [
+                {**FACTION_FALLBACK, "name": f"Faction {i+1}"}
+                for i in range(count)
+            ]
+            parsed_factions = await self.generator.generate_structured(
                 system_prompt="""You are a political strategist creating faction dynamics.
 Each faction should have clear goals, resources, and leadership.
 Factions should create tension and conflict that drives the story.""",
                 user_prompt=prompt,
-                context_type="world"
+                schema=schema,
+                fallback_defaults=fallback_defaults,
             )
             
-            if response.error:
-                raise ValueError(f"Faction generation failed: {response.error}")
+            logger.debug(f"Parsed {len(parsed_factions)} faction outlines")
             
-            factions = self._parse_factions(response, count)
+            # Convert to persistent StoryFaction objects
+            factions = []
+            for raw in parsed_factions[:count]:
+                faction_id = f"faction_{uuid.uuid4().hex[:8]}"
+                faction = StoryFaction(
+                    id=faction_id,
+                    story=self.story,
+                    name=raw.get('name', FACTION_FALLBACK['name']),
+                    description=raw.get('description', FACTION_FALLBACK['description']),
+                    goals=raw.get('goals', FACTION_FALLBACK['goals']),
+                    leader=raw.get('leader', FACTION_FALLBACK['leader']),
+                    resources=raw.get('resources', FACTION_FALLBACK['resources']),
+                    alignment=raw.get('alignment', FACTION_FALLBACK['alignment']),
+                )
+                factions.append(faction)
+                logger.debug(f"Created StoryFaction: {faction.name} ({faction.id})")
+            
             logger.info(f"Generated {len(factions)} factions")
             return factions
             
@@ -81,11 +149,17 @@ Factions should create tension and conflict that drives the story.""",
         count: int,
         world_description: str,
         major_tensions: List[str],
-        user_input: str
+        user_input: str,
+        schema: ResponseSchema,
     ) -> str:
         """Build faction generation prompt."""
         
         tensions_text = "\n".join([f"- {t}" for t in major_tensions])
+        
+        # Get format-agnostic response instructions
+        format_instruction = AIResponseParser.get_prompt_instruction(
+            schema, OutputFormat.JSON, example=FACTION_EXAMPLE
+        )
         
         return f"""Create {count} distinct factions for this world:
 
@@ -97,13 +171,12 @@ Major Tensions:
 {f"User's faction ideas: {user_input}" if user_input else ""}
 
 For EACH faction, provide:
-
-**FACTION NAME**
-- Description: One sentence summary (used in scene prompts)
-- Goals: 2-3 short-term goals driving their actions
-- Leader: Name and title of leader
-- Resources: What they control/possess (gold, magic, military, influence, etc)
-- Alignment: Good/Evil/Neutral or their moral stance
+- name: Faction name
+- description: One sentence summary (used in scene prompts)
+- goals: 2-3 short-term goals driving their actions
+- leader: Name and title of leader
+- resources: What they control/possess (gold, magic, military, influence, etc)
+- alignment: Good/Evil/Neutral or their moral stance
 
 Make factions:
 - Have conflicting goals
@@ -111,135 +184,6 @@ Make factions:
 - Drive the story's major conflicts
 - Be distinct in philosophy and methods
 
-Include opposition/rivalry between factions."""
-    
-    def _parse_factions(self, response: Any, count: int) -> List[StoryFaction]:
-        """Parse factions from AI response into persistent StoryFaction objects."""
-        
-        factions = []
-        response_text = ""
-        
-        if hasattr(response, 'content'):
-            response_text = response.content
-        elif hasattr(response, 'text'):
-            response_text = response.text
-        else:
-            response_text = str(response)
-        
-        logger.debug(f"Parsing {len(response_text)} chars for factions")
-        
-        # Collect raw faction data first
-        raw_factions = []
-        
-        # Known prompt headers to skip (these are template labels, not real faction names)
-        _SKIP_HEADERS = {
-            'faction name', 'faction', 'name', 'description', 'goals', 'goal',
-            'leader', 'resources', 'alignment', 'opposition', 'rivalry',
-            'important', 'note', 'notes', 'instructions',
-        }
-        
-        # Try parsing with ** markers first
-        sections = re.split(r'\*\*([^*]+)\*\*', response_text)
-        
-        if len(sections) > 2:
-            for i in range(1, len(sections), 2):
-                faction_name = sections[i].strip()
-                faction_content = sections[i + 1].strip() if i + 1 < len(sections) else ""
-                
-                if not faction_name or len(faction_name) < 2:
-                    continue
-                
-                # Skip known prompt template headers
-                if faction_name.lower().strip(':').strip() in _SKIP_HEADERS:
-                    continue
-                
-                # Skip if it looks like a field label (e.g., "Description:", "Goals:")
-                if re.match(r'^(Description|Goals?|Leader|Resources?|Alignment|Opposition|Rivalry)\s*:', faction_name, re.IGNORECASE):
-                    continue
-                
-                raw = self._parse_faction_content(faction_name, faction_content)
-                raw_factions.append(raw)
-                logger.debug(f"Parsed faction (markdown): {raw['name']}")
-        
-        # Try numbered/lettered format if not enough
-        if len(raw_factions) < count // 2:
-            # Split on numbered lines like "1. ", "2. ", "A. ", etc.
-            numbered_sections = re.split(r'\n(?=\d+[\.\)]\s+|[A-Z][\.\)]\s+)', 
-                                        response_text)
-            
-            for section in numbered_sections:
-                section = section.strip()
-                if not section:
-                    continue
-                
-                # Extract faction name from first line
-                first_line = section.split('\n')[0].strip()
-                # Remove leading number/letter prefix
-                faction_name = re.sub(r'^\d+[\.\)]\s*|^[A-Z][\.\)]\s*', '', first_line).strip()
-                # Remove markdown bold
-                faction_name = re.sub(r'\*\*([^*]+)\*\*', r'\1', faction_name).strip()
-                # Remove trailing colon
-                faction_name = faction_name.rstrip(':').strip()
-                
-                if faction_name and len(faction_name) > 2 and faction_name.lower() not in _SKIP_HEADERS:
-                    raw = self._parse_faction_content(faction_name, section)
-                    raw_factions.append(raw)
-                    logger.debug(f"Parsed faction (numbered): {raw['name']}")
-        
-        # Fill defaults if not enough
-        while len(raw_factions) < count:
-            raw_factions.append({
-                'name': f"Faction {len(raw_factions) + 1}",
-                'description': "A faction with distinct goals and resources",
-                'goals': ["Gain influence", "Protect their interests", "Advance their agenda"],
-                'leader': "Unknown",
-                'resources': "Unknown",
-                'alignment': "Neutral",
-            })
-        
-        # Convert to persistent StoryFaction objects
-        for raw in raw_factions[:count]:
-            faction_id = f"faction_{uuid.uuid4().hex[:8]}"
-            faction = StoryFaction(
-                id=faction_id,
-                story=self.story,
-                name=raw['name'],
-                description=raw['description'],
-                goals=raw['goals'],
-                leader=raw['leader'],
-                resources=raw['resources'],
-                alignment=raw['alignment'],
-            )
-            factions.append(faction)
-            logger.debug(f"Created StoryFaction: {faction.name} ({faction.id})")
-        
-        return factions
-    
-    def _parse_faction_content(self, name: str, content: str) -> Dict[str, Any]:
-        """Parse a single faction's content into a raw dict."""
-        description = self._extract_field(content, r'Description:\s*([^\n]+)', "A faction with unclear motives")
-        goals_text = self._extract_field(content, r'Goals?:\s*([^\n]+(?:\n[^\n]+){0,3})', "")
-        leader = self._extract_field(content, r'Leader:\s*([^\n]+)', "Unknown")
-        resources = self._extract_field(content, r'Resources?:\s*([^\n]+)', "Unknown")
-        alignment = self._extract_field(content, r'Alignment:\s*([^\n]+)', "Neutral")
-        
-        # Parse goals as list
-        goals = [g.strip() for g in re.split(r'[-•\n]', goals_text) if g.strip()][:3]
-        if not goals:
-            goals = ["Gain power", "Survive", "Influence others"]
-        
-        return {
-            'name': name,
-            'description': description,
-            'goals': goals,
-            'leader': leader,
-            'resources': resources,
-            'alignment': alignment,
-        }
-    
-    def _extract_field(self, text: str, pattern: str, default: str = "") -> str:
-        """Extract field using regex."""
-        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return default
+Include opposition/rivalry between factions.
+
+{format_instruction}"""

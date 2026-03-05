@@ -1,7 +1,8 @@
 """Story Arc model for managing narrative arcs."""
 
+import re
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.models.story_base import StoryBase
 from datetime import datetime, UTC
 
@@ -34,6 +35,25 @@ class StoryArc(StoryBase):
     """A collection of connected episodes forming a narrative arc."""
     
     title: str = Field(..., description="Title of the arc")
+    
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v: str) -> str:
+        """Clean raw JSON fragments from corrupted titles."""
+        if not v:
+            return v
+        # Strip leading JSON noise like ': "', '": "', etc.
+        cleaned = re.sub(r'^[\s":,{}\[\]]+', '', v).strip()
+        # If still contains JSON structural chars, extract the first quoted string
+        if any(c in cleaned for c in ['{', '":', '\\n']):
+            match = re.search(r'["\']?([A-Z][^"\'\\{},]+)', cleaned)
+            if match:
+                cleaned = match.group(1).strip()
+        # Truncate if unreasonably long
+        if len(cleaned) > 150:
+            cleaned = cleaned[:150].rsplit(' ', 1)[0]
+        return cleaned or v
+    
     description: str = Field(
         "",
         description="Detailed description of the arc"

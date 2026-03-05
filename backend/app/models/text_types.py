@@ -162,7 +162,7 @@ class CharacterTextGeneratorResponse(TextGeneratorResponse):
     name_parts: List[str] = Field(default_factory=list, description="Components that make up the character's name")
     short_description: Optional[str] = Field(None, description="Brief overview of the character")
     background: Optional[str] = Field(None, description="Character's background story")
-    age: Optional[int] = Field(None, description="Character's age if known")
+    age: Optional[str] = Field(None, description="Character's age if known (e.g., '35', 'mid-30s', 'ancient')")
     gender: Optional[str] = Field(None, description="Character's gender if specified")
     personality_traits: List[str] = Field(default_factory=list, description="Key personality characteristics")
     physical_description: Optional[str] = Field(None, description="Detailed description of physical appearance")

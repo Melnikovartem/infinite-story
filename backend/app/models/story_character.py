@@ -56,7 +56,7 @@ class StoryCharacter(StoryBlock):
     """A character in a story.
     
     This represents a character with their name, description, background, and avatar.
-    Characters can be assigned to fractions or be independent.
+    Characters can be assigned to factions or be independent.
     """
     name: str
     description: str  # Short description (physical appearance + impression)
@@ -72,8 +72,8 @@ class StoryCharacter(StoryBlock):
         description="Current state during episode: {mood, status, location, loyalty, relationships, goals}"
     )
     
-    # Fraction and location association
-    fraction_id: Optional[str] = Field(default=None, description="ID of the fraction this character belongs to")
+    # Faction and location association
+    faction_id: Optional[str] = Field(default=None, description="ID of the faction this character belongs to")
     associated_locations: List[str] = Field(default_factory=list)  # Location IDs where character appears
     
     # Character characteristics
