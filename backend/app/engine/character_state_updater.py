@@ -8,7 +8,7 @@ from app.models.story import Story
 from app.models.story_arc import StoryArc
 from app.models.story_episode import CharacterStateSnapshot, StoryEpisode as EpisodeRecap
 from app.models.story_segment import StorySegment
-from app.models.story_character import StoryCharacter
+from app.models.story_character import StoryCharacter, CharacterRole
 from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
 
 logger = logging.getLogger("infinite_story.engine.character_state_updater")
@@ -356,13 +356,21 @@ For goal_progress, use a value from 0.0 (no progress) to 1.0 (goal achieved).
             if data.get('goal_progress') is not None:
                 try:
                     progress = float(data['goal_progress'])
+                    # LLMs sometimes return percentages (e.g., 65.0 instead of 0.65)
+                    if progress > 1.0:
+                        progress = progress / 100.0
                     snapshot.goal_progress = max(0.0, min(1.0, progress))
                 except (ValueError, TypeError):
                     pass
             if data.get('goal_notes'):
                 snapshot.goal_notes = data['goal_notes']
             if data.get('relationship_notes') and isinstance(data['relationship_notes'], list):
-                snapshot.relationship_notes = data['relationship_notes']
+                # Convert list → Dict[str, str] to match CharacterStateSnapshot.relationship_notes type.
+                # The AI returns a list of relationship notes like ["Trust with Kael deepened", ...].
+                # We key them as "rel_0", "rel_1", ... since we don't have character IDs here.
+                snapshot.relationship_notes = {
+                    f"rel_{i}": str(note) for i, note in enumerate(data['relationship_notes'])
+                }
             
             logger.debug(f"AI-enhanced state for {char.name}: emotion={snapshot.emotional_status}, health={snapshot.health_status}")
             return snapshot
@@ -482,7 +490,7 @@ The character should:
                 background=data.get('background', 'Origins unknown'),
                 personality=data.get('personality_traits', []),
                 goals=data.get('goals', ''),
-                importance_tier="minor",
+                role=CharacterRole.MINOR,
             )
             char.save()
             logger.info(f"Generated new character for theme '{theme}': {char.name}")
@@ -513,10 +521,16 @@ The character should:
             updates.append(f"Health: {snapshot.health_status}")
         
         if snapshot.relationship_notes:
-            rel_summary = ", ".join(
-                f"{rel}" for rel in list(snapshot.relationship_notes.values())[:2]
-            )
-            updates.append(f"Relations: {rel_summary}")
+            # relationship_notes is Dict[str, str] but handle list defensively
+            if isinstance(snapshot.relationship_notes, dict):
+                rel_items = list(snapshot.relationship_notes.values())[:2]
+            elif isinstance(snapshot.relationship_notes, list):
+                rel_items = [str(r) for r in snapshot.relationship_notes[:2]]
+            else:
+                rel_items = []
+            if rel_items:
+                rel_summary = ", ".join(rel_items)
+                updates.append(f"Relations: {rel_summary}")
         
         if updates:
             char.description = "\n".join([char.description] + updates)

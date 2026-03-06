@@ -5,7 +5,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 
 from app.models.story import Story
-from app.models.story_character import StoryCharacter
+from app.models.story_character import StoryCharacter, CharacterRole
 from app.models.story_segment import StorySegment
 from app.engine.generator import TextGenerator
 from app.utils.ai_response_parser import AIResponseParser, ResponseSchema, FieldSpec, OutputFormat
@@ -185,8 +185,8 @@ Create characters that will drive the story forward and create interesting confl
                 if factions and i < len(factions):
                     faction_id = factions[i].id
                 
-                # First character is major, rest are minor initially
-                importance_tier = "major" if i == 0 else "minor"
+                # First character is protagonist, rest are minor initially
+                role = CharacterRole.PROTAGONIST if i == 0 else CharacterRole.MINOR
                 
                 char = StoryCharacter(
                     story=self.story,
@@ -199,11 +199,11 @@ Create characters that will drive the story forward and create interesting confl
                     goals=raw.get('goals', ''),
                     avatar_color=self._select_avatar_color(),
                     faction_id=faction_id,
-                    importance_tier=importance_tier,
+                    role=role,
                 )
                 char.save()
                 created_chars.append(char)
-                logger.info(f"Generated character: {char.name} (faction: {faction_id}, tier: {importance_tier})")
+                logger.info(f"Generated character: {char.name} (faction: {faction_id}, role: {role.value})")
             
             return created_chars
             
@@ -337,7 +337,7 @@ For EACH character, provide:
                 )
                 
                 for i, raw in enumerate(parsed_chars[:num_chars]):
-                    importance_tier = "major" if i == 0 else "minor"
+                    role = CharacterRole.PROTAGONIST if i == 0 else CharacterRole.MINOR
                     
                     char = StoryCharacter(
                         story=self.story,
@@ -350,7 +350,7 @@ For EACH character, provide:
                         goals=raw.get('goals', ''),
                         avatar_color=self._select_avatar_color(),
                         faction_id=faction.id,
-                        importance_tier=importance_tier,
+                        role=role,
                     )
                     char.save()
                     created_chars.append(char)

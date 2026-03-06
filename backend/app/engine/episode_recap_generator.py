@@ -239,7 +239,8 @@ Additionally, extract:
     async def generate_new_episode_context(
         self,
         arc_id: str,
-        previous_recap: Optional[EpisodeRecap] = None
+        previous_recap: Optional[EpisodeRecap] = None,
+        triggering_segment_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate context for a new episode (E2-2 Enhanced).
@@ -248,12 +249,15 @@ Additionally, extract:
         1. Load arc
         2. Select themes via ThemeSelector (weighted random)
         3. Generate episode tone/end_condition/direction via AI
-        4. Create and save EpisodeMeta
-        5. Return context dict
+        4. Create and save EpisodeMeta (with episode_{arc_id}_{triggering_segment_id} ID)
+        5. Store previous episode's recap inside new episode's previous_episode_recap
+        6. Return context dict
         
         Args:
             arc_id: The arc ID for the new episode
             previous_recap: Optional recap from the previous episode
+            triggering_segment_id: Segment that triggered the episode transition
+                                   (used for episode ID: episode_{arc_id}_{segment_id})
             
         Returns:
             Dictionary with episode context (tone_tags, end_condition, narrative_direction,
@@ -367,10 +371,24 @@ Additionally, extract:
                 logger.debug(f"Failed to update story objects/collect running state: {e}")
         
         # Step 7: Create EpisodeMeta and save it
+        #   ID format: episode_{arc_id}_{triggering_segment_id} (parent-segment-based)
+        #   Falls back to sequential format if no triggering segment provided
+        if triggering_segment_id:
+            meta_id = f"episode_{arc_id}_{triggering_segment_id}"
+        else:
+            meta_id = f"episode_meta_{next_episode_num}_{arc_id}"
+        
+        # Extract previous episode's recap for LLM context continuity
+        prev_recap_text = ""
+        prev_recap_title = ""
+        if previous_recap:
+            prev_recap_text = previous_recap.recap or previous_recap.summary or ""
+            prev_recap_title = previous_recap.title or f"Episode {previous_recap.episode_number}"
+        
         try:
             episode_meta = EpisodeMeta(
                 story=self.story,
-                id=f"episode_meta_{next_episode_num}_{arc_id}",
+                id=meta_id,
                 story_id=self.story.id,
                 episode_number=next_episode_num,
                 arc_id=arc_id,
@@ -381,6 +399,8 @@ Additionally, extract:
                 episode_focus=context.get('episode_focus', ''),
                 story_hooks=context.get('story_hooks', []),
                 active_characters=active_characters,
+                previous_episode_recap=prev_recap_text,
+                previous_episode_title=prev_recap_title,
             )
             
             # Apply running state from previous episode to new episode
@@ -812,22 +832,40 @@ character states as JSON object mapping character IDs to their final states.
 }}
 """
         
-        # Use generate_structured with a minimal schema — the real structure is dynamic
-        # (character IDs as keys), so we just need the raw parsed dict
-        reconcile_schema = ResponseSchema(
-            fields=[
-                FieldSpec("__any__", type="dict"),  # Dynamic keys
-            ],
-            expect_array=False,
-        )
-        
+        # Dynamic keys (character IDs) can't use ResponseSchema — the schema
+        # validator normalises all keys into declared field names and discards
+        # unknown keys.  Instead, call _generate_content() directly and parse
+        # the raw JSON ourselves.
         try:
-            parsed = await self.generator.generate_structured(
-                system_prompt="",
-                user_prompt=prompt,
-                schema=reconcile_schema,
-                fallback_defaults=[{}],
+            import json as _json
+            raw = await self.generator._generate_content(
+                "You are a narrative reconciler. Resolve character state contradictions. Return ONLY valid JSON.",
+                prompt,
             )
+            
+            # Try to extract a JSON object from the raw response
+            parsed = {}
+            if raw and raw.strip():
+                # Strip markdown code-block wrappers
+                text = raw.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[-1]
+                    if text.endswith("```"):
+                        text = text[:-3]
+                    text = text.strip()
+                try:
+                    obj = _json.loads(text)
+                    if isinstance(obj, dict):
+                        parsed = obj
+                except _json.JSONDecodeError:
+                    # Last resort: bracket-match the first {...}
+                    start = text.find("{")
+                    end = text.rfind("}")
+                    if start != -1 and end > start:
+                        try:
+                            parsed = _json.loads(text[start:end + 1])
+                        except _json.JSONDecodeError:
+                            pass
             
             if not parsed:
                 logger.warning("Empty AI reconciliation response, using starting states")

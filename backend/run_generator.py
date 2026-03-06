@@ -10,7 +10,7 @@ from pathlib import Path
 # Add backend to path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from app.cli_story_creation import create_story_ai_new
+from app.cli import create_story_ai_async
 
 # Setup logging to both console and file
 logging.basicConfig(
@@ -32,7 +32,7 @@ async def run_story_generator():
     logger.info("=" * 80)
     
     try:
-        story_id = await create_story_ai_new(
+        story_id = await create_story_ai_async(
             story_id="the_last_city",
             title="The Last City",
             description="A world where mega-corporations rule from floating towers above a sprawling dystopian city",
@@ -41,7 +41,7 @@ async def run_story_generator():
         )
         
         logger.info("=" * 80)
-        logger.info(f"✅ STORY GENERATION COMPLETE!")
+        logger.info(f"STORY GENERATION COMPLETE!")
         logger.info(f"Story ID: {story_id}")
         logger.info("=" * 80)
         
@@ -52,12 +52,12 @@ async def run_story_generator():
             for f in sorted(data_dir.rglob("*")):
                 if f.is_file():
                     size = f.stat().st_size
-                    logger.info(f"  ✓ {f.relative_to(data_dir)} ({size} bytes)")
+                    logger.info(f"  {f.relative_to(data_dir)} ({size} bytes)")
         
         return True
         
     except Exception as e:
-        logger.error(f"❌ Generation failed: {e}", exc_info=True)
+        logger.error(f"Generation failed: {e}", exc_info=True)
         return False
 
 
@@ -70,7 +70,7 @@ async def main():
     
     # Keep running to allow exploration
     if success:
-        logger.info("\n✅ Generation complete! Keeping process alive for exploration...")
+        logger.info("\nGeneration complete! Keeping process alive for exploration...")
         logger.info("Check .infinite_story_data/the_last_city/ for generated files")
         
         # Keep alive for 60 seconds so you can explore

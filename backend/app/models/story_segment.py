@@ -467,7 +467,8 @@ class StorySegment(StoryBlock):
                 try:
                     recap = await recap_generator.generate_recap(
                         episode_number=self.episode_number,
-                        arc_id=self.arc_id
+                        arc_id=self.arc_id,
+                        triggering_segment_id=self.id
                     )
                     logger.info(f"[GEN_SCENE_RECAP_OK] Generated recap for episode {self.episode_number}: {recap.title}")
                 except Exception as e:
@@ -524,10 +525,14 @@ class StorySegment(StoryBlock):
                     next_episode_number = self.episode_number + 1
                 
                 # Step 4: Generate new episode context
+                #   Pass triggering_segment_id so the new episode's ID is
+                #   episode_{arc_id}_{self.id}, and previous recap is stored
+                #   inside the new episode's previous_episode_recap field.
                 try:
                     new_ep_context = await recap_generator.generate_new_episode_context(
                         next_arc_id,
-                        recap
+                        recap,
+                        triggering_segment_id=self.id
                     )
                     next_episode_tone = new_ep_context.get('tone_tags', [next_episode_tone])[0] if new_ep_context.get('tone_tags') else next_episode_tone
                     next_episode_end_condition = new_ep_context.get('end_condition', next_episode_end_condition)

@@ -91,6 +91,19 @@ class StoryCharacter(StoryBlock):
         Args:
             **data: Character data fields
         """
+        # Map importance_tier → role if callers pass the legacy kwarg.
+        # Generators use importance_tier="major"/"minor" but the model
+        # only has `role: CharacterRole`.
+        tier = data.pop("importance_tier", None)
+        if tier and "role" not in data:
+            _tier_map = {
+                "major": CharacterRole.PROTAGONIST,
+                "protagonist": CharacterRole.PROTAGONIST,
+                "antagonist": CharacterRole.ANTAGONIST,
+                "ally": CharacterRole.ALLY,
+                "minor": CharacterRole.MINOR,
+            }
+            data["role"] = _tier_map.get(str(tier).lower(), CharacterRole.MINOR)
         super().__init__(**data)
         self.story.add_character(self)
     

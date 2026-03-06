@@ -5,10 +5,42 @@ from typing import List, Dict, Any
 from app.models.story import Story
 from app.models.story_context import StoryContext
 from app.engine.generator import TextGenerator
-from app.models.text_types import WorldTextGeneratorResponse
-from app.engine.lenient_parser import LenientParser
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 logger = logging.getLogger("infinite_story.engine.generators.world_description_generator")
+
+
+# Schema for world generation
+_WORLD_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("world_description", type="str", required=True, aliases=["description", "overview", "world_overview"]),
+        FieldSpec("fundamental_truths", type="list", required=True, aliases=["truths", "core_facts", "world_rules"]),
+        FieldSpec("magic_system", type="str", aliases=["magic", "technology_system"]),
+        FieldSpec("technology_level", type="str", aliases=["technology", "tech_level"]),
+        FieldSpec("political_system", type="str", aliases=["government", "politics", "power_structure"]),
+        FieldSpec("cultures", type="list", aliases=["culture", "societies", "cultural_groups"]),
+        FieldSpec("history", type="str", aliases=["backstory", "world_history", "major_events"]),
+        FieldSpec("religions", type="list", aliases=["religion", "beliefs", "faiths"]),
+    ],
+    expect_array=False,
+)
+
+_WORLD_FALLBACK = {
+    "world_description": "A mysterious world waiting to be discovered",
+    "fundamental_truths": [
+        "The world operates under its own fundamental laws",
+        "History shapes the present in unexpected ways",
+        "Power and conflict drive civilization forward",
+        "Magic or technology defines what's possible",
+        "Adventure and discovery await the brave",
+    ],
+    "magic_system": "To be determined",
+    "technology_level": "To be determined",
+    "political_system": "Varies by region",
+    "cultures": [],
+    "history": "To be determined",
+    "religions": [],
+}
 
 
 class WorldDescriptionGenerator:
@@ -50,32 +82,61 @@ class WorldDescriptionGenerator:
                 user_input
             )
             
-            # Generate via AI
-            response = await self.generator.generate_with_fallback(
-                context_type="world",
+            # Generate via generate_structured
+            world_data = await self.generator.generate_structured(
                 system_prompt="""You are a world-building expert creating rich, detailed worlds.
 Create immersive worlds with clear systems, cultures, and rules.
 Provide structured information about the world.""",
-                user_prompt=prompt
+                user_prompt=prompt,
+                schema=_WORLD_SCHEMA,
+                fallback_defaults=[_WORLD_FALLBACK],
             )
             
-            # Extract world data
-            world_description = self._extract_world_description(response)
-            fundamental_truths = self._extract_fundamental_truths(response)
-            worldbuilding = self._extract_worldbuilding(response)
+            # Extract fields from parsed data
+            world_description = world_data.get('world_description', _WORLD_FALLBACK['world_description'])
+            fundamental_truths = world_data.get('fundamental_truths', _WORLD_FALLBACK['fundamental_truths'])
+            
+            # Ensure fundamental_truths is a list of strings
+            if isinstance(fundamental_truths, str):
+                fundamental_truths = [fundamental_truths]
+            if not fundamental_truths:
+                fundamental_truths = list(_WORLD_FALLBACK['fundamental_truths'])
+            
+            # Build worldbuilding dict from all fields
+            worldbuilding = {
+                'world_description': world_description,
+            }
+            if world_data.get('magic_system'):
+                worldbuilding['magic_system'] = world_data['magic_system']
+            if world_data.get('technology_level'):
+                worldbuilding['technology'] = world_data['technology_level']
+            if world_data.get('political_system'):
+                worldbuilding['government'] = world_data['political_system']
+            if world_data.get('cultures'):
+                worldbuilding['cultures'] = world_data['cultures']
+            if world_data.get('history'):
+                worldbuilding['history'] = world_data['history']
+            if world_data.get('religions'):
+                worldbuilding['religions'] = world_data['religions']
+            
+            # Ensure we have basic structure
+            if len(worldbuilding) <= 1:
+                worldbuilding.update({
+                    'history': 'To be determined',
+                    'magic_system': 'To be determined',
+                    'cultures': 'Multiple unique societies',
+                    'government': 'Varies by region',
+                    'technology': 'To be determined',
+                })
             
             # Create context
             context = StoryContext(
                 id=f"context_{story.id}",
                 story_id=story.id,
                 story=story,
-                fundamental_truths=fundamental_truths,
+                fundamental_truths=fundamental_truths[:6],
                 worldbuilding=worldbuilding
             )
-            
-            # Store the world description in worldbuilding
-            if isinstance(context.worldbuilding, dict):
-                context.worldbuilding['world_description'] = world_description
             
             logger.info(f"Generated world context with {len(fundamental_truths)} fundamental truths")
             return context
@@ -134,78 +195,3 @@ Generate a comprehensive world with:
    - Current state and tensions
 
 Make the world feel alive, internally consistent, and full of potential for conflict and story."""
-    
-    def _extract_world_description(self, response: Any) -> str:
-        """Extract world description from response."""
-        if hasattr(response, 'backstory') and response.backstory:
-            return response.backstory[:500]
-        
-        if hasattr(response, 'raw_response') and response.raw_response:
-            return response.raw_response[:500]
-        
-        return "A mysterious world waiting to be discovered"
-    
-    def _extract_fundamental_truths(self, response: Any) -> List[str]:
-        """Extract fundamental truths from response."""
-        truths = []
-        
-        # Try major_events field
-        if hasattr(response, 'major_events') and response.major_events:
-            truths.extend(response.major_events[:6])
-        
-        # Add system info if available
-        if hasattr(response, 'magic_system') and response.magic_system:
-            truths.append(f"Magic System: {response.magic_system}")
-        
-        if hasattr(response, 'technology_level') and response.technology_level:
-            truths.append(f"Technology: {response.technology_level}")
-        
-        if hasattr(response, 'political_system') and response.political_system:
-            truths.append(f"Government: {response.political_system}")
-        
-        # If still empty, use defaults
-        if not truths:
-            truths = [
-                "The world operates under its own fundamental laws",
-                "History shapes the present in unexpected ways",
-                "Power and conflict drive civilization forward",
-                "Magic or technology defines what's possible",
-                "Adventure and discovery await the brave"
-            ]
-        
-        return truths[:6]
-    
-    def _extract_worldbuilding(self, response: Any) -> Dict[str, Any]:
-        """Extract worldbuilding details from response."""
-        worldbuilding = {}
-        
-        # Map response fields to worldbuilding sections
-        if hasattr(response, 'backstory') and response.backstory:
-            worldbuilding['history'] = response.backstory
-        
-        if hasattr(response, 'magic_system') and response.magic_system:
-            worldbuilding['magic_system'] = response.magic_system
-        
-        if hasattr(response, 'technology_level') and response.technology_level:
-            worldbuilding['technology'] = response.technology_level
-        
-        if hasattr(response, 'political_system') and response.political_system:
-            worldbuilding['government'] = response.political_system
-        
-        if hasattr(response, 'cultures') and response.cultures:
-            worldbuilding['cultures'] = response.cultures
-        
-        if hasattr(response, 'religions') and response.religions:
-            worldbuilding['religions'] = response.religions
-        
-        # Ensure we have basic structure
-        if not worldbuilding:
-            worldbuilding = {
-                'history': 'To be determined',
-                'magic_system': 'To be determined',
-                'cultures': 'Multiple unique societies',
-                'government': 'Varies by region',
-                'technology': 'To be determined'
-            }
-        
-        return worldbuilding

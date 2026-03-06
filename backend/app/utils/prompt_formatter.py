@@ -95,6 +95,14 @@ class PromptFormatter:
                     parts.append(f"  Hook: {recap['hook_for_next']}")
         
         # ================================================================
+        # PREVIOUS EPISODE RECAP — bridging context from last episode
+        # ================================================================
+        if context.get('previous_episode_recap'):
+            prev_title = context.get('previous_episode_title', 'Last Episode')
+            parts.append(f"\n=== PREVIOUSLY ({prev_title}) ===")
+            parts.append(context['previous_episode_recap'][:500])
+        
+        # ================================================================
         # CURRENT EPISODE & SCENE
         # ================================================================
         parts.append("\n=== CURRENT EPISODE ===")

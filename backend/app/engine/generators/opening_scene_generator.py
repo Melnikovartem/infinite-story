@@ -84,23 +84,24 @@ Write an opening scene that:
 - Is vivid, atmospheric, and 2-3 paragraphs long
 - Sets the stage for player choices
 
-Focus on sensory details, mood, and atmosphere."""
+Focus on sensory details, mood, and atmosphere.
+Return ONLY the narrative text, no JSON, no formatting."""
         
         system_prompt = """You are a master storyteller creating immersive opening scenes.
 Write with vivid sensory details that make the reader feel present in this world.
 Your opening scenes hook readers immediately and establish mood, setting, and story potential."""
         
-        response = await self.generate_with_fallback(
-            context_type="scene",
-            system_prompt=system_prompt,
-            user_prompt=prompt
-        )
-        
-        # Extract text content, handling both object and string responses
-        opening_text = self._extract_content(response)
+        # Call _generate_content directly — we want raw narrative text,
+        # not a structured JSON response (avoids scene-schema injection).
+        try:
+            opening_text = await self._generate_content(system_prompt, prompt)
+            opening_text = opening_text.strip() if opening_text else ""
+        except Exception as e:
+            logger.warning(f"Opening scene generation failed: {e}")
+            opening_text = ""
         
         # If extraction failed, create a sensible fallback
-        if not opening_text or opening_text.startswith('raw_response'):
+        if not opening_text or len(opening_text) < 50:
             opening_text = self._create_fallback_scene(story, world_context)
         
         # Create opening segment
@@ -175,13 +176,14 @@ ONLY output the choices, no explanations."""
         system_prompt = """You are a narrative designer creating compelling story choices.
 The choices should feel natural, consequential, and offer meaningful branching paths."""
         
-        response = await self.generate_with_fallback(
-            context_type="scene",
-            system_prompt=system_prompt,
-            user_prompt=prompt
-        )
-        
-        choices_text = self._extract_content(response)
+        # Call _generate_content directly — we want a numbered list of choices,
+        # not structured JSON.
+        try:
+            choices_text = await self._generate_content(system_prompt, prompt)
+            choices_text = choices_text.strip() if choices_text else ""
+        except Exception as e:
+            logger.warning(f"Opening choices generation failed: {e}")
+            choices_text = ""
         
         # Parse choices from response
         choice_lines = []
@@ -216,23 +218,6 @@ The choices should feel natural, consequential, and offer meaningful branching p
         logger.info(f"Generated {len(choices_list)} opening choices")
         return choices_list
     
-    def _extract_content(self, response) -> str:
-        """Extract clean text content from response object.
-        
-        Args:
-            response: Response from LLM (could be object or string)
-            
-        Returns:
-            Clean text content
-        """
-        if isinstance(response, str):
-            return response
-        
-        if hasattr(response, 'content') and isinstance(response.content, str):
-            return response.content.strip()
-        
-        return str(response)
-    
     def _create_fallback_scene(self, story: Story, world_context: StoryContext) -> str:
         """Create a sensible fallback opening scene if generation fails.
         
@@ -262,7 +247,7 @@ The path ahead splits in several directions, each promising a different adventur
         Returns:
             List of fallback choice texts
         """
-        fractions = story.get_all_fractions()
+        factions = story.get_all_factions()
         locations = story.get_all_locations()
         
         choices = [
@@ -272,8 +257,8 @@ The path ahead splits in several directions, each promising a different adventur
         ]
         
         # Customize based on available context
-        if fractions:
-            choices[0] = f"Join forces with the {fractions[0].title if hasattr(fractions[0], 'title') else 'first faction'}."
+        if factions:
+            choices[0] = f"Join forces with the {factions[0].name if hasattr(factions[0], 'name') else 'first faction'}."
         
         if locations:
             choices[1] = f"Make your way toward {locations[0].name if hasattr(locations[0], 'name') else 'the unknown location'}."

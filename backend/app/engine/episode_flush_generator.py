@@ -12,8 +12,18 @@ from typing import Dict, List, Optional, Any
 from app.models import Story, StorySegment, StoryCharacter, StoryLocation
 from app.models.story_segment import EntityChange
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 logger = logging.getLogger("infinite_story.engine.episode_flush_generator")
+
+# Schema for evolved descriptions — single string field
+_EVOLVED_DESC_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("evolved_description", type="str", required=True,
+                  aliases=["description", "new_description", "updated_description", "result"]),
+    ],
+    expect_array=False,
+)
 
 
 class EpisodeFlushGenerator:
@@ -197,22 +207,18 @@ class EpisodeFlushGenerator:
                     episode_number
                 )
                 
-                # Call AI
+                # Call AI via generate_structured (avoids scene-schema prompt pollution)
                 logger.debug(f"Calling AI to evolve description for {char.name}")
-                response = await self.generator.generate(
-                    system_prompt="You are a narrative writer evolving character descriptions.",
+                result = await self.generator.generate_structured(
+                    system_prompt="You are a narrative writer evolving character descriptions based on story events.",
                     user_prompt=prompt,
-                    context_type="scene"
+                    schema=_EVOLVED_DESC_SCHEMA,
+                    fallback_defaults=[{"evolved_description": char.description}],
                 )
                 
-                if response.error:
-                    logger.warning(f"AI error evolving {char.name}: {response.error}")
-                    evolved_desc = char.description  # Fall back to original
-                else:
-                    # Extract evolved description from response
-                    evolved_desc = self._extract_evolved_description(response)
-                    if not evolved_desc:
-                        evolved_desc = char.description
+                evolved_desc = result.get("evolved_description", "") if isinstance(result, dict) else ""
+                if not evolved_desc or len(evolved_desc.strip()) < 10:
+                    evolved_desc = char.description
                 
                 # Update character model
                 char.description = evolved_desc
@@ -260,22 +266,18 @@ class EpisodeFlushGenerator:
                     episode_number
                 )
                 
-                # Call AI
+                # Call AI via generate_structured (avoids scene-schema prompt pollution)
                 logger.debug(f"Calling AI to evolve description for {loc.name}")
-                response = await self.generator.generate(
-                    system_prompt="You are a narrative writer evolving location descriptions.",
+                result = await self.generator.generate_structured(
+                    system_prompt="You are a narrative writer evolving location descriptions based on story events.",
                     user_prompt=prompt,
-                    context_type="scene"
+                    schema=_EVOLVED_DESC_SCHEMA,
+                    fallback_defaults=[{"evolved_description": loc.description}],
                 )
                 
-                if response.error:
-                    logger.warning(f"AI error evolving {loc.name}: {response.error}")
-                    evolved_desc = loc.description  # Fall back to original
-                else:
-                    # Extract evolved description from response
-                    evolved_desc = self._extract_evolved_description(response)
-                    if not evolved_desc:
-                        evolved_desc = loc.description
+                evolved_desc = result.get("evolved_description", "") if isinstance(result, dict) else ""
+                if not evolved_desc or len(evolved_desc.strip()) < 10:
+                    evolved_desc = loc.description
                 
                 # Update location model
                 loc.description = evolved_desc
@@ -376,22 +378,6 @@ Write a concise evolved description (2-3 sentences) that:
 
 EVOLVED DESCRIPTION:
 (Write only the description, no preamble)"""
-    
-    def _extract_evolved_description(self, response: Any) -> str:
-        """Extract evolved description from AI response.
-        
-        Args:
-            response: Response from generator
-            
-        Returns:
-            Evolved description string
-        """
-        # Extract from raw_response — the typed response models don't have
-        # evolved_description/description/content fields
-        if hasattr(response, 'raw_response') and response.raw_response:
-            return response.raw_response
-        
-        return ""
     
     def _build_changes_summary(
         self,

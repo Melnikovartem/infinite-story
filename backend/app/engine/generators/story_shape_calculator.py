@@ -1,15 +1,36 @@
 """Story shape calculator for determining story structure."""
 
 import logging
-import json
 from typing import Any, Dict
 from app.models.story import Story
 from app.models.story_context import StoryContext
 from app.engine.generator import TextGenerator
 from app.models.text_types import StoryShapeResponse
-from app.engine.lenient_parser import LenientParser
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 logger = logging.getLogger("infinite_story.engine.generators.story_shape_calculator")
+
+# Schema for story shape calculation
+_SHAPE_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("scale", type="str", required=True, aliases=["story_scale", "size"]),
+        FieldSpec("num_factions", type="int", required=True, aliases=["factions", "num_fractions", "total_factions"]),
+        FieldSpec("num_locations", type="int", required=True, aliases=["locations", "total_locations"]),
+        FieldSpec("characters_per_faction", type="dict", required=True, aliases=["chars_per_faction", "characters_per_fraction"]),
+        FieldSpec("num_independent_characters", type="int", required=True, aliases=["independent_characters", "independents"]),
+        FieldSpec("reasoning", type="str", aliases=["explanation", "rationale"]),
+    ],
+    expect_array=False,
+)
+
+_SHAPE_FALLBACK = {
+    "scale": "medium",
+    "num_factions": 3,
+    "num_locations": 10,
+    "characters_per_faction": {"min": 2, "max": 4},
+    "num_independent_characters": 2,
+    "reasoning": "Default balanced structure",
+}
 
 
 class StoryShapeCalculator:
@@ -51,29 +72,30 @@ class StoryShapeCalculator:
                 world_context
             )
             
-            # Request structured response with fallback
-            response_text = await self.generator.generate_with_fallback(
-                context_type="world",
-                system_prompt="""You are a story structure expert.
-Analyze a story and determine its optimal structure.
-Return ONLY valid JSON with no additional text.""",
-                user_prompt=prompt
+            # Call generate_structured with schema
+            shape_data = await self.generator.generate_structured(
+                system_prompt="You are a story structure expert. Analyze a story and determine its optimal structure.",
+                user_prompt=prompt,
+                schema=_SHAPE_SCHEMA,
+                fallback_defaults=[_SHAPE_FALLBACK],
             )
             
-            # Extract JSON
-            shape_data = self._parse_shape_response(response_text)
+            # Ensure characters_per_faction is a dict with min/max
+            cpf = shape_data.get('characters_per_faction', {'min': 2, 'max': 4})
+            if not isinstance(cpf, dict):
+                cpf = {'min': 2, 'max': 4}
             
             # Create StoryShapeResponse
             shape = StoryShapeResponse(
                 scale=shape_data.get('scale', 'medium'),
-                num_fractions=shape_data.get('num_fractions', 3),
+                num_factions=shape_data.get('num_factions', 3),
                 num_locations=shape_data.get('num_locations', 10),
-                characters_per_fraction=shape_data.get('characters_per_fraction', {'min': 2, 'max': 4}),
+                characters_per_faction=cpf,
                 num_independent_characters=shape_data.get('num_independent_characters', 2),
                 reasoning=shape_data.get('reasoning', '')
             )
             
-            logger.info(f"Calculated story shape: {shape.scale} with {shape.num_fractions} fractions")
+            logger.info(f"Calculated story shape: {shape.scale} with {shape.num_factions} factions")
             return shape
             
         except Exception as e:
@@ -119,60 +141,9 @@ Central Conflicts:
 
 Themes: {themes_text}
 
-Return ONLY valid JSON (no markdown, no explanation) with this structure:
-{{
-  "scale": "epic|large|medium|small",
-  "num_fractions": <number 2-6>,
-  "num_locations": <number 5-20>,
-  "characters_per_fraction": {{"min": <number 2-4>, "max": <number 3-6>}},
-  "num_independent_characters": <number 1-5>,
-  "reasoning": "<brief explanation of why this structure works>"
-}}
-
 Consider:
 - Scale: Is this an epic multi-act story or intimate narrative?
-- Fractions: How many major story divisions/acts does this need?
+- Factions: How many major factions/groups does this story need?
 - Locations: How many distinct places should the story span?
-- Characters per fraction: How many main characters per act?
+- Characters per faction: How many main characters per faction?
 - Independent characters: How many antagonists/neutrals/side characters?"""
-    
-    def _parse_shape_response(self, response: Any) -> Dict[str, Any]:
-        """Parse shape response into structured data."""
-        
-        # Extract raw text from response object
-        content = response
-        if hasattr(response, 'raw_response'):
-            content = response.raw_response or ""
-        else:
-            content = str(response)
-        
-        logger.debug(f"Shape response content: {content[:200]}")
-        
-        # Try to parse as JSON
-        try:
-            # Remove markdown code blocks if present
-            json_str = str(content)
-            if '```json' in json_str:
-                json_str = json_str.split('```json')[1].split('```')[0]
-            elif '```' in json_str:
-                json_str = json_str.split('```')[1].split('```')[0]
-            
-            data = json.loads(json_str.strip())
-            
-            # Validate required fields
-            required = ['scale', 'num_fractions', 'num_locations', 'characters_per_fraction', 'num_independent_characters']
-            if all(k in data for k in required):
-                return data
-        except (json.JSONDecodeError, ValueError, IndexError) as e:
-            logger.warning(f"JSON parsing failed: {e}")
-        
-        # Fallback to lenient parsing or defaults
-        logger.warning("Using default story shape")
-        return {
-            'scale': 'medium',
-            'num_fractions': 3,
-            'num_locations': 10,
-            'characters_per_fraction': {'min': 2, 'max': 4},
-            'num_independent_characters': 2,
-            'reasoning': 'Default balanced structure'
-        }

@@ -5,8 +5,31 @@ from typing import List, Any
 from app.models.story import Story
 from app.models.story_context import StoryContext
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 logger = logging.getLogger("infinite_story.engine.generators.plot_description_generator")
+
+
+# Schema for plot generation
+_PLOT_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("plot_description", type="str", required=True, aliases=["plot", "summary", "plot_summary", "main_plot"]),
+        FieldSpec("central_conflicts", type="list", required=True, aliases=["conflicts", "main_conflicts"]),
+        FieldSpec("story_themes", type="list", required=True, aliases=["themes", "key_themes"]),
+        FieldSpec("story_tone", type="str", required=True, aliases=["tone", "mood", "atmosphere"]),
+    ],
+    expect_array=False,
+)
+
+_PLOT_FALLBACK = {
+    "plot_description": "A story of conflict, growth, and discovery",
+    "central_conflicts": [
+        "Internal conflict between opposing goals",
+        "External conflict with opposing forces",
+    ],
+    "story_themes": ["Conflict", "Growth", "Discovery", "Choice", "Consequence"],
+    "story_tone": "Compelling",
+}
 
 
 class PlotDescriptionGenerator:
@@ -53,26 +76,37 @@ class PlotDescriptionGenerator:
                 world_context.fundamental_truths
             )
             
-            # Generate via AI with fallback
-            response = await self.generator.generate_with_fallback(
-                context_type="world",
+            # Generate via generate_structured
+            plot_data = await self.generator.generate_structured(
                 system_prompt="""You are a master story architect.
 Create compelling plot outlines with clear central conflicts and character arcs.
 Make the story engaging and full of potential.""",
-                user_prompt=prompt
+                user_prompt=prompt,
+                schema=_PLOT_SCHEMA,
+                fallback_defaults=[_PLOT_FALLBACK],
             )
             
-            # Extract plot data
-            plot_description = self._extract_plot_description(response)
-            central_conflicts = self._extract_conflicts(response)
-            story_themes = self._extract_themes(response)
-            story_tone = self._extract_tone(response)
+            # Extract fields
+            plot_description = plot_data.get('plot_description', _PLOT_FALLBACK['plot_description'])
+            central_conflicts = plot_data.get('central_conflicts', _PLOT_FALLBACK['central_conflicts'])
+            story_themes = plot_data.get('story_themes', _PLOT_FALLBACK['story_themes'])
+            story_tone = plot_data.get('story_tone', _PLOT_FALLBACK['story_tone'])
+            
+            # Ensure lists
+            if isinstance(central_conflicts, str):
+                central_conflicts = [central_conflicts]
+            if isinstance(story_themes, str):
+                story_themes = [story_themes]
+            
+            # Ensure minimum conflicts
+            if len(central_conflicts) < 2:
+                central_conflicts.extend(_PLOT_FALLBACK['central_conflicts'])
             
             # Enrich world context with plot data
             if isinstance(world_context.worldbuilding, dict):
                 world_context.worldbuilding['plot_description'] = plot_description
-                world_context.worldbuilding['central_conflicts'] = central_conflicts
-                world_context.worldbuilding['story_themes'] = story_themes
+                world_context.worldbuilding['central_conflicts'] = central_conflicts[:3]
+                world_context.worldbuilding['story_themes'] = story_themes[:5]
                 world_context.worldbuilding['story_tone'] = story_tone
             
             logger.info(f"Generated plot with {len(central_conflicts)} central conflicts")
@@ -128,70 +162,3 @@ Generate a detailed plot outline with:
    - How does it feel?
 
 Make the plot feel inevitable yet surprising, with clear stakes and compelling conflicts."""
-    
-    def _extract_plot_description(self, response: Any) -> str:
-        """Extract plot description from response."""
-        if hasattr(response, 'backstory') and response.backstory:
-            # Extract first few sentences
-            sentences = response.backstory.split('.')[:3]
-            return '.'.join(sentences).strip() + '.'
-        
-        if hasattr(response, 'raw_response') and response.raw_response:
-            sentences = response.raw_response.split('.')[:3]
-            return '.'.join(sentences).strip() + '.'
-        
-        return "A story of conflict, growth, and discovery"
-    
-    def _extract_conflicts(self, response: Any) -> List[str]:
-        """Extract central conflicts from response."""
-        conflicts = []
-        
-        if hasattr(response, 'major_events') and response.major_events:
-            conflicts.extend(response.major_events[:3])
-        
-        # If we don't have enough, add defaults
-        if len(conflicts) < 2:
-            conflicts.extend([
-                "Internal conflict between opposing goals",
-                "External conflict with opposing forces"
-            ])
-        
-        return conflicts[:3]
-    
-    def _extract_themes(self, response: Any) -> List[str]:
-        """Extract themes from response."""
-        themes = []
-        
-        # Try to extract from response
-        if hasattr(response, 'backstory') and response.backstory:
-            # Look for theme keywords
-            backstory_lower = response.backstory.lower()
-            potential_themes = ['power', 'love', 'betrayal', 'redemption', 'sacrifice', 'growth', 'justice', 'survival']
-            for theme in potential_themes:
-                if theme in backstory_lower:
-                    themes.append(theme.capitalize())
-        
-        # If still empty, use defaults
-        if not themes:
-            themes = ['Conflict', 'Growth', 'Discovery', 'Choice', 'Consequence']
-        
-        return themes[:5]
-    
-    def _extract_tone(self, response: Any) -> str:
-        """Extract story tone from response."""
-        if hasattr(response, 'backstory') and response.backstory:
-            backstory_lower = response.backstory.lower()
-            
-            # Detect tone from content
-            if any(word in backstory_lower for word in ['dark', 'grim', 'tragic', 'horror']):
-                return "Dark"
-            elif any(word in backstory_lower for word in ['epic', 'grand', 'legendary']):
-                return "Epic"
-            elif any(word in backstory_lower for word in ['mystery', 'secret', 'hidden']):
-                return "Mysterious"
-            elif any(word in backstory_lower for word in ['hope', 'light', 'triumph']):
-                return "Hopeful"
-            elif any(word in backstory_lower for word in ['intimate', 'personal', 'individual']):
-                return "Intimate"
-        
-        return "Compelling"

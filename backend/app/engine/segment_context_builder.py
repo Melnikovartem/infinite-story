@@ -128,7 +128,7 @@ class SegmentContextBuilder:
             'character_changes_this_episode': accumulated_changes,
             'character_relationships': self._get_character_relationships(episode_chain),
             'relationship_changes': self._get_relationship_changes(episode_chain),
-            'character_importance_tiers': self._get_character_importance_tiers(),
+            'character_role_tiers': self._get_character_role_tiers(),
             
             # ====================================================================
             # FACTION CONTEXT (NEW)
@@ -241,17 +241,49 @@ class SegmentContextBuilder:
                 logger.warning(f"Failed to load arc context: {e}")
         
         # Add episode metadata if available
+        #   Try new ID format (episode_{arc_id}_{triggering_segment_id}) first,
+        #   then fall back to sequential format (episode_meta_{num}_{arc_id}).
         if current_seg.arc_id and current_seg.episode_number:
             try:
                 from app.models.story_episode import StoryEpisode
-                episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
-                episode_meta = StoryEpisode.load(self.story.id, episode_meta_id, story=self.story)
+                episode_meta = None
+                
+                # Try to find the episode's triggering segment for new-format ID lookup.
+                # The first segment of the episode has a parent in the previous episode;
+                # that parent is the triggering segment.
+                first_seg_id = episode_chain[0] if episode_chain else None
+                triggering_seg_id = None
+                if first_seg_id:
+                    first_seg = self.story.get_segment(first_seg_id)
+                    if first_seg and first_seg.parent_segment_id:
+                        parent = self.story.get_segment(first_seg.parent_segment_id)
+                        if parent and parent.episode_number != current_seg.episode_number:
+                            triggering_seg_id = parent.id
+                
+                # Try new format first, then sequential fallback
+                meta_id_candidates = []
+                if triggering_seg_id:
+                    meta_id_candidates.append(f"episode_{current_seg.arc_id}_{triggering_seg_id}")
+                meta_id_candidates.append(f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}")
+                
+                for meta_id in meta_id_candidates:
+                    try:
+                        episode_meta = StoryEpisode.load(self.story.id, meta_id, story=self.story)
+                        if episode_meta:
+                            break
+                    except Exception:
+                        continue
+                
                 if episode_meta:
                     context_dict.update({
                         'episode_selected_themes': episode_meta.selected_themes,
                         'episode_focus': episode_meta.episode_focus,
                         'story_hooks': episode_meta.story_hooks,
                     })
+                    # Include previous episode recap for LLM context continuity
+                    if episode_meta.previous_episode_recap:
+                        context_dict['previous_episode_recap'] = episode_meta.previous_episode_recap
+                        context_dict['previous_episode_title'] = episode_meta.previous_episode_title or ""
             except Exception as e:
                 logger.debug(f"Episode metadata not found: {e}")
         
@@ -599,7 +631,7 @@ class SegmentContextBuilder:
                             arc_characters[character.id] = {
                                 'name': character.name,
                                 'short_description': character.description,
-                                'importance': character.importance_tier if hasattr(character, 'importance_tier') else 'minor',
+                                'importance': character.role.value if hasattr(character, 'role') else 'minor',
                             }
                         except Exception as e:
                             logger.debug(f"Failed to get arc character {character.id}: {e}")
@@ -1190,8 +1222,8 @@ class SegmentContextBuilder:
     # NEW METHODS FOR FACTION, MAGIC SYSTEM, AND CHARACTER TIERS
     # ========================================================================
     
-    def _get_character_importance_tiers(self) -> Dict[str, List[str]]:
-        """Get characters grouped by importance tier.
+    def _get_character_role_tiers(self) -> Dict[str, List[str]]:
+        """Get characters grouped by role tier.
         
         Returns: {
             'protagonist': [char_names],
@@ -1202,11 +1234,15 @@ class SegmentContextBuilder:
         tiers = {'protagonist': [], 'major': [], 'minor': []}
         
         for char in self.story._characters.values():
-            tier = getattr(char, 'importance_tier', 'minor')
+            role_val = char.role.value if hasattr(char, 'role') else 'minor'
             name = getattr(char, 'name', 'Unknown')
-            if tier not in tiers:
-                tiers[tier] = []
-            tiers[tier].append(name)
+            # Map role values to tier buckets
+            if role_val in ('protagonist',):
+                tiers['protagonist'].append(name)
+            elif role_val in ('antagonist', 'ally'):
+                tiers['major'].append(name)
+            else:
+                tiers['minor'].append(name)
         
         return tiers
     
@@ -1275,7 +1311,8 @@ class SegmentContextBuilder:
         alignments = {}
         
         for char in self.story._characters.values():
-            if getattr(char, 'importance_tier', 'minor') in ('protagonist', 'major'):
+            role_val = char.role.value if hasattr(char, 'role') else 'minor'
+            if role_val in ('protagonist', 'antagonist', 'ally'):
                 char_name = getattr(char, 'name', 'Unknown')
                 faction_id = getattr(char, 'faction_id', None)
                 

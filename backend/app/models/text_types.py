@@ -213,11 +213,11 @@ class ChoiceGenerationResponse(TextGeneratorResponse):
 class StoryShapeResponse(TextGeneratorResponse):
     """Response for calculating story shape/structure."""
     scale: str = Field(..., description="Story scale: epic, large, medium, or small")
-    num_fractions: int = Field(..., description="Number of fractions (acts) needed")
+    num_factions: int = Field(..., description="Number of factions needed")
     num_locations: int = Field(..., description="Number of locations needed")
-    characters_per_fraction: Dict[str, int] = Field(
+    characters_per_faction: Dict[str, int] = Field(
         ..., 
-        description="Min and max number of characters per fraction (e.g., {'min': 2, 'max': 4})"
+        description="Min and max number of characters per faction (e.g., {'min': 2, 'max': 4})"
     )
-    num_independent_characters: int = Field(..., description="Number of independent characters (not tied to fractions)")
+    num_independent_characters: int = Field(..., description="Number of independent characters (not tied to factions)")
     reasoning: Optional[str] = Field(None, description="Explanation for why this shape was chosen") 
