@@ -1,15 +1,52 @@
 """Protagonist selector for choosing or developing the main character."""
 
 import logging
+import re
 from typing import Optional, List
-import uuid
 
 from app.models.story import Story
-from app.models.story_character import StoryCharacter
-from app.models.story_episode import CharacterStateSnapshot
+from app.models.story_character import StoryCharacter, CharacterRole
 from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 logger = logging.getLogger("infinite_story.engine.generators.protagonist_selector")
+
+
+# Schema for protagonist selection (AI picks a number + reasoning)
+_SELECTION_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("selected_number", type="int", required=True, aliases=["number", "choice", "character_number", "selection"]),
+        FieldSpec("reason", type="str", aliases=["reasoning", "why", "explanation"]),
+        FieldSpec("development", type="str", aliases=["development_ideas", "growth"]),
+    ],
+    expect_array=False,
+)
+
+_SELECTION_FALLBACK = {
+    "selected_number": 1,
+    "reason": "Best fit for the story",
+    "development": "",
+}
+
+# Schema for new protagonist generation
+_PROTAGONIST_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("name", type="str", required=True, aliases=["character_name", "full_name", "displayed_name"]),
+        FieldSpec("description", type="str", required=True, aliases=["short_description", "appearance", "desc"]),
+        FieldSpec("background", type="str", required=True, aliases=["backstory", "history"]),
+        FieldSpec("personality_traits", type="list", aliases=["personality", "traits"]),
+        FieldSpec("goals", type="str", aliases=["goal", "motivation"]),
+    ],
+    expect_array=False,
+)
+
+_PROTAGONIST_FALLBACK = {
+    "name": "The Protagonist",
+    "description": "A mysterious figure with untapped potential",
+    "background": "Origins yet to be discovered",
+    "personality_traits": ["determined", "curious"],
+    "goals": "Find their purpose",
+}
 
 
 class ProtagonistSelector:
@@ -47,8 +84,6 @@ class ProtagonistSelector:
             ValueError: If selection/development fails
         """
         try:
-            from app.models.story_character import CharacterRole
-            
             characters = list(self.story._characters.values())
             
             # 1. User selection
@@ -86,12 +121,7 @@ class ProtagonistSelector:
             raise ValueError(f"Protagonist selection failed: {str(e)}")
     
     def _assign_protagonist_role(self, character: StoryCharacter) -> None:
-        """Set the PROTAGONIST role on the selected character and save.
-        
-        Args:
-            character: The character to designate as protagonist
-        """
-        from app.models.story_character import CharacterRole
+        """Set the PROTAGONIST role on the selected character and save."""
         character.role = CharacterRole.PROTAGONIST
         character.save()
         logger.debug(f"Assigned PROTAGONIST role to {character.name}")
@@ -100,14 +130,7 @@ class ProtagonistSelector:
         self,
         characters: List[StoryCharacter]
     ) -> StoryCharacter:
-        """Use AI to analyze characters and select best protagonist.
-        
-        Args:
-            characters: List of available characters
-            
-        Returns:
-            The character best suited as protagonist
-        """
+        """Use AI to analyze characters and select best protagonist."""
         try:
             # Build character descriptions
             char_descriptions = []
@@ -118,7 +141,6 @@ class ProtagonistSelector:
                     f"   Background: {char.background}"
                 )
             
-            # Build prompt
             prompt = f"""Analyze these characters and select the BEST protagonist for the story:
 
 Story: {self.story.title}
@@ -127,51 +149,35 @@ Description: {self.story.description}
 CHARACTERS:
 {chr(10).join(char_descriptions)}
 
-Which character (by number) is the best choice as protagonist and why?
+Which character (by number) is the best choice as protagonist and why?"""
 
-Respond with:
-- NUMBER: The character number (1, 2, etc.)
-- REASON: Why they make a great protagonist
-- DEVELOPMENT: How to develop them further as protagonist"""
-            
-            # Call AI
-            response = await self.generator.generate(
+            data = await self.generator.generate_structured(
                 system_prompt="""You are a story structure expert.
 Analyze characters and select the one with the most potential as a protagonist.
 Consider growth potential, complexity, and ability to drive the narrative.""",
                 user_prompt=prompt,
-                context_type="character"
+                schema=_SELECTION_SCHEMA,
+                fallback_defaults=[_SELECTION_FALLBACK],
             )
             
-            if response.error:
-                # Fallback to first character
-                logger.warning(f"AI selection failed: {response.error}, using first character")
-                return characters[0]
+            # Extract selection number
+            selection_num = data.get("selected_number", 1)
+            if isinstance(selection_num, str):
+                # Try to parse a number from the string
+                match = re.search(r'\d+', str(selection_num))
+                selection_num = int(match.group()) if match else 1
             
-            # Try to extract character number from response
-            selection_index = self._parse_selection(response.raw_response, len(characters))
-            
-            selected = characters[selection_index]
-            
-            # Optionally enhance selected character with AI development ideas
-            if hasattr(response, 'raw_response'):
-                enhanced = await self._enhance_protagonist_description(selected, response)
-                selected = enhanced
-            
-            return selected
+            # Convert to 0-based index, clamp to valid range
+            index = max(0, min(int(selection_num) - 1, len(characters) - 1))
+            return characters[index]
             
         except Exception as e:
             logger.warning(f"AI protagonist selection failed: {e}, using first character")
             return characters[0]
     
     async def _generate_new_protagonist(self) -> StoryCharacter:
-        """Generate a brand new protagonist character.
-        
-        Returns:
-            A newly created StoryCharacter as protagonist
-        """
+        """Generate a brand new protagonist character."""
         try:
-            # Build prompt
             prompt = f"""Create a compelling protagonist for this story:
 
 Title: {self.story.title}
@@ -182,108 +188,31 @@ The protagonist should:
 - Have clear goals and motivations
 - Have room for growth and change
 - Fit the world and story setting
-- Drive the narrative forward
+- Drive the narrative forward"""
 
-Provide a detailed character profile for the protagonist."""
-            
-            # Generate
-            response = await self.generator.generate(
+            data = await self.generator.generate_structured(
                 system_prompt="""You are a character creation expert designing compelling protagonists.
 Create a character that will drive the story forward and engage readers.""",
                 user_prompt=prompt,
-                context_type="character"
+                schema=_PROTAGONIST_SCHEMA,
+                fallback_defaults=[_PROTAGONIST_FALLBACK],
             )
             
-            if response.error:
-                raise ValueError(f"Protagonist generation failed: {response.error}")
-            
-            # Extract character details
-            name = getattr(response, 'displayed_name', 'The Protagonist')
-            description = getattr(response, 'short_description', 'A mysterious figure')
-            background = getattr(response, 'background', 'To be discovered')
-            
-            # Create character
             protag = StoryCharacter(
                 story=self.story,
                 id=f"char_{self.story.id}_protag",
                 story_id=self.story.id,
-                name=name,
-                description=description,
-                background=background,
-                avatar_color="#4ECDC4"  # Distinctive color for protagonist
+                name=data.get("name", "The Protagonist"),
+                description=data.get("description", "A mysterious figure"),
+                background=data.get("background", "To be discovered"),
+                personality=data.get("personality_traits") or [],
+                goals=data.get("goals", ""),
+                role=CharacterRole.PROTAGONIST,
+                avatar_color="#4ECDC4",
             )
             protag.save()
-            
             return protag
             
         except Exception as e:
             logger.error(f"Failed to generate new protagonist: {e}", exc_info=True)
             raise ValueError(f"Protagonist generation failed: {str(e)}")
-    
-    async def _enhance_protagonist_description(
-        self,
-        character: StoryCharacter,
-        ai_response: any
-    ) -> StoryCharacter:
-        """Enhance protagonist description with AI development ideas.
-        
-        Args:
-            character: The selected protagonist
-            ai_response: AI response with development ideas
-            
-        Returns:
-            Updated character with enhanced description
-        """
-        try:
-            # Extract development notes from response
-            if hasattr(ai_response, 'raw_response'):
-                # Update character description with key traits if available
-                if hasattr(ai_response, 'personality_traits'):
-                    traits_str = ", ".join(ai_response.personality_traits[:3])
-                    character.description += f"\n\nKey Traits: {traits_str}"
-                
-                if hasattr(ai_response, 'goals'):
-                    goal = ai_response.goals[0] if ai_response.goals else ""
-                    if goal:
-                        character.description += f"\n\nPrimary Goal: {goal}"
-            
-            character.save()
-            return character
-            
-        except Exception as e:
-            logger.debug(f"Failed to enhance protagonist: {e}")
-            return character
-    
-    def _parse_selection(self, response_text: str, char_count: int) -> int:
-        """Parse character selection from AI response.
-        
-        Args:
-            response_text: Raw AI response text
-            char_count: Number of characters available
-            
-        Returns:
-            Index of selected character (0-based)
-        """
-        import re
-        
-        # Look for patterns like "Character 1", "NUMBER: 1", "Option 2", etc.
-        patterns = [
-            r'[Cc]haracter\s+(\d+)',
-            r'[Nn]umber\s*:\s*(\d+)',
-            r'[Oo]ption\s+(\d+)',
-            r'#(\d+)',
-            r'\((\d+)\)',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, response_text)
-            if match:
-                try:
-                    num = int(match.group(1))
-                    if 1 <= num <= char_count:
-                        return num - 1  # Convert to 0-based index
-                except:
-                    pass
-        
-        # Default to first character if no valid selection found
-        return 0

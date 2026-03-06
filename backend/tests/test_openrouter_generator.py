@@ -3,7 +3,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from app.engine.openrouter_generator import OpenRouterGenerator
-from app.models.text_types import SceneTextGeneratorResponse
 
 
 class TestOpenRouterGenerator:
@@ -61,7 +60,7 @@ class TestOpenRouterGenerator:
         models = OpenRouterGenerator.get_available_models()
         
         assert isinstance(models, dict)
-        assert len(models) == 10
+        assert len(models) == 11
         assert "deepseek-v3" in models
         assert "gpt-4-turbo" in models
         assert "claude-3-opus" in models
@@ -115,8 +114,7 @@ class TestOpenRouterGenerator:
         # Verify the generator is properly initialized
         assert generator.api_key == "sk-or-v1-test-key"
         assert generator.model == "deepseek/deepseek-v3"
-        assert hasattr(generator, 'response_types')
-        assert "scene" in generator.response_types
+        assert hasattr(generator, 'generate_structured')
     
     def test_site_url_configuration(self):
         """Test that site URL is properly configured."""

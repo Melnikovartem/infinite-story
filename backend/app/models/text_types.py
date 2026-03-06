@@ -32,106 +32,11 @@ class TextBlock(BaseModel):
     emotion: Optional[str] = Field(None, description="The emotion of the text block")
     character: Optional[str] = Field(None, description="The character speaking the text block")
 
-    @classmethod
-    def get_schema_description(cls) -> str:
-        """Get the schema description for the text block."""
-        # Build list of all text types from enum
-        text_types = []
-        text_type_descriptions = {
-            TextType.NARRATOR_DESCRIBING: "Narrative description of scenes, actions, environments",
-            TextType.NARRATOR_COMMENTARY: "Narrator's commentary or observations", 
-            TextType.FLASHBACK: "Past events being recalled",
-            TextType.DREAM_SEQUENCE: "Dream or vision sequences",
-            TextType.CHARACTER_SPEECH: "Direct dialogue from characters",
-            TextType.CHARACTER_THOUGHT: "Internal thoughts/monologue",
-            TextType.POEM_OR_SONG: "Poetic or musical content", 
-            TextType.LETTER_OR_NOTE: "Written correspondence",
-            TextType.SFX: "Sound effects",
-            TextType.VISUAL_CUE: "Visual descriptions or cues",
-            TextType.MEDIA_OVERLAY: "Overlaid media elements",
-            TextType.SCENE_TITLE: "Title of a scene",
-            TextType.LOCATION_LABEL: "Location identifiers",
-            TextType.SYSTEM_MESSAGE: "System/meta messages"
-        }
-
-        for text_type in TextType:
-            text_types.append({
-                "value": text_type.value,
-                "description": text_type_descriptions[text_type]
-            })
-
-        # Build schema with text types and descriptions
-        schema = {
-            "type": "object",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": [t["value"] for t in text_types],
-                    "description": "The type of text block"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "The actual text content of the block"
-                },
-                "emotion": {
-                    "type": "string",
-                    "description": "Optional: The emotion of the text block"
-                },
-                "character": {
-                    "type": "string",
-                    "description": "Optional: The character speaking (for dialogue blocks)"
-                }
-            },
-            "text_type_descriptions": text_types
-        }
-        
-        return str(schema)
-
 
 class TextGeneratorResponse(BaseModel):
     """Abstract base class for generator responses."""
     raw_response: Optional[str] = Field(None, description="The raw response from the generator")
     error: Optional[str] = Field(None, description="Any error that occurred during generation")
-
-    @classmethod
-    def get_schema_description(cls) -> str:
-        """Generate a human-readable schema description for text generation."""
-        schema = ["{"]
-        for field_name, field in cls.model_fields.items():
-            if field_name in ["raw_response", "parsed_data", "error"]:
-                continue
-                
-            description = field.description or ""
-            
-            # Get custom type description based on field annotation
-            if field.annotation == Optional[str]:
-                type_desc = "Optional[string]"
-            elif field.annotation == str:
-                type_desc = "string"
-            elif field.annotation == int:
-                type_desc = "integer"
-            elif field.annotation == List[str]:
-                type_desc = "List[string]"
-            elif field.annotation == List[Dict[str, str]]:
-                type_desc = "List[Dict[string, string]]"
-            elif field.annotation == Dict[str, str]:
-                type_desc = "Dict[string, string]"
-            elif field.annotation == Dict[str, Any]:
-                type_desc = "Dict[string, Any]"
-            elif field.annotation == List[TextBlock]:
-                text_block_schema = TextBlock.get_schema_description()
-                type_desc = f"List[{text_block_schema}]"
-            else:
-                type_desc = "Any"
-                
-            schema.append(f'  "{field_name}": {{')
-            schema.append(f'    "type": "{type_desc}",')
-            schema.append(f'    "description": "{description}"')
-            schema.append('  },')
-        if len(schema) > 1:
-            schema[-1] = schema[-1].rstrip(',')  # Remove trailing comma from last item
-        schema.append("}")
-        return "\n".join(schema)
 
 class WorldTextGeneratorResponse(TextGeneratorResponse):
     """Response for generating world/setting details."""

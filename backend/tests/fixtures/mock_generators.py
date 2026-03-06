@@ -4,84 +4,108 @@ These mocks simulate the behavior of text generators and other
 external services for isolated unit testing.
 """
 
-from typing import Optional, List, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
-from app.models.text_types import TextBlock, TextType, SceneTextGeneratorResponse
+from typing import Optional, List, Dict, Any, Union
+from app.engine.generator import TextGenerator
+from app.utils.ai_response_parser import ResponseSchema, OutputFormat
 
 
-class MockTextGenerator:
-    """Mock text generator that returns predictable test data."""
+class MockTextGenerator(TextGenerator):
+    """Mock text generator that returns predictable test data.
     
-    def __init__(self, response_template: Optional[SceneTextGeneratorResponse] = None):
+    Supports both generate_structured() (returns dicts) and
+    _generate_content() (returns raw text strings).
+    """
+    
+    def __init__(self, response_data: Optional[dict] = None):
         """Initialize mock generator.
         
         Args:
-            response_template: Template response to return (uses default if None)
+            response_data: Dict to return from generate_structured() (uses default if None)
         """
+        super().__init__()
         self.call_count = 0
-        self.last_prompt = None
-        self.response_template = response_template or self._default_response()
+        self.last_system_prompt = None
+        self.last_user_prompt = None
+        self.response_data = response_data or self._default_response()
     
-    def _default_response(self) -> SceneTextGeneratorResponse:
-        """Create a default response."""
-        return SceneTextGeneratorResponse(
-            short_description="A test scene unfolds",
-            atmosphere="mysterious",
-            time_of_day="evening",
-            weather="clear",
-            key_items=["item_1", "item_2"],
-            text_blocks=[
-                TextBlock(
-                    type=TextType.NARRATOR_DESCRIBING,
-                    content="The test scene begins..."
-                )
+    def _default_response(self) -> dict:
+        """Create a default scene response as a dict."""
+        return {
+            "short_description": "A test scene unfolds",
+            "atmosphere": "mysterious",
+            "time_of_day": "evening",
+            "weather": "clear",
+            "key_items": ["item_1", "item_2"],
+            "text_blocks": [
+                {
+                    "type": "narrator_describing",
+                    "content": "The test scene begins..."
+                }
             ],
-            characters_present=["char_1"],
-            locations_present=["loc_1"],
-            character_status_change={},
-            location_status_change={},
-            choice_1="Continue forward",
-            choice_2="Turn back",
-            error=None
-        )
+            "characters_present": ["char_1"],
+            "locations_present": ["loc_1"],
+            "character_status_change": {},
+            "location_status_change": {},
+            "choice_1": "Continue forward",
+            "choice_2": "Turn back",
+        }
     
-    async def generate(
+    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        """Return a JSON string of the response data."""
+        import json
+        self.call_count += 1
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
+        
+        data = dict(self.response_data)
+        data["short_description"] = f"Scene {self.call_count}: {data.get('short_description', 'test')}"
+        return json.dumps(data)
+    
+    async def generate_structured(
         self,
         system_prompt: str,
         user_prompt: str,
-        context_type: str = "scene"
-    ) -> SceneTextGeneratorResponse:
+        schema: ResponseSchema,
+        fallback_defaults: Optional[List[dict]] = None,
+        output_format: OutputFormat = OutputFormat.JSON,
+    ) -> Union[dict, List[dict]]:
         """Generate a response (mock implementation).
         
         Args:
-            system_prompt: System prompt (unused in mock)
+            system_prompt: System prompt (stored for inspection)
             user_prompt: User prompt (stored for inspection)
-            context_type: Type of context (unused in mock)
+            schema: Response schema (unused in mock)
+            fallback_defaults: Fallback defaults (unused in mock)
+            output_format: Output format (unused in mock)
             
         Returns:
-            Mock response
+            Mock response dict or list of dicts
         """
         self.call_count += 1
-        self.last_prompt = user_prompt
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
         
-        # Create a copy of the template with incremented counter
-        response = SceneTextGeneratorResponse(**self.response_template.model_dump())
-        response.short_description = f"Scene {self.call_count}: {response.short_description}"
+        # Create a copy with incremented counter
+        data = dict(self.response_data)
+        data["short_description"] = f"Scene {self.call_count}: {data.get('short_description', 'test')}"
         
-        return response
+        if schema.expect_array:
+            return [data]
+        return data
     
     def get_call_count(self) -> int:
         """Get number of times generator was called."""
         return self.call_count
     
     def get_last_prompt(self) -> Optional[str]:
-        """Get the last prompt used."""
-        return self.last_prompt
+        """Get the last user prompt used."""
+        return self.last_user_prompt
     
     def reset(self) -> None:
         """Reset call tracking."""
         self.call_count = 0
-        self.last_prompt = None
+        self.last_system_prompt = None
+        self.last_user_prompt = None
 
 
 class MockGeneratorWithErrors(MockTextGenerator):
@@ -96,43 +120,43 @@ class MockGeneratorWithErrors(MockTextGenerator):
         super().__init__()
         self.fail_on_call = fail_on_call
     
-    async def generate(
+    async def generate_structured(
         self,
         system_prompt: str,
         user_prompt: str,
-        context_type: str = "scene"
-    ) -> SceneTextGeneratorResponse:
-        """Generate, but fail on specified call.
-        
-        Args:
-            system_prompt: System prompt
-            user_prompt: User prompt
-            context_type: Type of context
-            
-        Returns:
-            Response or error response
-        """
+        schema: ResponseSchema,
+        fallback_defaults: Optional[List[dict]] = None,
+        output_format: OutputFormat = OutputFormat.JSON,
+    ) -> Union[dict, List[dict]]:
+        """Generate, but fail on specified call by returning fallback/empty."""
         self.call_count += 1
-        self.last_prompt = user_prompt
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
         
         if self.call_count == self.fail_on_call:
-            return SceneTextGeneratorResponse(
-                short_description="",
-                atmosphere="",
-                time_of_day="",
-                weather="",
-                key_items=[],
-                text_blocks=[],
-                characters_present=[],
-                locations_present=[],
-                character_status_change={},
-                location_status_change={},
-                choice_1="",
-                choice_2="",
-                error="Mock generation error"
-            )
+            # Simulate failure: return fallback defaults or empty
+            if fallback_defaults:
+                if schema.expect_array:
+                    return fallback_defaults
+                return fallback_defaults[0]
+            if schema.expect_array:
+                return []
+            return {}
         
-        return await super().generate(system_prompt, user_prompt, context_type)
+        return await super().generate_structured(
+            system_prompt, user_prompt, schema, fallback_defaults, output_format
+        )
+    
+    async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
+        """Generate raw content, but raise on specified call."""
+        self.call_count += 1
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
+        
+        if self.call_count == self.fail_on_call:
+            raise Exception("Mock generation error")
+        
+        return await super()._generate_content(system_prompt, user_prompt)
 
 
 class MockCharacterGenerator:
@@ -170,30 +194,30 @@ class MockCharacterGenerator:
 def create_mock_response(
     short_description: str = "A test scene",
     atmosphere: str = "mysterious",
-    text_blocks: Optional[List[TextBlock]] = None,
+    text_blocks: Optional[List[dict]] = None,
     characters_present: Optional[List[str]] = None,
     locations_present: Optional[List[str]] = None,
     error: Optional[str] = None
-) -> SceneTextGeneratorResponse:
-    """Create a customized mock response.
+) -> dict:
+    """Create a customized mock response dict.
     
     Args:
         short_description: Scene description
         atmosphere: Scene atmosphere
-        text_blocks: Text blocks (default single narrator block)
+        text_blocks: Text block dicts (default single narrator block)
         characters_present: Character IDs present
         locations_present: Location IDs present
         error: Error message if response failed
         
     Returns:
-        Mock response object
+        Mock response dict
     """
     if text_blocks is None:
         text_blocks = [
-            TextBlock(
-                type=TextType.NARRATOR_DESCRIBING,
-                content="The scene continues..."
-            )
+            {
+                "type": "narrator_describing",
+                "content": "The scene continues..."
+            }
         ]
     
     if characters_present is None:
@@ -202,18 +226,22 @@ def create_mock_response(
     if locations_present is None:
         locations_present = []
     
-    return SceneTextGeneratorResponse(
-        short_description=short_description,
-        atmosphere=atmosphere,
-        time_of_day="unknown",
-        weather="unknown",
-        key_items=[],
-        text_blocks=text_blocks,
-        characters_present=characters_present,
-        locations_present=locations_present,
-        character_status_change={},
-        location_status_change={},
-        choice_1="Continue",
-        choice_2="Reconsider",
-        error=error
-    )
+    result = {
+        "short_description": short_description,
+        "atmosphere": atmosphere,
+        "time_of_day": "unknown",
+        "weather": "unknown",
+        "key_items": [],
+        "text_blocks": text_blocks,
+        "characters_present": characters_present,
+        "locations_present": locations_present,
+        "character_status_change": {},
+        "location_status_change": {},
+        "choice_1": "Continue",
+        "choice_2": "Reconsider",
+    }
+    
+    if error:
+        result["error"] = error
+    
+    return result

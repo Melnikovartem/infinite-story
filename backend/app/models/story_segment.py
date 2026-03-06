@@ -8,13 +8,101 @@ from .story_block import StoryBlock
 from .text_types import TextBlock
 from .story_choice import StoryChoice
 from app.utils.prompt_builder import ScenePromptBuilder
+from app.utils.ai_response_parser import ResponseSchema, FieldSpec
 
 if TYPE_CHECKING:
     from ..engine.generator import TextGenerator
-    from ..models.text_types import SceneTextGeneratorResponse
-    from .character_state import CharacterStateSnapshot
 
 logger = logging.getLogger("infinite_story.models.story_segment")
+
+
+# ---------------------------------------------------------------------------
+# Scene generation schema for generate_structured()
+# ---------------------------------------------------------------------------
+
+# Valid TextType values for prompt instruction
+_TEXT_TYPE_VALUES = ", ".join([t.value for t in TextType])
+
+_SCENE_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("short_description", type="str", required=True, aliases=["description", "scene_description", "summary"]),
+        FieldSpec("atmosphere", type="str", aliases=["mood", "tone"]),
+        FieldSpec("time_of_day", type="str", aliases=["time", "timeOfDay"]),
+        FieldSpec("weather", type="str", aliases=["weather_conditions"]),
+        FieldSpec("key_items", type="list", aliases=["items", "important_items"]),
+        FieldSpec("text_blocks", type="list", required=True, aliases=["blocks", "text", "narrative", "scene_text"]),
+        FieldSpec("characters_present", type="list", aliases=["characters", "present_characters"]),
+        FieldSpec("locations_present", type="list", aliases=["locations", "present_locations"]),
+        FieldSpec("character_status_change", type="dict", aliases=["character_changes", "status_changes"]),
+        FieldSpec("location_status_change", type="dict", aliases=["location_changes"]),
+        FieldSpec("change_notes", type="list", aliases=["changes", "notes", "episode_changes"]),
+        FieldSpec("choice_1", type="str", required=True, aliases=["first_choice", "option_1"]),
+        FieldSpec("choice_2", type="str", required=True, aliases=["second_choice", "option_2"]),
+    ],
+    expect_array=False,
+)
+
+_SCENE_FALLBACK = {
+    "short_description": "The scene continues",
+    "atmosphere": "neutral",
+    "time_of_day": None,
+    "weather": None,
+    "key_items": [],
+    "text_blocks": [{"type": "narrator_describing", "content": "The story continues..."}],
+    "characters_present": [],
+    "locations_present": [],
+    "character_status_change": {},
+    "location_status_change": {},
+    "change_notes": [],
+    "choice_1": "Continue forward",
+    "choice_2": "Reconsider your options",
+}
+
+
+def _parse_text_blocks(raw_blocks: Any) -> List[TextBlock]:
+    """Convert raw text_blocks data from AI into TextBlock objects.
+
+    Handles:
+    - List of dicts with type/content keys  (standard)
+    - A single string (treated as narrator_describing)
+    - A list of strings (each becomes a narrator_describing block)
+    - Malformed dicts missing type (defaults to narrator_describing)
+    """
+    if not raw_blocks:
+        return []
+
+    # Single string → one narrator block
+    if isinstance(raw_blocks, str):
+        return [TextBlock(type=TextType.NARRATOR_DESCRIBING, content=raw_blocks)]
+
+    if not isinstance(raw_blocks, list):
+        return [TextBlock(type=TextType.NARRATOR_DESCRIBING, content=str(raw_blocks))]
+
+    blocks: List[TextBlock] = []
+    for item in raw_blocks:
+        if isinstance(item, str):
+            blocks.append(TextBlock(type=TextType.NARRATOR_DESCRIBING, content=item))
+            continue
+        if isinstance(item, TextBlock):
+            blocks.append(item)
+            continue
+        if isinstance(item, dict):
+            content = item.get("content", "")
+            if not content:
+                continue
+            # Resolve type — default to narrator_describing
+            raw_type = item.get("type", "narrator_describing")
+            try:
+                block_type = TextType(raw_type)
+            except ValueError:
+                block_type = TextType.NARRATOR_DESCRIBING
+            blocks.append(TextBlock(
+                type=block_type,
+                content=content,
+                emotion=item.get("emotion"),
+                character=item.get("character"),
+            ))
+    return blocks
 
 
 class SegmentStatus(str, Enum):
@@ -412,24 +500,36 @@ class StorySegment(StoryBlock):
         prompt_duration = time.time() - prompt_start
         logger.debug(f"Formatted prompt with {len(user_prompt)} characters in {prompt_duration:.2f}s")
 
-        # Generate the new scene
-        logger.info("[GEN_SCENE_GEN_START] ⚙️  Calling generator.generate()")
+        # Generate the new scene via generate_structured()
+        logger.info("[GEN_SCENE_GEN_START] Calling generator.generate_structured()")
         gen_api_start = time.time()
-        scene_response: SceneTextGeneratorResponse = await generator.generate(
-            system_prompt="",  # Use default system prompt
-            user_prompt=user_prompt,
-            context_type="scene"
+
+        # Build a supplementary note about text_blocks format for the LLM.
+        # generate_structured() appends the schema format instruction automatically,
+        # but text_blocks has special nested structure that benefits from an explicit hint.
+        text_blocks_hint = (
+            "\n\nIMPORTANT: text_blocks must be a JSON array of objects, each with:\n"
+            f"  - type: one of [{_TEXT_TYPE_VALUES}]\n"
+            "  - content: the actual text\n"
+            "  - emotion: (optional) the emotional tone\n"
+            "  - character: (optional) who is speaking\n"
+        )
+
+        scene_data: dict = await generator.generate_structured(
+            system_prompt=generator.DEFAULT_SYSTEM_PROMPT,
+            user_prompt=user_prompt + text_blocks_hint,
+            schema=_SCENE_SCHEMA,
+            fallback_defaults=[_SCENE_FALLBACK],
         )
         gen_api_duration = time.time() - gen_api_start
         logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response in {gen_api_duration:.2f}s")
-        logger.debug(f"Generator returned response")
 
-        # Check if there was an error during generation
-        if scene_response.error:
-            logger.error(f"[GEN_SCENE_ERROR] Scene generation failed: {scene_response.error}")
-            raise ValueError(f"Scene generation failed: {scene_response.error}")
-
-        logger.debug(f"[GEN_SCENE_RESPONSE_OK] Response validated successfully")
+        # Convert raw text_blocks dicts into TextBlock objects
+        scene_text_blocks = _parse_text_blocks(scene_data.get("text_blocks", []))
+        if not scene_text_blocks:
+            # Absolute fallback — should rarely happen
+            scene_text_blocks = [TextBlock(type=TextType.NARRATOR_DESCRIBING, content="The story continues...")]
+            logger.warning("[GEN_SCENE_FALLBACK] No text blocks parsed, using fallback")
 
         # Generate unique segment ID based on total number of segments
         import uuid
@@ -555,14 +655,14 @@ class StorySegment(StoryBlock):
         new_segment = StorySegment(
             story=self.story,
             id=new_segment_id,
-            short_description=scene_response.short_description,
-            atmosphere=scene_response.atmosphere,
-            time_of_day=scene_response.time_of_day,
-            weather=scene_response.weather,
-            key_items=scene_response.key_items,
-            text_blocks=scene_response.text_blocks,
-            characters_present=scene_response.characters_present,
-            locations_present=scene_response.locations_present,
+            short_description=scene_data.get("short_description") or "The scene continues",
+            atmosphere=scene_data.get("atmosphere"),
+            time_of_day=scene_data.get("time_of_day"),
+            weather=scene_data.get("weather"),
+            key_items=scene_data.get("key_items") or [],
+            text_blocks=scene_text_blocks,
+            characters_present=scene_data.get("characters_present") or [],
+            locations_present=scene_data.get("locations_present") or [],
             # Link to parent segment for genealogy tracking
             parent_segment_id=self.id,
             # Episode/arc info (may be updated by lifecycle management above)
@@ -578,6 +678,8 @@ class StorySegment(StoryBlock):
             story_hooks=next_story_hooks,
             # Mark if this was the start of a new episode
             triggers_episode_transition=should_transition,
+            # Episode tracking: change notes from AI
+            change_notes=scene_data.get("change_notes") or [],
         )
         logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
         logger.debug(f"[GEN_SCENE_ARC_INFO] arc_id={new_segment.arc_id}, episode={new_segment.episode_number}, seg_in_ep={new_segment.segment_number_in_episode}")
@@ -598,19 +700,23 @@ class StorySegment(StoryBlock):
             new_segment.locations_running_status.extend(carried_locs)
 
         # Update character and location statuses based on changes
-        logger.debug(f"Processing {len(scene_response.character_status_change)} character status changes")
-        for char_id, new_status in scene_response.character_status_change.items():
-            # Add new status after existing one
+        char_status_changes = scene_data.get("character_status_change") or {}
+        if not isinstance(char_status_changes, dict):
+            char_status_changes = {}
+        logger.debug(f"Processing {len(char_status_changes)} character status changes")
+        for char_id, new_status in char_status_changes.items():
             new_segment.characters_running_status.append(
-                CharacterStatus(character_id=char_id, current_status=new_status)
+                CharacterStatus(character_id=str(char_id), current_status=str(new_status))
             )
             logger.debug(f"  Character '{char_id}' status: {new_status}")
 
-        logger.debug(f"Processing {len(scene_response.location_status_change)} location status changes")
-        for loc_id, new_status in scene_response.location_status_change.items():
-            # Add new status after existing one
+        loc_status_changes = scene_data.get("location_status_change") or {}
+        if not isinstance(loc_status_changes, dict):
+            loc_status_changes = {}
+        logger.debug(f"Processing {len(loc_status_changes)} location status changes")
+        for loc_id, new_status in loc_status_changes.items():
             new_segment.locations_running_status.append(
-                LocationStatus(location_id=loc_id, current_status=new_status)
+                LocationStatus(location_id=str(loc_id), current_status=str(new_status))
             )
             logger.debug(f"  Location '{loc_id}' status: {new_status}")
 
@@ -634,7 +740,7 @@ class StorySegment(StoryBlock):
             id=choice_1_id,
             from_segment_id=new_segment.id,
             to_segment_id=None,
-            text=scene_response.choice_1
+            text=scene_data.get("choice_1") or "Continue forward"
         )
 
         choice_2 = StoryChoice(
@@ -642,7 +748,7 @@ class StorySegment(StoryBlock):
             id=choice_2_id,
             from_segment_id=new_segment.id,
             to_segment_id=None,
-            text=scene_response.choice_2
+            text=scene_data.get("choice_2") or "Reconsider your options"
         )
         logger.debug(f"[GEN_SCENE_CHOICES_CREATED] Created choices: {choice_1_id}, {choice_2_id}")
 

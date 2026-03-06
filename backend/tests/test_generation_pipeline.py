@@ -321,7 +321,11 @@ class TestGenerationPipeline:
     
     @pytest.mark.asyncio
     async def test_generate_next_scene_error_handling(self, initial_segment, generation_test_story):
-        """Test that generation handles errors gracefully."""
+        """Test that generation handles errors gracefully with fallback.
+        
+        When the generator returns empty text_blocks, generate_next_scene
+        should use fallback text blocks rather than raising an error.
+        """
         story, wizard, tower = generation_test_story
         
         choice = StoryChoice(
@@ -333,20 +337,21 @@ class TestGenerationPipeline:
             text="Try something"
         )
         
-        # Create a generator that returns a valid error response
+        # Create a generator that returns a response with empty text_blocks
         class ErrorGenerator(TextGenerator):
             async def _generate_content(self, system_prompt: str, user_prompt: str) -> str:
-                # Return valid JSON with error field
                 return '''{
                     "short_description": "Error scene",
                     "text_blocks": [],
                     "choice_1": "Retry",
-                    "choice_2": "Cancel",
-                    "error": "API Error occurred"
+                    "choice_2": "Cancel"
                 }'''
         
         generator = ErrorGenerator()
         
-        # Should raise ValueError when error is in response
-        with pytest.raises(ValueError, match="Scene generation failed"):
-            await initial_segment.generate_next_scene(choice, generator)
+        # generate_structured() handles errors gracefully — no ValueError raised
+        # Instead, empty text_blocks triggers the fallback narrator block
+        result = await initial_segment.generate_next_scene(choice, generator)
+        assert result is not None
+        assert len(result.text_blocks) >= 1  # Fallback block
+        assert result.text_blocks[0].type == TextType.NARRATOR_DESCRIBING

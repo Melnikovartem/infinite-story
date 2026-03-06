@@ -514,56 +514,54 @@ Write an opening scene that:
 - Is vivid, atmospheric, and 2-3 paragraphs of narrative text
 - Ends with two meaningful choices for the player"""
         
-        scene_response = await generator.generate(
+        from app.models.story_segment import _SCENE_SCHEMA, _SCENE_FALLBACK, _parse_text_blocks
+        
+        scene_data = await generator.generate_structured(
             system_prompt="""You are a master storyteller creating immersive opening scenes.
 Write with vivid sensory details that make the reader feel present in this living world.
 Your opening scenes hook readers immediately and establish mood, setting, and possibility.
 Always provide two compelling, distinct choices for the player at the end.""",
             user_prompt=opening_prompt,
-            context_type="scene"
+            schema=_SCENE_SCHEMA,
+            fallback_defaults=[_SCENE_FALLBACK],
         )
         
         console.print("[green]✅ Opening scene generated![/green]")
         
-        # Create opening segment using the structured response (same as gameplay)
+        # Create opening segment from parsed data
         from app.models.story_segment import StorySegment
         from app.models.story_choice import StoryChoice
         import uuid
         
         first_arc_id = arcs[0].id if arcs else "arc_1"
         
+        scene_text_blocks = _parse_text_blocks(scene_data.get("text_blocks", []))
+        if not scene_text_blocks:
+            scene_text_blocks = [TextBlock(type="narrator_describing", content="The story begins...", emotion="mysterious")]
+        
         opening_segment = StorySegment(
             id="opening",
             story_id=story_id,
             story=story,
-            short_description=scene_response.short_description or "The Story Begins",
-            atmosphere=scene_response.atmosphere or "atmospheric",
-            time_of_day=scene_response.time_of_day,
-            weather=scene_response.weather,
-            key_items=scene_response.key_items or [],
-            text_blocks=scene_response.text_blocks or [],
-            characters_present=scene_response.characters_present or [],
-            locations_present=scene_response.locations_present or [],
+            short_description=scene_data.get("short_description") or "The Story Begins",
+            atmosphere=scene_data.get("atmosphere") or "atmospheric",
+            time_of_day=scene_data.get("time_of_day"),
+            weather=scene_data.get("weather"),
+            key_items=scene_data.get("key_items") or [],
+            text_blocks=scene_text_blocks,
+            characters_present=scene_data.get("characters_present") or [],
+            locations_present=scene_data.get("locations_present") or [],
             episode_number=1,
             arc_id=first_arc_id,
             protagonist_id=protagonist.id if protagonist and hasattr(protagonist, 'id') else None
         )
         
-        # If text_blocks came back empty, fall back to raw_response
-        if not opening_segment.text_blocks and scene_response.raw_response:
-            text_block = TextBlock(
-                type="narrator_describing",
-                content=scene_response.raw_response,
-                emotion="mysterious"
-            )
-            opening_segment.text_blocks = [text_block]
-        
         story.add_segment(opening_segment)
         
-        # Create choices from structured response (same as gameplay generate_next_scene)
+        # Create choices from structured response
         choices_list = []
         choice_count = 0
-        for choice_text in [scene_response.choice_1, scene_response.choice_2]:
+        for choice_text in [scene_data.get("choice_1"), scene_data.get("choice_2")]:
             if choice_text and len(choice_text.strip()) > 5:
                 choice_count += 1
                 choice_id = f"choice_{choice_count}_{uuid.uuid4().hex[:8]}"
@@ -2478,8 +2476,7 @@ Format as numbered list only:
             system_prompt = """You are a narrative designer creating compelling story choices.
 Choices should feel natural, consequential, and offer meaningful branching paths."""
             
-            response = await generator.generate(system_prompt, prompt, "scene")
-            choices_text = response.content
+            choices_text = await generator._generate_content(system_prompt, prompt)
             
             # Parse choices from response
             choice_lines = []

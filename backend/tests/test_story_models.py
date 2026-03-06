@@ -10,7 +10,7 @@ from app.models.story_segment import StorySegment, CharacterStatus, LocationStat
 from app.models.story_character import StoryCharacter
 from app.models.story_location import StoryLocation
 from app.models.story_choice import StoryChoice
-from app.models.text_types import TextBlock, TextType, SceneTextGeneratorResponse
+from app.models.text_types import TextBlock, TextType
 from app.engine.generator import TextGenerator
 from tests.test_generator import MockGenerator
 from app.engine.story_runner import StoryRunner
@@ -92,7 +92,23 @@ def test_data():
         text="Continue the story"
     )
     
-    generator = MockGenerator(SceneTextGeneratorResponse)
+    # Scene JSON that generate_structured() will parse
+    _SCENE_JSON = '''{
+        "short_description": "A mysterious room reveals its secrets",
+        "text_blocks": [
+            {"type": "narrator_describing", "content": "The room is dimly lit by flickering torches.", "emotion": "mysterious"},
+            {"type": "character_speech", "content": "These symbols... they look familiar.", "character": "Test Character", "emotion": "curious"},
+            {"type": "sfx", "content": "A low hum begins to emanate from the symbols"}
+        ],
+        "character_status_change": {"Test Character": "investigating"},
+        "choice_1": "Examine the symbols more closely",
+        "choice_2": "Search for an exit",
+        "atmosphere": "mysterious",
+        "time_of_day": "night",
+        "weather": "indoor",
+        "key_items": ["ancient symbols", "torches", "stone floor"]
+    }'''
+    generator = MockGenerator(raw_response=_SCENE_JSON)
     
     yield {
         "story": story,

@@ -9,7 +9,6 @@ import logging
 from typing import Optional, Dict, Any
 import httpx
 from .generator import TextGenerator
-from ..models.text_types import TextGeneratorResponse
 from ..utils.model_selector import ModelSelector
 
 logger = logging.getLogger("infinite_story.engine.openrouter_generator")
@@ -193,24 +192,6 @@ class OpenRouterGenerator(TextGenerator):
             error_msg = f"Failed to generate content via OpenRouter: {str(e)}"
             logger.error(f"[OpenRouter] {error_msg}", exc_info=True)
             raise Exception(error_msg)
-    
-    async def generate(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        context_type: str
-    ) -> TextGeneratorResponse:
-        """Generate content based on prompts and context type.
-        
-        Args:
-            system_prompt: The system prompt that sets the behavior of the AI
-            user_prompt: The user prompt that specifies what to generate
-            context_type: The type of content to generate ("world", "character", "location", "scene")
-            
-        Returns:
-            A parsed response of the appropriate TextGeneratorResponse type
-        """
-        return await super().generate(system_prompt, user_prompt, context_type)
     
     @classmethod
     def get_available_models(cls) -> Dict[str, str]:
