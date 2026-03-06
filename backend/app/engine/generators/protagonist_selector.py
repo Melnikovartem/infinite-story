@@ -47,6 +47,8 @@ class ProtagonistSelector:
             ValueError: If selection/development fails
         """
         try:
+            from app.models.story_character import CharacterRole
+            
             characters = list(self.story._characters.values())
             
             # 1. User selection
@@ -54,6 +56,7 @@ class ProtagonistSelector:
                 char = self.story.get_character(user_choice)
                 if char:
                     logger.info(f"Selected protagonist: {char.name} (user choice)")
+                    self._assign_protagonist_role(char)
                     return char
                 else:
                     logger.warning(f"User-selected character '{user_choice}' not found")
@@ -61,23 +64,37 @@ class ProtagonistSelector:
             # 2. Single character
             if len(characters) == 1:
                 logger.info(f"Selected protagonist: {characters[0].name} (only character)")
+                self._assign_protagonist_role(characters[0])
                 return characters[0]
             
             # 3. Multiple characters - use AI to select
             if len(characters) > 1:
                 selected = await self._select_best_protagonist(characters)
                 logger.info(f"Selected protagonist: {selected.name} (AI selection)")
+                self._assign_protagonist_role(selected)
                 return selected
             
             # 4. No characters - generate new protagonist
             logger.warning("No characters available, generating new protagonist")
             protag = await self._generate_new_protagonist()
             logger.info(f"Generated new protagonist: {protag.name}")
+            self._assign_protagonist_role(protag)
             return protag
             
         except Exception as e:
             logger.error(f"Failed to select/develop protagonist: {e}", exc_info=True)
             raise ValueError(f"Protagonist selection failed: {str(e)}")
+    
+    def _assign_protagonist_role(self, character: StoryCharacter) -> None:
+        """Set the PROTAGONIST role on the selected character and save.
+        
+        Args:
+            character: The character to designate as protagonist
+        """
+        from app.models.story_character import CharacterRole
+        character.role = CharacterRole.PROTAGONIST
+        character.save()
+        logger.debug(f"Assigned PROTAGONIST role to {character.name}")
     
     async def _select_best_protagonist(
         self,

@@ -185,8 +185,8 @@ Create characters that will drive the story forward and create interesting confl
                 if factions and i < len(factions):
                     faction_id = factions[i].id
                 
-                # First character is protagonist, rest are minor initially
-                role = CharacterRole.PROTAGONIST if i == 0 else CharacterRole.MINOR
+                # All characters start as MINOR; ProtagonistSelector assigns PROTAGONIST
+                role = CharacterRole.MINOR
                 
                 char = StoryCharacter(
                     story=self.story,
@@ -255,54 +255,39 @@ Make sure the characters:
 
 {format_instruction}"""
     
-    async def generate_faction_characters(
+    async def _generate_characters_for_faction(
         self,
-        factions: List[Any],
-        story_plan: Optional[Dict[str, Any]] = None
+        faction: Any,
+        num_chars: int,
     ) -> List[StoryCharacter]:
-        """Generate characters assigned to factions.
+        """Generate characters for a single faction.
         
         Args:
-            factions: List of faction objects to populate with characters
-            story_plan: Optional story scope plan containing character count requirements
+            faction: The faction to generate characters for
+            num_chars: Number of characters to generate
             
         Returns:
-            List of generated StoryCharacter objects
+            List of StoryCharacter objects for this faction
         """
-        try:
-            logger.info(f"Generating faction-aligned characters for {len(factions)} factions")
-            
-            # Determine characters per faction from story plan
-            if story_plan:
-                chars_per_faction_min = story_plan.get('chars_per_faction_min', 1)
-                chars_per_faction_max = story_plan.get('chars_per_faction_max', 3)
-            else:
-                chars_per_faction_min = 1
-                chars_per_faction_max = 3
-            
-            created_chars = []
-            
-            for faction in factions:
-                num_chars = min(chars_per_faction_max, max(chars_per_faction_min, 2))
-                
-                # Build schema for this batch
-                schema = ResponseSchema(
-                    fields=CHARACTER_SCHEMA.fields,
-                    expect_array=True,
-                    min_items=num_chars,
-                    max_items=num_chars + 1,
-                    item_tag="character",
-                    root_tag="characters",
-                )
-                
-                format_instruction = AIResponseParser.get_prompt_instruction(
-                    schema, OutputFormat.JSON, example=CHARACTER_EXAMPLE
-                )
-                
-                faction_goals = ', '.join(faction.goals) if hasattr(faction, 'goals') and faction.goals else 'Unknown'
-                faction_resources = faction.resources if hasattr(faction, 'resources') else 'Unknown'
-                
-                prompt = f"""Create {num_chars} compelling characters for the {faction.name} faction:
+        import asyncio
+        
+        schema = ResponseSchema(
+            fields=CHARACTER_SCHEMA.fields,
+            expect_array=True,
+            min_items=num_chars,
+            max_items=num_chars + 1,
+            item_tag="character",
+            root_tag="characters",
+        )
+        
+        format_instruction = AIResponseParser.get_prompt_instruction(
+            schema, OutputFormat.JSON, example=CHARACTER_EXAMPLE
+        )
+        
+        faction_goals = ', '.join(faction.goals) if hasattr(faction, 'goals') and faction.goals else 'Unknown'
+        faction_resources = faction.resources if hasattr(faction, 'resources') else 'Unknown'
+        
+        prompt = f"""Create {num_chars} compelling characters for the {faction.name} faction:
 
 Faction Description: {faction.description}
 Faction Goals: {faction_goals}
@@ -324,37 +309,83 @@ For EACH character, provide:
 - skills: 2-4 skills or abilities
 
 {format_instruction}"""
-                
-                fallback_defaults = [
-                    {**CHARACTER_FALLBACK, "name": f"{faction.name} Member {i+1}"}
-                    for i in range(num_chars)
-                ]
-                parsed_chars = await self.generator.generate_structured(
-                    system_prompt="You are creating characters aligned with specific factions and organizations.",
-                    user_prompt=prompt,
-                    schema=schema,
-                    fallback_defaults=fallback_defaults,
-                )
-                
-                for i, raw in enumerate(parsed_chars[:num_chars]):
-                    role = CharacterRole.PROTAGONIST if i == 0 else CharacterRole.MINOR
-                    
-                    char = StoryCharacter(
-                        story=self.story,
-                        id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
-                        story_id=self.story.id,
-                        name=raw.get('name', CHARACTER_FALLBACK['name']),
-                        description=raw.get('description', CHARACTER_FALLBACK['description']),
-                        background=raw.get('background', CHARACTER_FALLBACK['background']),
-                        personality=raw.get('personality_traits', []),
-                        goals=raw.get('goals', ''),
-                        avatar_color=self._select_avatar_color(),
-                        faction_id=faction.id,
-                        role=role,
-                    )
-                    char.save()
-                    created_chars.append(char)
-                    logger.info(f"Generated {faction.name} character: {char.name}")
+        
+        fallback_defaults = [
+            {**CHARACTER_FALLBACK, "name": f"{faction.name} Member {i+1}"}
+            for i in range(num_chars)
+        ]
+        parsed_chars = await self.generator.generate_structured(
+            system_prompt="You are creating characters aligned with specific factions and organizations.",
+            user_prompt=prompt,
+            schema=schema,
+            fallback_defaults=fallback_defaults,
+        )
+        
+        chars = []
+        for i, raw in enumerate(parsed_chars[:num_chars]):
+            role = CharacterRole.MINOR
+            
+            char = StoryCharacter(
+                story=self.story,
+                id=f"char_{self.story.id}_{uuid.uuid4().hex[:8]}",
+                story_id=self.story.id,
+                name=raw.get('name', CHARACTER_FALLBACK['name']),
+                description=raw.get('description', CHARACTER_FALLBACK['description']),
+                background=raw.get('background', CHARACTER_FALLBACK['background']),
+                personality=raw.get('personality_traits', []),
+                goals=raw.get('goals', ''),
+                avatar_color=self._select_avatar_color(),
+                faction_id=faction.id,
+                role=role,
+            )
+            char.save()
+            chars.append(char)
+            logger.info(f"Generated {faction.name} character: {char.name}")
+        
+        return chars
+
+    async def generate_faction_characters(
+        self,
+        factions: List[Any],
+        story_plan: Optional[Dict[str, Any]] = None
+    ) -> List[StoryCharacter]:
+        """Generate characters assigned to factions (all factions in parallel).
+        
+        Args:
+            factions: List of faction objects to populate with characters
+            story_plan: Optional story scope plan containing character count requirements
+            
+        Returns:
+            List of generated StoryCharacter objects
+        """
+        import asyncio
+        
+        try:
+            logger.info(f"Generating faction-aligned characters for {len(factions)} factions (parallel)")
+            
+            # Determine characters per faction from story plan
+            if story_plan:
+                chars_per_faction_min = story_plan.get('chars_per_faction_min', 1)
+                chars_per_faction_max = story_plan.get('chars_per_faction_max', 3)
+            else:
+                chars_per_faction_min = 1
+                chars_per_faction_max = 3
+            
+            num_chars = min(chars_per_faction_max, max(chars_per_faction_min, 2))
+            
+            # Launch all faction character generation in parallel
+            tasks = [
+                self._generate_characters_for_faction(faction, num_chars)
+                for faction in factions
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            created_chars = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Character generation failed for faction {factions[i].name}: {result}")
+                else:
+                    created_chars.extend(result)
             
             logger.info(f"Generated {len(created_chars)} faction-aligned characters")
             return created_chars

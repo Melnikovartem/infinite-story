@@ -198,17 +198,14 @@ class AIResponseParser:
             logger.warning("All parsing strategies failed, using fallback defaults")
             return fallback_defaults
 
-        # Pad with defaults if not enough items
+        # Log if fewer items than expected, but do NOT pad with generic defaults.
+        # Padding creates placeholder entries (e.g. "Faction 3") that pollute
+        # downstream generation.  Accept what the LLM actually produced.
         if schema.expect_array and len(best) < schema.min_items:
-            logger.info(
-                f"Parsed {len(best)} items, padding to {schema.min_items} with defaults"
+            logger.warning(
+                f"Parsed {len(best)} items, expected at least {schema.min_items}. "
+                f"Accepting {len(best)} items without padding."
             )
-            for i in range(len(best), schema.min_items):
-                if i < len(fallback_defaults):
-                    best.append(fallback_defaults[i])
-                elif fallback_defaults:
-                    # Cycle through defaults if we run out
-                    best.append(fallback_defaults[i % len(fallback_defaults)])
 
         # Trim to max
         if schema.max_items and len(best) > schema.max_items:

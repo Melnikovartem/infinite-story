@@ -277,7 +277,7 @@ async def create_story_ai_async(
 ):
     """Create a story with AI-powered world, arcs, characters, and opening scene generation."""
     from app.engine.generators.story_planner import StoryPlanner
-    from app.engine.generators.world_generator import WorldGenerator
+    from app.engine.generators.world_description_generator import WorldDescriptionGenerator
     from app.engine.generators.faction_generator import FactionGenerator
     from app.engine.generators.magic_system_generator import MagicSystemGenerator
     from app.engine.generators.arc_generator import ArcGenerator
@@ -357,70 +357,110 @@ async def create_story_ai_async(
         
         console.print("\n[bold yellow]⏳ Step 1: Generating living world...[/bold yellow]")
         
-        # Generate world context
-        world_gen = WorldGenerator(generator)
-        world_context = await world_gen.generate_world_context(story=story, user_input=world_input)
+        # Generate world context using structured generator
+        world_gen = WorldDescriptionGenerator(generator)
+        world_context = await world_gen.generate_world_description(story=story, user_input=world_input)
         console.print("[green]✅ World generated![/green]")
         console.print(f"[cyan]Fundamental Truths: {len(world_context.fundamental_truths)}[/cyan]")
         
-        console.print("\n[bold yellow]⏳ Step 2: Generating factions and politics...[/bold yellow]")
+        # Build full world description string for downstream generators
+        world_desc_full = ""
+        if isinstance(world_context.worldbuilding, dict):
+            world_desc_full = world_context.worldbuilding.get('world_description', '')
+        if not world_desc_full:
+            world_desc_full = '. '.join(world_context.fundamental_truths[:3])
         
-        # Generate factions
+        import asyncio
+        
+        console.print("\n[bold yellow]⏳ Steps 2-4: Generating factions, magic system, and locations (parallel)...[/bold yellow]")
+        
+        # Run factions, magic system, and locations in parallel
         faction_gen = FactionGenerator(story, generator)
-        factions = await faction_gen.generate_factions(
+        magic_gen = MagicSystemGenerator(story, generator)
+        loc_gen = LocationGenerator(story, generator)
+        
+        factions_task = faction_gen.generate_factions(
             count=story_plan['total_factions'],
-            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+            world_description=world_desc_full,
             major_tensions=story_plan['major_tensions'],
             user_input=world_input
         )
-        console.print(f"[green]✅ Generated {len(factions)} factions![/green]")
-        for faction in factions:
-            console.print(f"  • {faction.name}: {faction.description[:50]}...")
-        
-        console.print("\n[bold yellow]⏳ Step 3: Generating magic/tech system...[/bold yellow]")
-        
-        # Generate magic/tech system
-        magic_gen = MagicSystemGenerator(story, generator)
-        magic_system = await magic_gen.generate_magic_system(
-            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+        magic_task = magic_gen.generate_magic_system(
+            world_description=world_desc_full,
             genre=genre,
             user_input=world_input
         )
-        if magic_system:
-            console.print(f"[green]✅ Generated power system: {magic_system.name}![/green]")
-            console.print(f"  [yellow]Limitations:[/yellow] {', '.join(magic_system.limitations[:2])}")
-            console.print(f"  [yellow]Costs:[/yellow] {', '.join(magic_system.costs[:2])}")
-        else:
-            console.print(f"[green]✅ World uses no magic/tech system — mundane rules apply[/green]")
-        
-        console.print("\n[bold yellow]⏳ Step 4: Generating world locations...[/bold yellow]")
-        
-        # Generate locations
-        loc_gen = LocationGenerator(story, generator)
-        locations = await loc_gen.generate_world_locations(
-            world_description=world_context.fundamental_truths[0] if world_context.fundamental_truths else "",
+        loc_task = loc_gen.generate_world_locations(
+            world_description=world_desc_full,
             fundamental_truths=world_context.fundamental_truths,
             user_input=world_input
         )
-        console.print(f"[green]✅ Generated {len(locations)} world locations![/green]")
         
-        console.print("\n[bold yellow]⏳ Step 5: Generating story arcs...[/bold yellow]")
+        factions_result, magic_result, loc_result = await asyncio.gather(
+            factions_task, magic_task, loc_task,
+            return_exceptions=True
+        )
         
-        # Generate arcs
+        # Process faction results
+        if isinstance(factions_result, Exception):
+            console.print(f"[yellow]⚠️  Faction generation failed: {str(factions_result)[:50]}[/yellow]")
+            factions = []
+        else:
+            factions = factions_result
+            console.print(f"[green]✅ Generated {len(factions)} factions![/green]")
+            for faction in factions:
+                console.print(f"  • {faction.name}: {faction.description[:50]}...")
+        
+        # Process magic system results
+        if isinstance(magic_result, Exception):
+            console.print(f"[yellow]⚠️  Magic system generation failed: {str(magic_result)[:50]}[/yellow]")
+            magic_system = None
+        else:
+            magic_system = magic_result
+            if magic_system:
+                console.print(f"[green]✅ Generated power system: {magic_system.name}![/green]")
+                console.print(f"  [yellow]Limitations:[/yellow] {', '.join(magic_system.limitations[:2])}")
+                console.print(f"  [yellow]Costs:[/yellow] {', '.join(magic_system.costs[:2])}")
+            else:
+                console.print(f"[green]✅ World uses no magic/tech system — mundane rules apply[/green]")
+        
+        # Process location results
+        if isinstance(loc_result, Exception):
+            console.print(f"[yellow]⚠️  Location generation failed: {str(loc_result)[:50]}[/yellow]")
+            locations = []
+        else:
+            locations = loc_result
+            console.print(f"[green]✅ Generated {len(locations)} world locations![/green]")
+        
+        console.print("\n[bold yellow]⏳ Steps 5-6: Generating arcs and characters (parallel)...[/bold yellow]")
+        
+        # Run arcs and character generation in parallel
         arc_gen = ArcGenerator(story, generator)
-        arcs = await arc_gen.generate_future_arcs(count=3, user_input=world_input)
-        console.print(f"[green]✅ Generated {len(arcs)} story arcs![/green]")
+        arcs_task = arc_gen.generate_future_arcs(count=3, user_input=world_input)
         
-        console.print("\n[bold yellow]⏳ Step 6: Generating characters aligned to factions...[/bold yellow]")
-        
-        # Generate characters aligned to factions
         char_gen = CharacterGenerator(story, generator)
-        try:
-            characters = await char_gen.generate_faction_characters(factions, story_plan)
-            console.print(f"[green]✅ Generated {len(characters)} faction-aligned characters![/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Character generation skipped: {str(e)[:50]}[/yellow]")
+        chars_task = char_gen.generate_faction_characters(factions, story_plan)
+        
+        arcs_result, chars_result = await asyncio.gather(
+            arcs_task, chars_task,
+            return_exceptions=True
+        )
+        
+        # Process arc results
+        if isinstance(arcs_result, Exception):
+            console.print(f"[yellow]⚠️  Arc generation failed: {str(arcs_result)[:50]}[/yellow]")
+            arcs = []
+        else:
+            arcs = arcs_result
+            console.print(f"[green]✅ Generated {len(arcs)} story arcs![/green]")
+        
+        # Process character results
+        if isinstance(chars_result, Exception):
+            console.print(f"[yellow]⚠️  Character generation skipped: {str(chars_result)[:50]}[/yellow]")
             characters = []
+        else:
+            characters = chars_result
+            console.print(f"[green]✅ Generated {len(characters)} faction-aligned characters![/green]")
         
         console.print("\n[bold yellow]⏳ Step 7: Selecting protagonist...[/bold yellow]")
         
@@ -433,7 +473,7 @@ async def create_story_ai_async(
             console.print(f"[yellow]⚠️  Protagonist selection skipped: {str(e)[:50]}[/yellow]")
             protagonist = None
         
-        console.print("\n[bold yellow]⏳ Step 8: Creating the first scene of this world...[/bold yellow]")
+        console.print("\n[bold yellow]⏳ Step 8: Creating opening scene + choices (single generation)...[/bold yellow]")
         
         # If user provided scene input, use it; otherwise AI creates something
         if first_scene_input.strip():
@@ -441,115 +481,104 @@ async def create_story_ai_async(
         else:
             scene_direction = "Create something that brings this world to life - an atmospheric, engaging scene that hooks the reader and establishes the mood of this living, breathing world."
         
-        # Generate first segment
+        # Build rich context for opening scene
+        factions_summary = '\n'.join([f"- {f.name}: {f.description[:80]}" for f in factions[:3]]) if factions else 'None yet'
+        locations_summary = '\n'.join([f"- {loc.name}: {loc.description[:80]}" for loc in locations[:3]]) if locations else 'None yet'
+        protagonist_name = protagonist.name if protagonist and hasattr(protagonist, 'name') else 'Unknown'
+        
+        # Use context_type="scene" — same pipeline as gameplay scene generation.
+        # This returns a SceneTextGeneratorResponse with text_blocks, choice_1,
+        # choice_2, atmosphere, etc. in one structured call.
         opening_prompt = f"""Create a CAPTIVATING opening scene for this story:
 
 Title: {title}
 Genre: {genre}
-World Description: {world_context.fundamental_truths[0] if world_context.fundamental_truths else 'A mysterious world'}
+World Description: {world_desc_full}
+
+Key Factions:
+{factions_summary}
+
+Key Locations:
+{locations_summary}
+
+Protagonist: {protagonist_name}
 
 Scene Direction: {scene_direction}
 
-Write an opening narrative that:
+Write an opening scene that:
 - Immediately draws the reader into this LIVING world
 - Establishes the atmosphere and mood
 - Shows the world as a character - alive, breathing, with personality
 - Hints at the story's core conflicts or mysteries
 - Creates compelling story hooks that make readers want to know more
-- Is vivid, atmospheric, and engaging"""
+- Is vivid, atmospheric, and 2-3 paragraphs of narrative text
+- Ends with two meaningful choices for the player"""
         
-        opening_response = await generator.generate(
-            system_prompt="""You are a master storyteller creating immersive opening scenes. 
-Write with vivid sensory details that make the reader feel present in this living world. 
-Your opening scenes hook readers immediately and establish mood, setting, and possibility.""",
+        scene_response = await generator.generate(
+            system_prompt="""You are a master storyteller creating immersive opening scenes.
+Write with vivid sensory details that make the reader feel present in this living world.
+Your opening scenes hook readers immediately and establish mood, setting, and possibility.
+Always provide two compelling, distinct choices for the player at the end.""",
             user_prompt=opening_prompt,
             context_type="scene"
         )
         
-        opening_text = opening_response.raw_response or ""
+        console.print("[green]✅ Opening scene generated![/green]")
         
-        console.print("[green]✅ First scene generated![/green]")
-        
-        # Create opening segment
+        # Create opening segment using the structured response (same as gameplay)
         from app.models.story_segment import StorySegment
+        from app.models.story_choice import StoryChoice
+        import uuid
         
-        # Link opening segment to the first generated arc
         first_arc_id = arcs[0].id if arcs else "arc_1"
         
         opening_segment = StorySegment(
             id="opening",
             story_id=story_id,
-            story=story,  # Pass the story object
-            short_description="The Story Begins",
-            atmosphere="atmospheric",
+            story=story,
+            short_description=scene_response.short_description or "The Story Begins",
+            atmosphere=scene_response.atmosphere or "atmospheric",
+            time_of_day=scene_response.time_of_day,
+            weather=scene_response.weather,
+            key_items=scene_response.key_items or [],
+            text_blocks=scene_response.text_blocks or [],
+            characters_present=scene_response.characters_present or [],
+            locations_present=scene_response.locations_present or [],
             episode_number=1,
             arc_id=first_arc_id,
             protagonist_id=protagonist.id if protagonist and hasattr(protagonist, 'id') else None
         )
         
-        # Add text block
-        text_block = TextBlock(
-            type="narrator_describing",
-            content=opening_text,
-            emotion="mysterious"
-        )
-        opening_segment.text_blocks = [text_block]
+        # If text_blocks came back empty, fall back to raw_response
+        if not opening_segment.text_blocks and scene_response.raw_response:
+            text_block = TextBlock(
+                type="narrator_describing",
+                content=scene_response.raw_response,
+                emotion="mysterious"
+            )
+            opening_segment.text_blocks = [text_block]
+        
         story.add_segment(opening_segment)
         
-        # Generate choices for opening segment
-        console.print("\n[bold yellow]⏳ Step 9: Generating choices for opening scene...[/bold yellow]")
-        
-        from app.models.story_choice import StoryChoice
-        import uuid
-        
-        try:
-            # Generate 2-3 choices for the opening
-            choice_prompt = f"""Create 2-3 compelling choices for the opening scene of this story:
-
-Story: {title}
-World: {world_context.fundamental_truths[0] if world_context.fundamental_truths else 'A mysterious world'}
-Opening Scene: {opening_text[:300]}...
-
-Generate realistic story choices that:
-- Branch the narrative in different directions
-- Let players engage with the world
-- Create meaningful consequences
-- Move the story forward
-
-Format as a simple list of 2-3 choices, each 1-2 sentences."""
-            
-            choices_response = await generator.generate(
-                system_prompt="You are a narrative designer creating compelling story choices that feel natural and consequential.",
-                user_prompt=choice_prompt,
-                context_type="scene"
-            )
-            
-            choices_text = choices_response.raw_response or ""
-            
-            # Parse choices from response (simple line-by-line parsing)
-            choice_lines = [line.strip() for line in choices_text.split('\n') if line.strip() and not line.startswith('#')]
-            
-            # Create choice objects
-            choices_list = []
-            for i, choice_text in enumerate(choice_lines[:3]):  # Max 3 choices
-                choice_id = f"choice_{uuid.uuid4().hex[:8]}"
-                
+        # Create choices from structured response (same as gameplay generate_next_scene)
+        choices_list = []
+        choice_count = 0
+        for choice_text in [scene_response.choice_1, scene_response.choice_2]:
+            if choice_text and len(choice_text.strip()) > 5:
+                choice_count += 1
+                choice_id = f"choice_{choice_count}_{uuid.uuid4().hex[:8]}"
                 choice = StoryChoice(
-                    id=choice_id,
-                    story_id=story_id,
                     story=story,
+                    id=choice_id,
                     from_segment_id="opening",
-                    to_segment_id=None,  # Will be AI-generated when chosen
-                    text=choice_text
+                    to_segment_id=None,
+                    text=choice_text.strip()
                 )
-                
+                opening_segment.add_outgoing_choice(choice)
                 story.add_choice(choice)
                 choices_list.append(choice)
-            
-            console.print(f"[green]✅ Generated {len(choices_list)} choices for opening scene![/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Choice generation skipped: {str(e)[:50]}[/yellow]")
-            choices_list = []
+        
+        console.print(f"[green]✅ Generated {len(choices_list)} choices for opening scene![/green]")
         
         # Set start segment
         story.start_segment_id = "opening"
@@ -566,7 +595,8 @@ Format as a simple list of 2-3 choices, each 1-2 sentences."""
         world_context.save()
         for faction in factions:
             faction.save()
-        magic_system.save()
+        if magic_system:
+            magic_system.save()
         for location in locations:
             location.save()
         for arc in arcs:
@@ -1240,7 +1270,7 @@ async def create_story_step_by_step_async(
     """Create story step-by-step with ability to skip and retry broken steps."""
     from app.engine.step_generation_manager import StepGenerationManager
     from app.engine.generators.story_planner import StoryPlanner
-    from app.engine.generators.world_generator import WorldGenerator
+    from app.engine.generators.world_description_generator import WorldDescriptionGenerator
     from app.engine.generators.faction_generator import FactionGenerator
     from app.engine.generators.magic_system_generator import MagicSystemGenerator
     from app.engine.generators.location_generator import LocationGenerator
@@ -1420,8 +1450,8 @@ async def create_story_step_by_step_async(
             console.print(f"[green]✅ Step 0 complete! Factions: {plan.get('total_factions', '?')}, Locations: {plan.get('total_locations', '?')}[/green]")
         
         elif target_step == 1:
-            world_gen = WorldGenerator(generator)
-            world_context = await world_gen.generate_world_context(story=story)
+            world_gen = WorldDescriptionGenerator(generator)
+            world_context = await world_gen.generate_world_description(story=story)
             step_manager.mark_step_completed(target_step, {"truths": len(world_context.fundamental_truths)})
             console.print(f"[green]✅ Step 1 complete! Generated {len(world_context.fundamental_truths)} fundamental truths[/green]")
         

@@ -27,6 +27,7 @@ class OpenRouterGenerator(TextGenerator):
     # Available models on OpenRouter
     AVAILABLE_MODELS = {
         "deepseek-v3": "deepseek/deepseek-v3",
+        "deepseek-v3.2": "deepseek/deepseek-v3.2",
         "deepseek-chat": "deepseek/deepseek-chat",
         "gpt-4-turbo": "openai/gpt-4-turbo-preview",
         "gpt-4": "openai/gpt-4",
@@ -91,7 +92,7 @@ class OpenRouterGenerator(TextGenerator):
         self.client = httpx.AsyncClient(
             base_url="https://openrouter.ai/api/v1",
             headers=headers,
-            timeout=60.0
+            timeout=180.0  # 3 min - parallel requests can take longer
         )
         
         logger.info(f"OpenRouter generator initialized with model: {self.model}")
@@ -149,6 +150,9 @@ class OpenRouterGenerator(TextGenerator):
             # Extract content from response
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 content = response_data["choices"][0]["message"]["content"]
+                
+                if content is None:
+                    raise ValueError("API returned null content in response")
                 
                 logger.info(f"[OpenRouter] ✅ Response received: {len(content)} chars")
                 logger.debug(f"[OpenRouter] Response preview: {content[:300]}..." if len(content) > 300 else f"[OpenRouter] Response: {content}")
