@@ -1859,7 +1859,7 @@ async def generate_segment_async(story_id: str, from_segment_id: str, choice_tex
             f"[cyan]Segment ID:[/cyan] {new_segment.id}\n"
             f"[cyan]Title:[/cyan] {new_segment.title}\n"
             f"[cyan]Choices:[/cyan] {len(new_segment.outgoing_choices)}\n\n"
-            f"[bold cyan]Preview (first 200 chars):[/bold cyan]\n{new_segment.narrative_text[:200]}...",
+            f"[bold cyan]Preview:[/bold cyan]\n{' '.join(b.content for b in new_segment.text_blocks[:3])[:200]}...",
             title="Generation Result",
             border_style="green"
         ))
@@ -2461,7 +2461,7 @@ async def generate_choices_async(story_id: str, segment_id: str, count: int):
             prompt = f"""Generate {count} compelling narrative choices for this story moment:
 
 Segment: {segment.title}
-Context: {segment.narrative_text[:300]}...
+Context: {' '.join(b.content for b in segment.text_blocks[:3])[:300]}...
 
 Create {count} realistic choices that:
 - Feel natural and consequential
