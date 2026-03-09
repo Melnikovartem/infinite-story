@@ -199,16 +199,50 @@ def test_get_segment_not_found(client, test_story_data):
     assert "not found" in data["error"].lower()
 
 
-def test_generate_next_scene_not_implemented(client, test_story_data):
-    """Test that AI generation endpoint returns 501."""
+def test_generate_next_scene_endpoint_exists(client, test_story_data):
+    """Test that the generate next scene endpoint exists and validates input.
+    
+    We test with a nonexistent story to avoid triggering real AI generation.
+    """
+    # Test with missing required field - should get 422
     response = client.post(
         f"/api/segments/opening_scene/next?story_id={test_story_data}",
+        json={}
+    )
+    assert response.status_code == 422  # Validation error - choice_text is required
+
+    # Test with valid body but nonexistent story - should get error response
+    response = client.post(
+        f"/api/segments/opening_scene/next?story_id=nonexistent_story",
         json={"choice_text": "Continue exploring"}
     )
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is False
-    assert "coming in Phase 2.5" in data["error"]
+    assert "not found" in data["error"].lower()
+
+
+def test_navigate_to_choice_endpoint_exists(client, test_story_data):
+    """Test that the navigate to choice endpoint exists."""
+    # Test with nonexistent story
+    response = client.post(
+        f"/api/segments/opening_scene/choice/choice_1?story_id=nonexistent_story"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "not found" in data["error"].lower()
+
+
+def test_navigate_to_choice_validates_segment(client, test_story_data):
+    """Test that navigate validates choice belongs to segment."""
+    # choice_1 belongs to opening_scene, not some_other_segment
+    response = client.post(
+        f"/api/segments/some_other_segment/choice/choice_1?story_id={test_story_data}"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
 
 
 def test_api_docs_include_stories_routes(client):

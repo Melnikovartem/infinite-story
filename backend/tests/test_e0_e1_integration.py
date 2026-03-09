@@ -32,8 +32,8 @@ class TestSegmentChainIntegration:
         """Can traverse a chain of segments"""
         seg1, seg2, seg3 = three_segment_chain
         
-        # seg1 -> seg2 -> seg3
-        assert seg1.id == "seg_1"
+        # Segments use chain_seg_N naming from fixture
+        assert seg1.id == "chain_seg_1"
         assert seg2.parent_segment_id == seg1.id
         assert seg3.parent_segment_id == seg2.id
         
@@ -58,10 +58,10 @@ class TestSegmentChainIntegration:
         seg = StorySegment(
             story=sample_story,
             id="status_test",
-            status=SegmentStatus.WRITTEN
+            status=SegmentStatus.GENERATED
         )
         
-        assert seg.status == SegmentStatus.WRITTEN
+        assert seg.status == SegmentStatus.GENERATED
 
 
 class TestContextBuilding:
@@ -98,12 +98,14 @@ class TestContextBuilding:
         # Should have accumulated 3 descriptions (walking backward)
         assert len(all_content) == 3
     
-    def test_character_context_in_segments(self, sample_segment, sample_character):
+    def test_character_context_in_segments(self, three_segment_chain):
         """Character status is preserved in context"""
-        char_statuses = sample_segment.characters
+        seg1 = three_segment_chain[0]
+        char_statuses = seg1.characters
         
+        # Only seg1 in the fixture has characters
         assert len(char_statuses) > 0
-        assert char_statuses[0].character_id == sample_character.id
+        assert char_statuses[0].character_id == "char_001"
         assert char_statuses[0].current_status == "active"
 
 
@@ -118,8 +120,7 @@ class TestChoiceCreationAndTraversal:
             story=story,
             id="choice_test",
             from_segment_id=sample_segment.id,
-            choice_text="Test choice",
-            status=ChoiceStatus.AVAILABLE
+            text="Test choice",
         )
         
         assert choice.from_segment_id == sample_segment.id
@@ -133,8 +134,7 @@ class TestChoiceCreationAndTraversal:
             id="traverse_choice",
             from_segment_id=sample_segment.id,
             to_segment_id=seg1.id,
-            choice_text="Go back to beginning",
-            status=ChoiceStatus.AVAILABLE
+            text="Go back to beginning",
         )
         
         assert choice.to_segment_id == seg1.id
@@ -146,20 +146,21 @@ class TestChoiceCreationAndTraversal:
             id="gen_choice",
             from_segment_id=sample_segment.id,
             to_segment_id=None,  # No target = will generate
-            choice_text="Explore unknown path",
-            status=ChoiceStatus.AVAILABLE
+            text="Explore unknown path",
         )
         
         assert choice.to_segment_id is None
         # E1 engine would generate new segment
     
-    def test_choice_status_after_use(self, sample_choice):
-        """Choice status changes after being used"""
-        assert sample_choice.status == ChoiceStatus.AVAILABLE
+    def test_choice_lock_for_generation(self, sample_choice):
+        """Choice can be locked during generation"""
+        assert sample_choice.locked is False
         
-        # E1 would update this after selection
-        sample_choice.status = ChoiceStatus.USED
-        assert sample_choice.status == ChoiceStatus.USED
+        sample_choice.locked = True
+        assert sample_choice.locked is True
+        
+        sample_choice.locked = False
+        assert sample_choice.locked is False
 
 
 class TestPacingAndEpisodeTransitions:
@@ -224,20 +225,20 @@ class TestGeneratedSegmentIntegration:
         """Generated segment inherits characters and locations from context"""
         seg1, seg2, seg3 = three_segment_chain
         
-        # Simulate generation inheriting context from seg3
-        inherited_chars = seg3.characters.copy()
-        inherited_locs = seg3.locations.copy()
+        # Simulate generation inheriting context from seg1 (which has characters/locations)
+        inherited_chars = seg1.characters.copy()
+        inherited_locs = seg1.locations.copy()
         
         generated = StorySegment(
-            story=seg3.story,
+            story=seg1.story,
             id="generated_inherit",
             characters=inherited_chars,
             locations=inherited_locs,
-            parent_segment_id=seg3.id
+            parent_segment_id=seg1.id
         )
         
-        assert len(generated.characters) == len(seg3.characters)
-        assert len(generated.locations) == len(seg3.locations)
+        assert len(generated.characters) == len(seg1.characters)
+        assert len(generated.locations) == len(seg1.locations)
 
 
 class TestDataPersistenceAcrossEpics:
@@ -268,13 +269,13 @@ class TestDataPersistenceAcrossEpics:
         )
         
         assert loaded is not None
-        assert loaded.choice_text == sample_choice.choice_text
+        assert loaded.text == sample_choice.text
 
 
 class TestEdgeCasesE0E1:
     """Test edge cases in E0-E1 integration"""
     
-    def test_branching_from_same_parent(self, sample_story, sample_character):
+    def test_branching_from_same_parent(self, sample_story):
         """Multiple segments can have same parent (branching)"""
         parent = StorySegment(
             story=sample_story,
@@ -315,7 +316,7 @@ class TestEdgeCasesE0E1:
             seg = StorySegment(
                 story=sample_story,
                 id=f"transition_{i}",
-                segment_number_in_episode=i,
+                segment_number_in_episode=i if i <= 3 else i - 3,
                 episode_number=1 if i <= 3 else 2,
                 parent_segment_id=f"transition_{i-1}" if i > 1 else None
             )

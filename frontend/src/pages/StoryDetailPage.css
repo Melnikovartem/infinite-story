@@ -151,6 +151,24 @@
   color: #2980b9;
 }
 
+.action-button.danger {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  background: white;
+}
+
+.action-button.danger:hover {
+  background-color: #e74c3c;
+  border-color: #e74c3c;
+  color: white;
+}
+
+.action-button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 @media (max-width: 480px) {
   .story-header h2 {
     font-size: 24px;

@@ -12,6 +12,7 @@ export default function StoryDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hasSession, setHasSession] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const loadStory = async () => {
@@ -23,7 +24,8 @@ export default function StoryDetailPage() {
         setStory(storyDetail)
 
         // Check for existing session
-        const session = await api.loadSession(storyId)
+        const sessionId = `session_${storyId}_anonymous`
+        const session = await api.loadSession(storyId, sessionId)
         setHasSession(!!session)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load story')
@@ -44,6 +46,23 @@ export default function StoryDetailPage() {
   const handleResume = () => {
     if (storyId) {
       navigate(`/play/${storyId}?mode=resume`)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!storyId) return
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${story?.title || storyId}"? This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    setDeleting(true)
+    try {
+      await api.deleteStory(storyId)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete story')
+      setDeleting(false)
     }
   }
 
@@ -85,6 +104,13 @@ export default function StoryDetailPage() {
                 Resume Game
               </button>
             )}
+            <button
+              className="action-button danger"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Story'}
+            </button>
           </div>
         </div>
 
@@ -103,7 +129,8 @@ export default function StoryDetailPage() {
                   <CharacterAvatar
                     shape={character.avatar_shape}
                     color={character.avatar_color}
-                    size="medium"
+                    name={character.name}
+                    size="md"
                   />
                   <div className="character-info">
                     <p className="character-name">{character.name}</p>

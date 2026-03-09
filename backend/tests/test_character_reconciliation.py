@@ -171,19 +171,16 @@ class TestReconcileWithAI:
     
     async def test_reconcile_with_contradictions_calls_ai(self, sample_story, mock_generator, sample_characters):
         """Reconcile with contradictions requests AI resolution."""
-        # Mock generator with specific behavior
         ai_gen = AsyncMock()
         ai_called = False
         
-        async def mock_generate_tracking(system_prompt, user_prompt, context_type):
+        async def mock_generate_content(system_prompt, user_prompt):
             nonlocal ai_called
-            if "Resolve character state" in user_prompt:
-                ai_called = True
-            response = MagicMock()
-            response.error = None
-            return response
+            ai_called = True
+            # Return a JSON string matching expected format
+            return '{"char_1": {"status": "alive", "mood": "determined"}}'
         
-        ai_gen.generate = mock_generate_tracking
+        ai_gen._generate_content = mock_generate_content
         
         gen = EpisodeRecapGenerator(sample_story, ai_gen)
         
@@ -199,15 +196,12 @@ class TestReconcileWithAI:
     
     async def test_reconcile_ai_error_fallback(self, sample_story, mock_generator, sample_characters):
         """Reconcile handles AI errors gracefully."""
-        # Mock generator that returns error
         error_gen = AsyncMock()
         
-        async def mock_generate_with_error(system_prompt, user_prompt, context_type):
-            response = MagicMock()
-            response.error = "AI service unavailable"
-            return response
+        async def mock_generate_content_error(system_prompt, user_prompt):
+            raise Exception("AI service unavailable")
         
-        error_gen.generate = mock_generate_with_error
+        error_gen._generate_content = mock_generate_content_error
         
         gen = EpisodeRecapGenerator(sample_story, error_gen)
         

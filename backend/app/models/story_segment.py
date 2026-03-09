@@ -161,7 +161,7 @@ class StorySegment(StoryBlock):
     """
 
     # Core Scene Information
-    short_description: str = Field(description="Brief summary of the scene")
+    short_description: str = Field(default="", description="Brief summary of the scene")
     recap: Optional[str] = Field(None, description="AI-generated recap of this segment (set after generation or at episode end)")
     atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")

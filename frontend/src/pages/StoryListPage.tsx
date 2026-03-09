@@ -53,7 +53,12 @@ export default function StoryListPage() {
   return (
     <div className="page story-list-page">
       <div className="container">
-        <h2>Available Stories</h2>
+        <div className="story-list-header">
+          <h2>Available Stories</h2>
+          <button className="btn-create-new" onClick={() => navigate('/create')}>
+            + Create New Story
+          </button>
+        </div>
         <div className="stories-grid">
           {stories.map(story => (
             <div key={story.id} className="story-card">

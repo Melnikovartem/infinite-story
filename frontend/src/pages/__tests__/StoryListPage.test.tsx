@@ -2,16 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import StoryListPage from '../StoryListPage'
-import * as api from '../../services/mockApi'
 
-vi.mock('../../services/mockApi')
+// Mock the api module that StoryListPage actually imports
+vi.mock('../../services/api', () => ({
+  fetchStories: vi.fn(),
+}))
+
+import * as api from '../../services/api'
 
 const mockStories = [
   {
     id: 'story_1',
     title: 'Story 1',
     description: 'Test story 1',
-    author: 'Author 1',
+    genre: 'Fantasy',
     start_segment_id: 'seg_1',
     created_at: '2024-02-28T09:00:00Z'
   },
@@ -19,7 +23,7 @@ const mockStories = [
     id: 'story_2',
     title: 'Story 2',
     description: 'Test story 2',
-    author: 'Author 2',
+    genre: 'Sci-Fi',
     start_segment_id: 'seg_2',
     created_at: '2024-02-28T10:00:00Z'
   }
@@ -32,7 +36,7 @@ describe('StoryListPage', () => {
 
   it('displays loading state initially', () => {
     vi.mocked(api.fetchStories).mockImplementation(
-      () => new Promise(resolve => setTimeout(() => resolve({ stories: mockStories }), 100))
+      () => new Promise(resolve => setTimeout(() => resolve(mockStories), 100))
     )
 
     render(
@@ -45,7 +49,7 @@ describe('StoryListPage', () => {
   })
 
   it('displays stories after loading', async () => {
-    vi.mocked(api.fetchStories).mockResolvedValue({ stories: mockStories })
+    vi.mocked(api.fetchStories).mockResolvedValue(mockStories)
 
     render(
       <BrowserRouter>
@@ -60,7 +64,7 @@ describe('StoryListPage', () => {
   })
 
   it('displays story descriptions', async () => {
-    vi.mocked(api.fetchStories).mockResolvedValue({ stories: mockStories })
+    vi.mocked(api.fetchStories).mockResolvedValue(mockStories)
 
     render(
       <BrowserRouter>

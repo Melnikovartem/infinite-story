@@ -20,7 +20,6 @@ class TestPerformance:
             )
         
         result = benchmark(create_segment)
-        # benchmark automatically measures time and verifies < 10ms
     
     def test_story_creation_speed(self, benchmark):
         """Creating a story should be fast (<5ms)."""
@@ -28,9 +27,7 @@ class TestPerformance:
             return Story(
                 id="perf_story",
                 title="Performance Test Story",
-                summary="Testing performance",
-                characters={},
-                custom_instructions="Test instructions"
+                description="Testing performance",
             )
         
         result = benchmark(create_story)
@@ -42,7 +39,6 @@ class TestPerformance:
                 story=sample_story,
                 id="perf_choice",
                 text="Test choice",
-                reason="testing"
             )
         
         result = benchmark(create_choice)
@@ -71,7 +67,7 @@ class TestPerformance:
         seg.save()
         
         def load_segment():
-            return StorySegment.load(sample_story.id, "perf_load_test")
+            return StorySegment.load(sample_story.id, "perf_load_test", story=sample_story)
         
         result = benchmark(load_segment)
     
@@ -81,7 +77,6 @@ class TestPerformance:
             try:
                 return Story.load("test", "test")
             except Exception:
-                # If test story doesn't exist, just return None
                 return None
         
         result = benchmark(load_story)
@@ -92,22 +87,18 @@ class TestPerformance:
         
         tracemalloc.start()
         
-        # Create multiple stories
         stories = []
         for i in range(50):
             story = Story(
                 id=f"perf_story_{i}",
                 title=f"Story {i}",
-                summary=f"Test story {i}",
-                characters={},
-                custom_instructions="Test"
+                description=f"Test story {i}",
             )
             stories.append(story)
         
         current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         
-        # Peak memory should be reasonable (< 100MB)
         peak_mb = peak / 1024 / 1024
         assert peak_mb < 100, f"Peak memory {peak_mb:.1f}MB exceeds limit"
     
@@ -117,7 +108,6 @@ class TestPerformance:
         
         tracemalloc.start()
         
-        # Create multiple segments
         segments = []
         for i in range(100):
             seg = StorySegment(
@@ -130,13 +120,11 @@ class TestPerformance:
         current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         
-        # Peak memory should be reasonable (< 100MB)
         peak_mb = peak / 1024 / 1024
         assert peak_mb < 100, f"Peak memory {peak_mb:.1f}MB exceeds limit"
     
     def test_segment_list_performance(self, benchmark, sample_story):
         """Listing segments should be reasonably fast."""
-        # Create some test segments first
         for i in range(10):
             seg = StorySegment(
                 story=sample_story,
@@ -178,12 +166,9 @@ class TestPerformanceRegression:
             return Story(
                 id="regression_test",
                 title="Test",
-                summary="Test",
-                characters={},
-                custom_instructions=""
+                description="Test",
             )
         
-        # This should consistently stay under 5ms
         result = benchmark(init)
     
     def test_segment_initialization_doesnt_regress(self, benchmark, sample_story):
@@ -195,19 +180,16 @@ class TestPerformanceRegression:
                 text_blocks=[]
             )
         
-        # This should consistently stay under 10ms
         result = benchmark(init)
     
     def test_choice_lookup_doesnt_regress(self, benchmark, sample_story):
         """Ensure choice lookup doesn't get slower."""
-        # Create choices
         choices = {}
         for i in range(10):
             choice = StoryChoice(
                 story=sample_story,
                 id=f"choice_{i}",
                 text=f"Choice {i}",
-                reason="testing"
             )
             choices[f"choice_{i}"] = choice
         
@@ -238,6 +220,4 @@ def test_performance_baselines_documented():
 
 def test_benchmark_configuration():
     """Verify benchmark configuration is available."""
-    # This test verifies pytest-benchmark is properly configured
-    # The benchmark fixture should be available in the tests
     assert True

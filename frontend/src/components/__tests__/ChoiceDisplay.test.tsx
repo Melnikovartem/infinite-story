@@ -43,7 +43,7 @@ describe('ChoiceDisplay', () => {
       />
     )
 
-    const toggleButton = screen.getByText('View all choices →')
+    const toggleButton = screen.getByText(/View all choices/)
     await user.click(toggleButton)
 
     expect(screen.getByText('Third choice')).toBeInTheDocument()

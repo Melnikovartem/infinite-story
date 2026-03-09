@@ -88,6 +88,66 @@
   letter-spacing: 0.5px;
 }
 
+/* Generating overlay */
+.generating-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(44, 62, 80, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.generating-content {
+  text-align: center;
+  color: white;
+}
+
+.generating-quill {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.generating-text {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  animation: pulse-text 2s ease-in-out infinite;
+}
+
+.generating-subtext {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Scene number badge */
+.scene-number {
+  font-size: 13px;
+  color: #7f8c8d;
+  background: #ecf0f1;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 @media (max-width: 768px) {
   .play-header {
     flex-direction: column;

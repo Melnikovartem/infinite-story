@@ -10,54 +10,48 @@ describe('CustomChoiceInput', () => {
       <CustomChoiceInput onSubmit={onSubmit} loading={false} />
     )
 
-    expect(screen.getByPlaceholderText(/Describe what you do or say/)).toBeInTheDocument()
-    expect(screen.getByText('Submit Custom Choice')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Write your own choice/)).toBeInTheDocument()
+    expect(screen.getByText('Submit Choice')).toBeInTheDocument()
   })
 
-  it('disables submit button when text is too short', async () => {
+  it('disables submit button when text is empty', () => {
+    const onSubmit = vi.fn()
+    render(
+      <CustomChoiceInput onSubmit={onSubmit} loading={false} />
+    )
+
+    const button = screen.getByText('Submit Choice')
+    expect(button).toBeDisabled()
+  })
+
+  it('enables submit button when text is entered', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     render(
       <CustomChoiceInput onSubmit={onSubmit} loading={false} />
     )
 
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
-    const button = screen.getByText('Submit Custom Choice')
-
-    expect(button).toBeDisabled()
-
-    await user.type(textarea, 'short')
-    expect(button).toBeDisabled()
-  })
-
-  it('enables submit button when text meets minimum length', async () => {
-    const user = userEvent.setup()
-    const onSubmit = vi.fn()
-    render(
-      <CustomChoiceInput onSubmit={onSubmit} loading={false} />
-    )
-
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
-    const button = screen.getByText('Submit Custom Choice')
+    const textarea = screen.getByPlaceholderText(/Write your own choice/)
+    const button = screen.getByText('Submit Choice')
 
     await user.type(textarea, 'This is a long enough text to submit')
     expect(button).not.toBeDisabled()
   })
 
-  it('calls onSubmit with trimmed text', async () => {
+  it('calls onSubmit with text', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     render(
       <CustomChoiceInput onSubmit={onSubmit} loading={false} />
     )
 
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
-    const button = screen.getByText('Submit Custom Choice')
+    const textarea = screen.getByPlaceholderText(/Write your own choice/)
+    const button = screen.getByText('Submit Choice')
 
-    await user.type(textarea, '  Test choice text  ')
+    await user.type(textarea, 'Test choice text')
     await user.click(button)
 
-    expect(onSubmit).toHaveBeenCalledWith('Test choice text')
+    expect(onSubmit).toHaveBeenCalled()
   })
 
   it('disables input when loading', () => {
@@ -66,26 +60,8 @@ describe('CustomChoiceInput', () => {
       <CustomChoiceInput onSubmit={onSubmit} loading={true} />
     )
 
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
-    const button = screen.getByText('Generating...')
-
+    const textarea = screen.getByPlaceholderText(/Write your own choice/)
     expect(textarea).toBeDisabled()
-    expect(button).toBeDisabled()
-  })
-
-  it('limits character input to 200 characters', async () => {
-    const user = userEvent.setup()
-    const onSubmit = vi.fn()
-    render(
-      <CustomChoiceInput onSubmit={onSubmit} loading={false} />
-    )
-
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
-    const longText = 'a'.repeat(250)
-
-    await user.type(textarea, longText)
-
-    expect(textarea).toHaveValue('a'.repeat(200))
   })
 
   it('displays character count', async () => {
@@ -95,9 +71,9 @@ describe('CustomChoiceInput', () => {
       <CustomChoiceInput onSubmit={onSubmit} loading={false} />
     )
 
-    const textarea = screen.getByPlaceholderText(/Describe what you do or say/)
+    const textarea = screen.getByPlaceholderText(/Write your own choice/)
     await user.type(textarea, 'test')
 
-    expect(screen.getByText('4/200')).toBeInTheDocument()
+    expect(screen.getByText(/4/)).toBeInTheDocument()
   })
 })

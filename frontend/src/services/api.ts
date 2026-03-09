@@ -60,18 +60,11 @@ const realApi = {
   },
   generateNextScene: async (storyId: string, segmentId: string, choiceText: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/segments/${segmentId}/next`, {
+      const response = await fetch(`http://localhost:8000/api/segments/${segmentId}/next?story_id=${storyId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          story_id: storyId,
           choice_text: choiceText,
-          context: {
-            previous_segments_count: 5,
-            include_character_details: true,
-            include_location_details: true,
-            include_worldbuilding: true
-          }
         })
       })
       const json = await response.json()
@@ -86,10 +79,9 @@ const realApi = {
   },
   navigateToChoice: async (storyId: string, segmentId: string, choiceId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/segments/${segmentId}/choice/${choiceId}`, {
+      const response = await fetch(`http://localhost:8000/api/segments/${segmentId}/choice/${choiceId}?story_id=${storyId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story_id: storyId })
       })
       const json = await response.json()
       if (json.success && json.data) {
@@ -101,7 +93,7 @@ const realApi = {
       throw error
     }
   },
-  saveSession: async (session: { story_id: string; current_segment_id: string; visited_segments: string[]; scene_counter: number; start_time: string }) => {
+  saveSession: async (session: { id: string; story_id: string; user_id: string; current_segment_id: string; visited_segments: string[]; visited_choices: string[] }) => {
     try {
       const response = await fetch('http://localhost:8000/api/sessions/save', {
         method: 'POST',
@@ -118,23 +110,23 @@ const realApi = {
       throw error
     }
   },
-   loadSession: async (storyId: string) => {
+   loadSession: async (storyId: string, sessionId: string) => {
      try {
-       const response = await fetch(`http://localhost:8000/api/sessions/${storyId}`)
+       const response = await fetch(`http://localhost:8000/api/sessions/${storyId}/${sessionId}`)
        const json = await response.json()
        // Backend returns {found: boolean, session: SessionData | null}
        if (json.found && json.session) {
          return json.session
        }
-       return { found: false }
+       return null
      } catch (error) {
        console.error('loadSession error:', error)
-       return { found: false }
+       return null
      }
    },
-  deleteSession: async (storyId: string) => {
+  deleteSession: async (storyId: string, sessionId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/sessions/${storyId}`, { method: 'DELETE' })
+      const response = await fetch(`http://localhost:8000/api/sessions/${storyId}/${sessionId}`, { method: 'DELETE' })
       const json = await response.json()
       if (json.success) {
         return { success: true }
@@ -203,21 +195,109 @@ export const navigateToChoice = (storyId: string, segmentId: string, choiceId: s
 /**
  * Save the current session state
  */
-export const saveSession = (session: { story_id: string; current_segment_id: string; visited_segments: string[]; scene_counter: number; start_time: string }) =>
+export const saveSession = (session: { id: string; story_id: string; user_id: string; current_segment_id: string; visited_segments: string[]; visited_choices: string[] }) =>
   api.saveSession(session)
 
 /**
  * Load a saved session state
  */
-export const loadSession = (storyId: string) => api.loadSession(storyId)
+export const loadSession = (storyId: string, sessionId: string) => api.loadSession(storyId, sessionId)
 
 /**
  * Delete a saved session
  */
-export const deleteSession = (storyId: string) => api.deleteSession(storyId)
+export const deleteSession = (storyId: string, sessionId: string) => api.deleteSession(storyId, sessionId)
 
 /**
  * Submit a content report
  */
 export const submitReport = (storyId: string, segmentId: string, reportType: string, description: string, reporterEmail: string) =>
   api.submitReport(storyId, segmentId, reportType, description, reporterEmail)
+
+// ── Story Creation API ──
+
+/**
+ * Start creating a new story (async, returns immediately)
+ */
+export const createStory = async (request: {
+  story_id: string;
+  title: string;
+  description: string;
+  genre: string;
+  world_input?: string;
+  first_scene_input?: string;
+}) => {
+  const response = await fetch('http://localhost:8000/api/stories/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+  const json = await response.json()
+  if (json.success && json.data) {
+    return json.data
+  }
+  throw new Error(json.error || 'Failed to start story creation')
+}
+
+/**
+ * Poll creation status
+ */
+export const getCreationStatus = async (storyId: string) => {
+  const response = await fetch(`http://localhost:8000/api/stories/create/${storyId}/status`)
+  const json = await response.json()
+  if (json.success && json.data) {
+    return json.data
+  }
+  throw new Error(json.error || 'Failed to get creation status')
+}
+
+/**
+ * Connect to creation SSE stream for real-time progress
+ */
+export const streamCreationProgress = (
+  storyId: string,
+  onStep: (step: { step: number; name: string; status: string; message: string }) => void,
+  onDone: (result: any) => void,
+  onError: (error: string) => void,
+): (() => void) => {
+  const eventSource = new EventSource(`http://localhost:8000/api/stories/create/${storyId}/stream`)
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'step') {
+        onStep(data)
+      } else if (data.type === 'done') {
+        onDone(data.result)
+        eventSource.close()
+      } else if (data.type === 'error') {
+        onError(data.error || data.message || 'Creation failed')
+        eventSource.close()
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
+  eventSource.onerror = () => {
+    onError('Connection to creation stream lost')
+    eventSource.close()
+  }
+
+  // Return cleanup function
+  return () => eventSource.close()
+}
+
+/**
+ * Delete a story
+ */
+export const deleteStory = async (storyId: string) => {
+  const response = await fetch(`http://localhost:8000/api/stories/${storyId}`, {
+    method: 'DELETE',
+  })
+  const json = await response.json()
+  if (json.success) {
+    return json.data
+  }
+  throw new Error(json.error || 'Failed to delete story')
+}

@@ -80,6 +80,127 @@ class StoryLoader:
             return None
     
     @staticmethod
+    def load_full_story(story_id: str) -> Optional[Story]:
+        """Load a story with ALL components wired up (segments, choices, characters, locations).
+        
+        This creates a fully connected graph where segments have their
+        incoming/outgoing choices populated, making it suitable for
+        AI generation which needs to walk the parent chain.
+        
+        Args:
+            story_id: The ID of the story to load
+            
+        Returns:
+            Story object with all components loaded, or None if not found
+        """
+        story = StoryLoader.load_story(story_id)
+        if not story:
+            return None
+        
+        # Load all segments
+        segments_dir = LOCAL_DATA_DIR / story_id / "storysegment"
+        if segments_dir.exists():
+            for seg_file in segments_dir.glob("*.json"):
+                try:
+                    with open(seg_file, "r") as f:
+                        data = json.load(f)
+                    # StorySegment.__init__ calls story.add_segment(self)
+                    StorySegment(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading segment {seg_file.stem}: {e}")
+        
+        # Load all choices
+        choices_dir = LOCAL_DATA_DIR / story_id / "storychoice"
+        if choices_dir.exists():
+            for choice_file in choices_dir.glob("*.json"):
+                try:
+                    with open(choice_file, "r") as f:
+                        data = json.load(f)
+                    # StoryChoice.__init__ calls story.add_choice(self)
+                    StoryChoice(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading choice {choice_file.stem}: {e}")
+        
+        # Load all characters
+        chars_dir = LOCAL_DATA_DIR / story_id / "storycharacter"
+        if chars_dir.exists():
+            for char_file in chars_dir.glob("*.json"):
+                try:
+                    with open(char_file, "r") as f:
+                        data = json.load(f)
+                    StoryCharacter(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading character {char_file.stem}: {e}")
+        
+        # Load all locations
+        locs_dir = LOCAL_DATA_DIR / story_id / "storylocation"
+        if locs_dir.exists():
+            for loc_file in locs_dir.glob("*.json"):
+                try:
+                    with open(loc_file, "r") as f:
+                        data = json.load(f)
+                    StoryLocation(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading location {loc_file.stem}: {e}")
+        
+        # Wire up segment incoming/outgoing choices
+        for choice in story.get_all_choices():
+            if choice.from_segment_id:
+                from_seg = story.get_segment(choice.from_segment_id)
+                if from_seg:
+                    from_seg.add_outgoing_choice(choice)
+            if choice.to_segment_id:
+                to_seg = story.get_segment(choice.to_segment_id)
+                if to_seg:
+                    to_seg.add_incoming_choice(choice)
+        
+        # Load contexts
+        contexts_dir = LOCAL_DATA_DIR / story_id / "storycontext"
+        if contexts_dir.exists():
+            from app.models.story_context import StoryContext
+            for ctx_file in contexts_dir.glob("*.json"):
+                try:
+                    with open(ctx_file, "r") as f:
+                        data = json.load(f)
+                    StoryContext(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading context {ctx_file.stem}: {e}")
+        
+        # Load arcs
+        arcs_dir = LOCAL_DATA_DIR / story_id / "storyarc"
+        if arcs_dir.exists():
+            from app.models.story_arc import StoryArc
+            for arc_file in arcs_dir.glob("*.json"):
+                try:
+                    with open(arc_file, "r") as f:
+                        data = json.load(f)
+                    StoryArc(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading arc {arc_file.stem}: {e}")
+        
+        # Load episodes
+        episodes_dir = LOCAL_DATA_DIR / story_id / "storyepisode"
+        if episodes_dir.exists():
+            from app.models.story_episode import StoryEpisode
+            for ep_file in episodes_dir.glob("*.json"):
+                try:
+                    with open(ep_file, "r") as f:
+                        data = json.load(f)
+                    StoryEpisode(**data, story=story)
+                except Exception as e:
+                    logger.error(f"Error loading episode {ep_file.stem}: {e}")
+        
+        logger.info(
+            f"Loaded full story '{story_id}': "
+            f"{len(story.get_all_segments())} segments, "
+            f"{len(story.get_all_choices())} choices, "
+            f"{len(story.get_all_characters())} characters, "
+            f"{len(story.get_all_locations())} locations"
+        )
+        
+        return story
+
+    @staticmethod
     def load_segment(story_id: str, segment_id: str) -> Optional[StorySegment]:
         """Load a single segment from disk.
         

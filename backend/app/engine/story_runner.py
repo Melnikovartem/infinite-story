@@ -91,12 +91,57 @@ class StoryRunner:
         self.current_segment = next_segment
         self.visited_segments.add(choice.to_segment_id)
 
+    @property
+    def current_episode_number(self) -> int:
+        """Get the current episode number from the current segment."""
+        if self.current_segment:
+            return self.current_segment.episode_number
+        return 1
+
+    @property
+    def current_arc_id(self) -> Optional[str]:
+        """Get the current arc ID from the current segment."""
+        if self.current_segment:
+            return self.current_segment.arc_id
+        return None
+
+    @property
+    def current_arc(self):
+        """Get the current StoryArc object."""
+        arc_id = self.current_arc_id
+        if arc_id:
+            return self.story.get_arc(arc_id)
+        return None
+
+    @property
+    def segment_number_in_episode(self) -> int:
+        """Get the current segment's position within its episode."""
+        if self.current_segment:
+            return self.current_segment.segment_number_in_episode
+        return 1
+
     def get_current_state(self) -> dict:
-        """Get the current state of the story."""
-        return {
+        """Get the current state of the story, including episode/arc info."""
+        state = {
             "current_segment": self.current_segment,
-            "visited_segments": list(self.visited_segments)
+            "visited_segments": list(self.visited_segments),
         }
+        
+        # Add episode/arc info derived from current segment
+        if self.current_segment:
+            state["episode_number"] = self.current_segment.episode_number
+            state["arc_id"] = self.current_segment.arc_id
+            state["segment_number_in_episode"] = self.current_segment.segment_number_in_episode
+            state["episode_tone"] = self.current_segment.episode_tone
+            state["triggers_episode_transition"] = self.current_segment.triggers_episode_transition
+            
+            # Get arc info if available
+            arc = self.current_arc
+            if arc:
+                state["arc_title"] = arc.title if hasattr(arc, 'title') else None
+                state["arc_description"] = arc.description if hasattr(arc, 'description') else None
+        
+        return state
     
     def load_all_components(self, story) -> None:
         """Load all story components (characters, locations, segments, choices, context).

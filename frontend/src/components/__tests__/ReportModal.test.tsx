@@ -1,21 +1,29 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReportModal } from '../ReportModal'
 
+// Polyfill HTMLDialogElement methods for jsdom
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.setAttribute('open', '')
+  })
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.removeAttribute('open')
+  })
+})
+
 describe('ReportModal', () => {
-  it('does not render when closed', () => {
+  it('does not render content when closed', () => {
     const onSubmit = vi.fn()
-    const { container } =     render(
+    render(
       <ReportModal
         isOpen={false}
         onClose={vi.fn()}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
-    expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument()
+    expect(screen.queryByText('Report Inappropriate Content')).not.toBeInTheDocument()
   })
 
   it('renders when open', () => {
@@ -24,27 +32,25 @@ describe('ReportModal', () => {
       <ReportModal
         isOpen={true}
         onClose={vi.fn()}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
     expect(screen.getByText('Report Inappropriate Content')).toBeInTheDocument()
   })
 
-  it('has email and description fields', () => {
+  it('has reason options and description field', () => {
     const onSubmit = vi.fn()
     render(
       <ReportModal
         isOpen={true}
         onClose={vi.fn()}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
-    expect(screen.getByPlaceholderText(/your@email.com/)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/describe what you found/)).toBeInTheDocument()
+    expect(screen.getByText('Offensive Content')).toBeInTheDocument()
+    expect(screen.getByText('Inappropriate Content')).toBeInTheDocument()
+    expect(screen.getByText('Story Error')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/provide more information/i)).toBeInTheDocument()
   })
 
   it('disables submit button until form is filled', async () => {
@@ -54,8 +60,6 @@ describe('ReportModal', () => {
       <ReportModal
         isOpen={true}
         onClose={vi.fn()}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
@@ -63,33 +67,33 @@ describe('ReportModal', () => {
     const submitButton = screen.getByText('Submit Report')
     expect(submitButton).toBeDisabled()
 
-    const emailInput = screen.getByPlaceholderText(/your@email.com/)
-    await user.type(emailInput, 'test@example.com')
+    // Select a reason
+    await user.click(screen.getByText('Offensive Content'))
     expect(submitButton).toBeDisabled()
 
-    const descriptionInput = screen.getByPlaceholderText(/describe what you found/)
+    // Fill description
+    const descriptionInput = screen.getByPlaceholderText(/provide more information/i)
     await user.type(descriptionInput, 'This content is inappropriate')
     expect(submitButton).not.toBeDisabled()
   })
 
-  it('calls onSubmit with form data', async () => {
+  it('calls onSubmit with reason and description', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <ReportModal
         isOpen={true}
         onClose={vi.fn()}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
 
-    await user.type(screen.getByPlaceholderText(/your@email.com/), 'test@example.com')
-    await user.type(screen.getByPlaceholderText(/describe what you found/), 'Bad content')
+    await user.click(screen.getByText('Offensive Content'))
+    const descriptionInput = screen.getByPlaceholderText(/provide more information/i)
+    await user.type(descriptionInput, 'Bad content')
     await user.click(screen.getByText('Submit Report'))
 
-    expect(onSubmit).toHaveBeenCalledWith('test@example.com', 'Bad content')
+    expect(onSubmit).toHaveBeenCalledWith('offensive', 'Bad content')
   })
 
   it('closes modal on cancel button', async () => {
@@ -100,34 +104,11 @@ describe('ReportModal', () => {
       <ReportModal
         isOpen={true}
         onClose={onClose}
-        _storyId="test"
-        _segmentId="seg_1"
         onSubmit={onSubmit}
       />
     )
 
     await user.click(screen.getByText('Cancel'))
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it('closes modal on X button', async () => {
-    const user = userEvent.setup()
-    const onClose = vi.fn()
-    const onSubmit = vi.fn()
-    const { container } = render(
-      <ReportModal
-        isOpen={true}
-        onClose={onClose}
-        _storyId="test"
-        _segmentId="seg_1"
-        onSubmit={onSubmit}
-      />
-    )
-
-    const closeButton = container.querySelector('.modal-close')
-    if (closeButton) {
-      await user.click(closeButton)
-    }
     expect(onClose).toHaveBeenCalled()
   })
 })

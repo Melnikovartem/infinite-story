@@ -97,14 +97,12 @@ export interface Story {
 }
 
 export interface SessionState {
+  id: string;
+  user_id: string;
   story_id: string;
   current_segment_id: string;
   visited_segments: string[];
-  current_choices: StoryChoice[];
-  character_states: Record<string, CharacterState & { name: string }>;
-  location_state: LocationState;
-  created_at: string;
-  updated_at: string;
+  visited_choices: string[];
 }
 
 export interface PlayerState {
@@ -117,8 +115,7 @@ export interface PlayerState {
 }
 
 export interface StoryDetail extends Story {
-  author: string;
-  genre?: string;
+  start_segment_id?: string;
   characters: StoryCharacter[];
   locations: StoryLocation[];
 }
@@ -138,6 +135,37 @@ export interface SegmentResponse {
   choices: ChoicesResponse;
 }
 
+export interface EpisodeInfo {
+  number: number;
+  segment_in_episode: number;
+  tone: string | null;
+  arc_id: string | null;
+  arc_title?: string | null;
+  triggers_transition: boolean;
+}
+
+export interface EpisodeSummary {
+  id: string;
+  episode_number: number;
+  arc_id: string | null;
+  title: string | null;
+  summary: string | null;
+  episode_complete: boolean;
+  segment_count: number;
+  tone: string | null;
+}
+
+export interface ArcSummary {
+  id: string;
+  title: string | null;
+  description: string | null;
+  is_active: boolean;
+  is_finalized: boolean;
+  episode_count: number;
+  themes: string[];
+  central_conflict: string | null;
+}
+
 export interface GenerationResponse {
   segment: StorySegment;
   choices: StoryChoice[];
@@ -145,4 +173,48 @@ export interface GenerationResponse {
 
 export interface StoryListResponse {
   stories: Story[];
+}
+
+// ── Story Creation Types ──
+
+export interface CreateStoryRequest {
+  story_id: string;
+  title: string;
+  description: string;
+  genre: string;
+  world_input?: string;
+  first_scene_input?: string;
+}
+
+export interface CreationStepUpdate {
+  step: number;
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  message: string;
+}
+
+export interface CreationJobStatus {
+  story_id: string;
+  status: 'running' | 'completed' | 'failed';
+  current_step: CreationStepUpdate | null;
+  steps: CreationStepUpdate[];
+  error: string | null;
+  result: CreationSummary | null;
+}
+
+export interface CreationSummary {
+  story_id: string;
+  success: boolean;
+  error: string | null;
+  steps_completed: number;
+  steps_total: number;
+  summary: {
+    factions: number;
+    locations: number;
+    arcs: number;
+    characters: number;
+    choices: number;
+    has_protagonist: boolean;
+    has_magic_system: boolean;
+  };
 }

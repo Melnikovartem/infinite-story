@@ -1,7 +1,39 @@
+.story-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 30px;
+}
+
 .story-list-page h2 {
   font-size: 32px;
-  margin-bottom: 30px;
+  margin: 0;
   color: #2c3e50;
+}
+
+.btn-create-new {
+  background-color: #27ae60;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-create-new:hover {
+  background-color: #219a52;
+}
+
+.genre {
+  font-size: 12px;
+  color: #8e44ad;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px 0;
 }
 
 .stories-grid {

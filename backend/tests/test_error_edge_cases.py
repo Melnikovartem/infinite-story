@@ -1,6 +1,7 @@
 """Error handling and edge case tests for Phase 2.
 
 Tests error scenarios, boundary conditions, and resilience.
+Uses the actual API request/response models.
 """
 
 import pytest
@@ -13,6 +14,19 @@ from app.main import app
 client = TestClient(app)
 
 
+def _make_session(story_id, session_id, user_id, current_segment_id,
+                  visited_segments, visited_choices=None):
+    """Build a valid session save payload."""
+    return {
+        "id": session_id,
+        "story_id": story_id,
+        "user_id": user_id,
+        "current_segment_id": current_segment_id,
+        "visited_segments": visited_segments,
+        "visited_choices": visited_choices or [],
+    }
+
+
 @pytest.fixture(autouse=True)
 def cleanup_test_data():
     """Clean up test data after each test."""
@@ -20,7 +34,8 @@ def cleanup_test_data():
     
     test_dir = Path(".infinite_story_data")
     if test_dir.exists():
-        for story_dir in ["edge_case_*", "error_test_*", "boundary_*"]:
+        for story_dir in ["edge_case_*", "error_test_*", "boundary_*",
+                          "concurrency_*", "test_story"]:
             for path in test_dir.glob(story_dir):
                 if path.is_dir():
                     shutil.rmtree(path)
@@ -31,18 +46,17 @@ class TestSessionErrorHandling:
     
     def test_load_nonexistent_session_returns_not_found(self):
         """Loading non-existent session returns proper response."""
-        response = client.get("/api/sessions/story_that_never_existed_xyz")
+        response = client.get("/api/sessions/story_xyz/session_xyz")
         assert response.status_code == 200
         assert response.json()["found"] is False
     
     def test_save_session_missing_story_id(self):
         """Session save without story_id is rejected."""
         invalid_session = {
-            # Missing story_id
+            "id": "test_session",
+            "user_id": "test_user",
             "current_segment_id": "segment_001",
             "visited_segments": ["segment_001"],
-            "scene_counter": 1,
-            "start_time": datetime.now(UTC).isoformat()
         }
         
         response = client.post("/api/sessions/save", json=invalid_session)
@@ -51,37 +65,34 @@ class TestSessionErrorHandling:
     def test_save_session_missing_current_segment(self):
         """Session save without current_segment_id is rejected."""
         invalid_session = {
+            "id": "test_session",
             "story_id": "test_story",
-            # Missing current_segment_id
+            "user_id": "test_user",
             "visited_segments": ["segment_001"],
-            "scene_counter": 1,
-            "start_time": datetime.now(UTC).isoformat()
         }
         
         response = client.post("/api/sessions/save", json=invalid_session)
         assert response.status_code in [400, 422]
     
-    def test_save_session_invalid_scene_counter(self):
-        """Session with negative scene_counter is rejected."""
+    def test_save_session_missing_user_id(self):
+        """Session save without user_id is rejected."""
         invalid_session = {
+            "id": "test_session",
             "story_id": "test_story",
             "current_segment_id": "segment_001",
             "visited_segments": ["segment_001"],
-            "scene_counter": -1,  # Invalid
-            "start_time": datetime.now(UTC).isoformat()
         }
         
         response = client.post("/api/sessions/save", json=invalid_session)
         assert response.status_code in [400, 422]
     
-    def test_save_session_scene_counter_zero(self):
-        """Session with scene_counter of 0 is rejected."""
+    def test_save_session_missing_id(self):
+        """Session save without id is rejected."""
         invalid_session = {
             "story_id": "test_story",
+            "user_id": "test_user",
             "current_segment_id": "segment_001",
             "visited_segments": ["segment_001"],
-            "scene_counter": 0,  # Invalid
-            "start_time": datetime.now(UTC).isoformat()
         }
         
         response = client.post("/api/sessions/save", json=invalid_session)
@@ -89,35 +100,23 @@ class TestSessionErrorHandling:
     
     def test_delete_nonexistent_session_returns_404(self):
         """Deleting non-existent session returns 404."""
-        response = client.delete("/api/sessions/nonexistent_story_xyz")
+        response = client.delete("/api/sessions/nonexistent_story_xyz/nonexistent_session")
         assert response.status_code == 404
     
     def test_save_session_with_empty_visited_segments(self):
-        """Session with empty visited_segments list might be invalid."""
-        invalid_session = {
-            "story_id": "test_story",
-            "current_segment_id": "segment_001",
-            "visited_segments": [],  # Empty
-            "scene_counter": 1,
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        response = client.post("/api/sessions/save", json=invalid_session)
-        # May accept or reject - implementation dependent
+        """Session with empty visited_segments list."""
+        payload = _make_session("test_story", "empty_session", "test_user",
+                                "segment_001", [])
+        response = client.post("/api/sessions/save", json=payload)
+        # SessionState.__init__ auto-adds current_segment_id to visited
         assert response.status_code in [200, 400, 422]
     
     def test_save_session_current_not_in_visited(self):
         """Session where current_segment not in visited_segments."""
-        invalid_session = {
-            "story_id": "test_story",
-            "current_segment_id": "segment_002",
-            "visited_segments": ["segment_001"],  # Doesn't include current
-            "scene_counter": 2,
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        response = client.post("/api/sessions/save", json=invalid_session)
-        # May accept or reject - implementation dependent
+        payload = _make_session("test_story", "mismatch_session", "test_user",
+                                "segment_002", ["segment_001"])
+        response = client.post("/api/sessions/save", json=payload)
+        # SessionState.__init__ auto-adds current to visited
         assert response.status_code in [200, 400, 422]
 
 
@@ -126,21 +125,18 @@ class TestProgressErrorHandling:
     
     def test_get_progress_nonexistent_story(self):
         """Getting progress for non-existent story returns 404."""
-        response = client.get("/api/progress/story_that_never_existed_xyz")
+        response = client.get("/api/progress/story_xyz/session_xyz")
         assert response.status_code == 404
     
     def test_get_progress_invalid_story_id_format(self):
         """Getting progress with unusual story_id format."""
-        # Special characters, spaces, etc
-        response = client.get("/api/progress/story%20with%20spaces")
-        # Should handle gracefully
+        response = client.get("/api/progress/story%20with%20spaces/session_1")
         assert response.status_code in [200, 404]
     
     def test_get_progress_very_long_story_id(self):
         """Getting progress with very long story_id."""
-        long_story_id = "a" * 1000
-        response = client.get(f"/api/progress/{long_story_id}")
-        # Should handle gracefully (may be 404, 414, or 500 depending on implementation)
+        long_id = "a" * 1000
+        response = client.get(f"/api/progress/{long_id}/session_1")
         assert response.status_code in [404, 414, 500]
 
 
@@ -150,7 +146,6 @@ class TestReportErrorHandling:
     def test_submit_report_missing_story_id(self):
         """Report without story_id is rejected."""
         invalid_report = {
-            # Missing story_id
             "segment_id": "segment_001",
             "report_type": "inappropriate_content",
             "description": "This is a detailed report about the issue"
@@ -163,7 +158,6 @@ class TestReportErrorHandling:
         """Report without segment_id is rejected."""
         invalid_report = {
             "story_id": "test_story",
-            # Missing segment_id
             "report_type": "inappropriate_content",
             "description": "This is a detailed report about the issue"
         }
@@ -177,7 +171,7 @@ class TestReportErrorHandling:
             "story_id": "test_story",
             "segment_id": "segment_001",
             "report_type": "inappropriate_content",
-            "description": "Bad"  # Too short
+            "description": "Bad"
         }
         
         response = client.post("/api/reports", json=invalid_report)
@@ -189,7 +183,7 @@ class TestReportErrorHandling:
             "story_id": "test_story",
             "segment_id": "segment_001",
             "report_type": "inappropriate_content",
-            "description": "a" * 3000  # Too long (max 2000)
+            "description": "a" * 3000
         }
         
         response = client.post("/api/reports", json=invalid_report)
@@ -213,7 +207,6 @@ class TestReportErrorHandling:
             "story_id": "test_story",
             "segment_id": "segment_001",
             "report_type": "inappropriate_content"
-            # Missing description
         }
         
         response = client.post("/api/reports", json=invalid_report)
@@ -232,7 +225,6 @@ class TestReportErrorHandling:
     def test_list_reports_invalid_status_filter(self):
         """Listing reports with invalid status filter."""
         response = client.get("/api/reports?status=invalid_status_xyz")
-        # Should either filter out or ignore
         assert response.status_code in [200, 400]
     
     def test_submit_report_invalid_email(self):
@@ -246,7 +238,6 @@ class TestReportErrorHandling:
         }
         
         response = client.post("/api/reports", json=invalid_report)
-        # Email validation should reject
         assert response.status_code in [400, 422]
 
 
@@ -256,31 +247,18 @@ class TestBoundaryConditions:
     def test_session_with_max_visited_segments(self):
         """Session with very large visited_segments list."""
         large_visited = [f"segment_{i:05d}" for i in range(1000)]
+        payload = _make_session("boundary_test", "large_session", "test_user",
+                                "segment_00999", large_visited)
         
-        session = {
-            "story_id": "boundary_test",
-            "current_segment_id": "segment_99999",
-            "visited_segments": large_visited,
-            "scene_counter": 1000,
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        response = client.post("/api/sessions/save", json=session)
-        # Should handle large list
-        assert response.status_code in [200, 413]  # 413 = Payload too large
+        response = client.post("/api/sessions/save", json=payload)
+        assert response.status_code in [200, 413]
     
     def test_session_with_special_characters_in_ids(self):
         """Session with special characters in segment IDs."""
-        session = {
-            "story_id": "boundary_test",
-            "current_segment_id": "segment@#$%&",
-            "visited_segments": ["segment@#$%&"],
-            "scene_counter": 1,
-            "start_time": datetime.now(UTC).isoformat()
-        }
+        payload = _make_session("boundary_test", "special_session", "test_user",
+                                "segment@special", ["segment@special"])
         
-        response = client.post("/api/sessions/save", json=session)
-        # Should handle or reject gracefully
+        response = client.post("/api/sessions/save", json=payload)
         assert response.status_code in [200, 400, 422]
     
     def test_report_with_unicode_characters(self):
@@ -289,29 +267,11 @@ class TestBoundaryConditions:
             "story_id": "boundary_test",
             "segment_id": "segment_001",
             "report_type": "inappropriate_content",
-            "description": "Unicode test: 你好世界 мир 🌍 العالم"
+            "description": "Unicode test: 你好世界 мир العالم - more text to meet length"
         }
         
         response = client.post("/api/reports", json=report)
-        # Should handle unicode
         assert response.status_code in [200, 201, 400, 422]
-    
-    def test_progress_with_very_high_scene_counter(self):
-        """Progress for session with very high scene number."""
-        session = {
-            "story_id": "boundary_progress",
-            "current_segment_id": "segment_999999",
-            "visited_segments": [f"segment_{i}" for i in range(99999, 100000)],
-            "scene_counter": 999999,
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        client.post("/api/sessions/save", json=session)
-        
-        response = client.get("/api/progress/boundary_progress")
-        # Should handle large numbers
-        if response.status_code == 200:
-            assert "scene_number" in response.json()
 
 
 class TestConcurrencyEdgeCases:
@@ -320,26 +280,23 @@ class TestConcurrencyEdgeCases:
     def test_session_update_race_condition(self):
         """Test rapid consecutive session updates."""
         story_id = "concurrency_test"
+        session_id = "race_session"
+        user_id = "test_user"
         
         # Simulate rapid updates
+        visited = []
         for i in range(5):
-            session = {
-                "story_id": story_id,
-                "current_segment_id": f"segment_{i:03d}",
-                "visited_segments": [f"segment_{j:03d}" for j in range(i + 1)],
-                "scene_counter": i + 1,
-                "start_time": datetime.now(UTC).isoformat()
-            }
-            
-            response = client.post("/api/sessions/save", json=session)
+            visited.append(f"segment_{i:03d}")
+            payload = _make_session(story_id, session_id, user_id,
+                                    f"segment_{i:03d}", visited.copy())
+            response = client.post("/api/sessions/save", json=payload)
             assert response.status_code == 200
         
         # Final state should be consistent
-        response = client.get(f"/api/sessions/{story_id}")
+        response = client.get(f"/api/sessions/{story_id}/{session_id}")
         assert response.status_code == 200
         final = response.json()["session"]
-        # Should have latest state
-        assert final["scene_counter"] == 5
+        assert final["current_segment_id"] == "segment_004"
     
     def test_report_submission_race_condition(self):
         """Test rapid consecutive report submissions."""
@@ -351,44 +308,22 @@ class TestConcurrencyEdgeCases:
                 "story_id": story_id,
                 "segment_id": f"segment_{i:03d}",
                 "report_type": "inappropriate_content",
-                "description": f"Report number {i} with detailed description"
+                "description": f"Report number {i} with detailed description of the issue"
             }
             
             response = client.post("/api/reports", json=report)
             assert response.status_code == 201
             report_ids.append(response.json()["report_id"])
         
-        # All reports should be stored independently
-        assert len(report_ids) == len(set(report_ids))  # All unique
+        assert len(report_ids) == len(set(report_ids))
 
 
 class TestDataValidation:
     """Test data validation and type checking."""
     
-    def test_session_string_scene_counter(self):
-        """Session with string scene_counter instead of int."""
-        invalid_session = {
-            "story_id": "test_story",
-            "current_segment_id": "segment_001",
-            "visited_segments": ["segment_001"],
-            "scene_counter": "not_a_number",
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        response = client.post("/api/sessions/save", json=invalid_session)
-        assert response.status_code in [400, 422]
-    
-    def test_session_invalid_datetime(self):
-        """Session with invalid datetime format."""
-        invalid_session = {
-            "story_id": "test_story",
-            "current_segment_id": "segment_001",
-            "visited_segments": ["segment_001"],
-            "scene_counter": 1,
-            "start_time": "not_a_valid_datetime"
-        }
-        
-        response = client.post("/api/sessions/save", json=invalid_session)
+    def test_session_completely_empty_body(self):
+        """Session with empty JSON body."""
+        response = client.post("/api/sessions/save", json={})
         assert response.status_code in [400, 422]
     
     def test_report_null_fields(self):
@@ -397,7 +332,7 @@ class TestDataValidation:
             "story_id": None,
             "segment_id": "segment_001",
             "report_type": "inappropriate_content",
-            "description": "Detailed description of the issue"
+            "description": "Detailed description of the issue found here"
         }
         
         response = client.post("/api/reports", json=invalid_report)
@@ -408,23 +343,8 @@ class TestEmptyAndNullResponses:
     """Test handling of empty and null data."""
     
     def test_list_reports_empty_result(self):
-        """Listing reports when none exist."""
+        """Listing reports when none exist for a story."""
         response = client.get("/api/reports?story_id=story_that_has_no_reports_xyz")
         assert response.status_code == 200
-        # Should return empty list, not error
         reports = response.json().get("reports", [])
         assert isinstance(reports, list)
-    
-    def test_session_with_no_segments_visited(self):
-        """Attempting to save session with no visited segments might be edge case."""
-        session = {
-            "story_id": "test_story",
-            "current_segment_id": "segment_001",
-            "visited_segments": [],
-            "scene_counter": 1,
-            "start_time": datetime.now(UTC).isoformat()
-        }
-        
-        response = client.post("/api/sessions/save", json=session)
-        # Implementation dependent - may accept or reject
-        assert response.status_code in [200, 400, 422]

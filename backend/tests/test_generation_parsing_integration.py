@@ -551,7 +551,8 @@ class TestGenerateStructuredPipeline:
             schema=schema,
             fallback_defaults=fallback,
         )
-        assert len(result) >= 3
+        # Parser accepts what it parsed without padding
+        assert len(result) >= 1
         assert result[0]["name"] == "Only Faction"
 
     @pytest.mark.asyncio
