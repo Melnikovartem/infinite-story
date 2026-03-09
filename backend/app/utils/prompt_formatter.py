@@ -237,6 +237,25 @@ class PromptFormatter:
                     parts.append(f"• {k}: {str(v)[:100]}")
         
         # ================================================================
+        # CHARACTER EMOTIONS — how characters feel right now
+        # ================================================================
+        if context.get('character_emotions'):
+            parts.append("\n=== CHARACTER EMOTIONS ===")
+            for char_name, emotion in context['character_emotions'].items():
+                parts.append(f"• {char_name}: {emotion}")
+            parts.append("Track how these emotions EVOLVE based on what happens in this scene.")
+        
+        # ================================================================
+        # STORYLINE TYPE — what kind of scene to generate
+        # ================================================================
+        if context.get('storyline_type'):
+            parts.append(f"\n=== STORYLINE TYPE ===")
+            parts.append(f"Previous scene type: {context['storyline_type']}")
+            parts.append("Consider if the storyline type should shift based on the player's choice.")
+        if context.get('dominant_storylines'):
+            parts.append(f"Dominant storylines this episode: {', '.join(context['dominant_storylines'])}")
+        
+        # ================================================================
         # PLAYER CHOICE — what the player decided
         # ================================================================
         if context.get('user_choice'):
@@ -264,9 +283,13 @@ class PromptFormatter:
         parts.append("3. Respects character states, relationships, and established world facts")
         parts.append("4. Advances the current arc's premise and central conflict")
         parts.append("5. Provides meaningful next choices")
+        parts.append("6. Tracks how each character's EMOTION changes through the scene")
+        parts.append("7. Sets the storyline_type to match the scene's dominant narrative style")
+        parts.append("8. Uses varied text block types — mix narration, dialogue, thoughts, sounds, visual cues")
+        parts.append("9. Assigns a storyline tag to each text block where relevant (action for combat, mystery for clues, etc.)")
         
-        parts.append("\nRespond with JSON containing: short_description, text, atmosphere, ")
-        parts.append("time_of_day, weather, characters_present, locations_present, choice_1, choice_2")
+        parts.append("\nRespond with JSON containing: short_description, storyline_type, text_blocks, atmosphere, ")
+        parts.append("time_of_day, weather, characters_present, locations_present, character_emotions, choice_1, choice_2")
         
         return "\n".join(parts)
     

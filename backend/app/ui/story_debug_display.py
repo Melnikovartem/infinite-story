@@ -80,12 +80,31 @@ def display_segment_story_debug(segment) -> None:
         info_lines.append(f"[cyan]Protagonist:[/cyan] {segment.protagonist_id}")
     if getattr(segment, 'triggers_episode_transition', False):
         info_lines.append("[bold red]>>> TRIGGERS EPISODE TRANSITION <<<[/bold red]")
+    
+    # Storyline type
+    storyline = getattr(segment, 'storyline_type', None)
+    if storyline:
+        _SL_ICONS = {"action": "!!!", "mystery": "???", "romance": "<3", "political": ">>>",
+                      "horror": "!!!", "comedy": ":)", "drama": "...", "exploration": "->"}
+        sl_icon = _SL_ICONS.get(storyline, "")
+        info_lines.append(f"[cyan]Storyline:[/cyan] [bold]{sl_icon} {storyline.upper()}[/bold]")
 
     console.print(Panel(
         "\n".join(info_lines),
         title=f"Segment: {segment.id}",
         border_style="cyan"
     ))
+    
+    # Character Emotions snapshot
+    char_emotions = getattr(segment, 'character_emotions', {})
+    if char_emotions:
+        console.print(f"\n[bold magenta]Character Emotions:[/bold magenta]")
+        emo_table = Table(show_header=True, header_style="dim magenta")
+        emo_table.add_column("Character", style="cyan", width=20)
+        emo_table.add_column("Emotion", style="magenta", width=40)
+        for char_name, emotion in char_emotions.items():
+            emo_table.add_row(str(char_name), str(emotion))
+        console.print(emo_table)
 
     # ── Running Changes (EntityChange) ──
     running_changes = getattr(segment, 'running_changes', [])
@@ -149,12 +168,24 @@ def display_segment_story_debug(segment) -> None:
     text_blocks = getattr(segment, 'text_blocks', [])
     if text_blocks:
         console.print(f"\n[bold cyan]Text Blocks ({len(text_blocks)}):[/bold cyan]")
-        console.print("[dim]─" * 60 + "[/dim]")
+        console.print("[dim]" + "─" * 70 + "[/dim]")
         for block in text_blocks:
             content = block.content if hasattr(block, 'content') else str(block)
             block_type = block.type if hasattr(block, 'type') else 'narrative'
-            console.print(f"[dim][{block_type}][/dim] {content}")
-        console.print("[dim]─" * 60 + "[/dim]")
+            block_emotion = getattr(block, 'emotion', None)
+            block_storyline = getattr(block, 'storyline', None)
+            
+            # Build tag line: [type] (emotion) {storyline}
+            tags = f"[dim][{block_type}][/dim]"
+            if block_emotion:
+                tags += f" [magenta]({block_emotion})[/magenta]"
+            if block_storyline:
+                tags += f" [yellow]{{{block_storyline}}}[/yellow]"
+            if hasattr(block, 'character') and block.character:
+                tags += f" [cyan]@{block.character}[/cyan]"
+            
+            console.print(f"{tags} {content}")
+        console.print("[dim]" + "─" * 70 + "[/dim]")
 
     console.print()
 
@@ -217,10 +248,16 @@ def _display_context_from_dict(context: Dict[str, Any]) -> None:
     # 10. Mysteries & Theme Tracking
     _display_mysteries_themes(context)
 
-    # 11. Generation Strategy
+    # 11. Storyline Type Tracking (NEW)
+    _display_storyline_context(context)
+
+    # 12. Character Emotions (NEW)
+    _display_character_emotions(context)
+
+    # 13. Generation Strategy
     _display_generation_strategy(context)
 
-    # 12. Actual Formatted AI Prompt
+    # 14. Actual Formatted AI Prompt
     _display_actual_ai_prompt(context)
 
 
@@ -848,7 +885,102 @@ def _display_mysteries_themes(context: Dict[str, Any]) -> None:
 
 
 # ============================================================================
-# 11. GENERATION STRATEGY
+# 11. STORYLINE TYPE TRACKING (NEW)
+# ============================================================================
+
+def _display_storyline_context(context: Dict[str, Any]) -> None:
+    """Display current and dominant storyline types."""
+    storyline = context.get('storyline_type')
+    dominants = context.get('dominant_storylines', [])
+    
+    if not storyline and not dominants:
+        return
+    
+    _section("STORYLINE TYPE", "bold bright_green")
+    
+    _SL_COLORS = {
+        "action": "bold red", "mystery": "dim cyan", "romance": "magenta",
+        "political": "yellow", "horror": "red dim", "comedy": "bright_green",
+        "drama": "white", "exploration": "green",
+    }
+    _SL_ICONS = {
+        "action": "!!!", "mystery": "???", "romance": "<3", "political": ">>>",
+        "horror": "!!!", "comedy": ":)", "drama": "...", "exploration": "->",
+    }
+    
+    if storyline:
+        sl_color = _SL_COLORS.get(storyline, "white")
+        sl_icon = _SL_ICONS.get(storyline, "")
+        console.print(f"[cyan]Current Scene Storyline:[/cyan] [{sl_color}]{sl_icon} {storyline.upper()}[/{sl_color}]")
+    
+    if dominants:
+        console.print(f"[cyan]Dominant This Episode:[/cyan]")
+        for i, sl in enumerate(dominants, 1):
+            sl_color = _SL_COLORS.get(sl, "white")
+            sl_icon = _SL_ICONS.get(sl, "")
+            bar_len = max(1, 10 - i * 2)
+            bar = "█" * bar_len
+            console.print(f"  {i}. [{sl_color}]{sl_icon} {sl}[/{sl_color}] [{sl_color}]{bar}[/{sl_color}]")
+    
+    console.print()
+
+
+# ============================================================================
+# 12. CHARACTER EMOTIONS (NEW)
+# ============================================================================
+
+def _display_character_emotions(context: Dict[str, Any]) -> None:
+    """Display character emotions and emotion change tracking."""
+    char_emotions = context.get('character_emotions', {})
+    
+    if not char_emotions:
+        return
+    
+    _section("CHARACTER EMOTIONS", "bold magenta")
+    
+    emo_table = Table(show_header=True, header_style="dim magenta")
+    emo_table.add_column("Character", style="cyan", width=20)
+    emo_table.add_column("Current Emotion", style="magenta", width=35)
+    emo_table.add_column("Intensity", style="yellow", width=15)
+    
+    _INTENSITY_KEYWORDS = {
+        "high": ["furious", "terrified", "ecstatic", "desperate", "enraged", "seething", "overwhelmed"],
+        "low": ["slightly", "mildly", "somewhat", "quietly", "faintly"],
+    }
+    
+    for char_name, emotion in char_emotions.items():
+        emotion_str = str(emotion)
+        # Determine intensity
+        intensity = "moderate"
+        for kw in _INTENSITY_KEYWORDS["high"]:
+            if kw in emotion_str.lower():
+                intensity = "HIGH"
+                break
+        for kw in _INTENSITY_KEYWORDS["low"]:
+            if kw in emotion_str.lower():
+                intensity = "low"
+                break
+        
+        # Visual intensity bar
+        if intensity == "HIGH":
+            bar = "[red]██████████[/red]"
+        elif intensity == "low":
+            bar = "[dim]███░░░░░░░[/dim]"
+        else:
+            bar = "[yellow]██████░░░░[/yellow]"
+        
+        emo_table.add_row(str(char_name), emotion_str, bar)
+    
+    console.print(emo_table)
+    
+    # Show emotion changes from running_changes if available
+    # (These come from EntityChange objects with property="emotion")
+    # Context doesn't directly carry these, but we can hint at the flow
+    console.print()
+
+
+# ============================================================================
+# 13. GENERATION STRATEGY
 # ============================================================================
 
 def _display_generation_strategy(context: Dict[str, Any]) -> None:
@@ -1024,6 +1156,11 @@ def display_generation_result_story_debug(
     result_lines.append(f"[cyan]Status:[/cyan] {getattr(segment, 'status', 'N/A')}")
     result_lines.append(f"[cyan]Blocks:[/cyan] {len(getattr(segment, 'text_blocks', []))}")
 
+    # Storyline type
+    storyline = getattr(segment, 'storyline_type', None)
+    if storyline:
+        result_lines.append(f"[cyan]Storyline:[/cyan] [bold]{storyline.upper()}[/bold]")
+
     # Pacing
     pacing = getattr(segment, 'pacing_weight', 0)
     end_prox = getattr(segment, 'end_condition_proximity', 0)
@@ -1095,6 +1232,26 @@ def display_generation_result_story_debug(
             console.print(f"  • {note}")
         if len(change_notes) > 8:
             console.print(f"  [dim]... and {len(change_notes) - 8} more[/dim]")
+
+    # Character emotions in generation result
+    char_emotions = getattr(segment, 'character_emotions', {})
+    if char_emotions:
+        console.print(f"\n[bold magenta]Character Emotions:[/bold magenta]")
+        for char_name, emotion in char_emotions.items():
+            console.print(f"  [cyan]{char_name}:[/cyan] [magenta]{emotion}[/magenta]")
+    
+    # Emotion changes in running_changes
+    emotion_changes = [rc for rc in getattr(segment, 'running_changes', []) if getattr(rc, 'property', '') == 'emotion']
+    if emotion_changes:
+        console.print(f"\n[bold magenta]Emotion Shifts ({len(emotion_changes)}):[/bold magenta]")
+        for ec in emotion_changes:
+            from_val = getattr(ec, 'from_value', None)
+            to_val = getattr(ec, 'to_value', None)
+            name = getattr(ec, 'entity_name', '?')
+            if from_val:
+                console.print(f"  [cyan]{name}:[/cyan] [red]{from_val}[/red] -> [green]{to_val}[/green]")
+            else:
+                console.print(f"  [cyan]{name}:[/cyan] [green]{to_val}[/green]")
 
     console.print()
 

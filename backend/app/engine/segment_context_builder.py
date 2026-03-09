@@ -209,6 +209,13 @@ class SegmentContextBuilder:
             'user_choice': user_choice,
             
             # ====================================================================
+            # STORYLINE & CHARACTER EMOTIONS (NEW)
+            # ====================================================================
+            'storyline_type': current_seg.storyline_type,
+            'character_emotions': current_seg.character_emotions,
+            'dominant_storylines': self._get_dominant_storylines(episode_chain),
+            
+            # ====================================================================
             # BACKWARD COMPATIBILITY: Top-level episode fields
             # ====================================================================
             'episode_tone': current_seg.episode_tone,
@@ -1079,6 +1086,26 @@ class SegmentContextBuilder:
                         new_mysteries.append(note)
         
         return new_mysteries
+    
+    # =========================================================================
+    # NEW: STORYLINE TYPE TRACKING
+    # =========================================================================
+    
+    def _get_dominant_storylines(self, segment_chain: List[str]) -> List[str]:
+        """Get dominant storyline types across this episode's segments.
+        
+        Returns list of storyline types sorted by frequency (most common first).
+        """
+        from collections import Counter
+        storyline_counts = Counter()
+        
+        for seg_id in segment_chain:
+            seg = self.story.get_segment(seg_id)
+            if seg and hasattr(seg, 'storyline_type') and seg.storyline_type:
+                storyline_counts[seg.storyline_type] += 1
+        
+        # Return sorted by frequency, top 3
+        return [s for s, _ in storyline_counts.most_common(3)]
     
     # =========================================================================
     # NEW: STORY MOMENTUM METRICS

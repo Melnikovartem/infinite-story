@@ -25,12 +25,39 @@ class TextType(str, Enum):
     LOCATION_LABEL = "location_label"
     SYSTEM_MESSAGE = "system_message"
 
+
+class StorylineType(str, Enum):
+    """Storyline types that affect generation style and display rollout."""
+    ACTION = "action"               # Fast-paced combat, chases, physical danger
+    MYSTERY = "mystery"             # Investigation, clues, deduction, secrets
+    ROMANCE = "romance"             # Relationships, emotional bonds, intimacy
+    POLITICAL = "political"         # Intrigue, alliances, betrayal, power plays
+    HORROR = "horror"               # Dread, fear, the unknown, survival
+    COMEDY = "comedy"               # Humor, wit, absurdity, lighthearted moments
+    DRAMA = "drama"                 # Character conflict, moral dilemmas, emotional weight
+    EXPLORATION = "exploration"     # Discovery, travel, world-building, wonder
+
+
+# Default storyline display configs: {type: (color, delay_ms, prefix_icon)}
+STORYLINE_DISPLAY_CONFIG = {
+    StorylineType.ACTION:      {"color": "bold red",      "delay": 0.02, "icon": "⚔️",  "rollout": "burst"},
+    StorylineType.MYSTERY:     {"color": "dim cyan",      "delay": 0.08, "icon": "🔍", "rollout": "fade"},
+    StorylineType.ROMANCE:     {"color": "magenta",       "delay": 0.06, "icon": "💕", "rollout": "gentle"},
+    StorylineType.POLITICAL:   {"color": "yellow",        "delay": 0.05, "icon": "👑", "rollout": "measured"},
+    StorylineType.HORROR:      {"color": "red dim",       "delay": 0.10, "icon": "💀", "rollout": "crawl"},
+    StorylineType.COMEDY:      {"color": "bright_green",  "delay": 0.03, "icon": "😄", "rollout": "bounce"},
+    StorylineType.DRAMA:       {"color": "white",         "delay": 0.06, "icon": "🎭", "rollout": "steady"},
+    StorylineType.EXPLORATION: {"color": "green",         "delay": 0.05, "icon": "🗺️",  "rollout": "sweep"},
+}
+
+
 class TextBlock(BaseModel):
     """A block of text in a story segment."""
     type: TextType = Field(description="The type of text block (narrative, dialogue, etc.)")
     content: str = Field(description="The actual text content of the block")
     emotion: Optional[str] = Field(None, description="The emotion of the text block")
     character: Optional[str] = Field(None, description="The character speaking the text block")
+    storyline: Optional[str] = Field(None, description="Storyline type: action, mystery, romance, political, horror, comedy, drama, exploration")
 
 
 class TextGeneratorResponse(BaseModel):

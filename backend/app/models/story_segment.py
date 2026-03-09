@@ -3,7 +3,7 @@ from enum import Enum
 import logging
 from pydantic import BaseModel, Field
 
-from app.models.text_types import TextType
+from app.models.text_types import TextType, StorylineType
 from .story_block import StoryBlock
 from .text_types import TextBlock
 from .story_choice import StoryChoice
@@ -22,10 +22,12 @@ logger = logging.getLogger("infinite_story.models.story_segment")
 
 # Valid TextType values for prompt instruction
 _TEXT_TYPE_VALUES = ", ".join([t.value for t in TextType])
+_STORYLINE_VALUES = ", ".join([t.value for t in StorylineType])
 
 _SCENE_SCHEMA = ResponseSchema(
     fields=[
         FieldSpec("short_description", type="str", required=True, aliases=["description", "scene_description", "summary"]),
+        FieldSpec("storyline_type", type="str", aliases=["storyline", "scene_type", "narrative_style"]),
         FieldSpec("atmosphere", type="str", aliases=["mood", "tone"]),
         FieldSpec("time_of_day", type="str", aliases=["time", "timeOfDay"]),
         FieldSpec("weather", type="str", aliases=["weather_conditions"]),
@@ -34,6 +36,7 @@ _SCENE_SCHEMA = ResponseSchema(
         FieldSpec("characters_present", type="list", aliases=["characters", "present_characters"]),
         FieldSpec("locations_present", type="list", aliases=["locations", "present_locations"]),
         FieldSpec("character_status_change", type="dict", aliases=["character_changes", "status_changes"]),
+        FieldSpec("character_emotions", type="dict", aliases=["emotions", "character_feelings", "emotional_states"]),
         FieldSpec("location_status_change", type="dict", aliases=["location_changes"]),
         FieldSpec("change_notes", type="list", aliases=["changes", "notes", "episode_changes"]),
         FieldSpec("choice_1", type="str", required=True, aliases=["first_choice", "option_1"]),
@@ -44,6 +47,7 @@ _SCENE_SCHEMA = ResponseSchema(
 
 _SCENE_FALLBACK = {
     "short_description": "The scene continues",
+    "storyline_type": "drama",
     "atmosphere": "neutral",
     "time_of_day": None,
     "weather": None,
@@ -52,6 +56,7 @@ _SCENE_FALLBACK = {
     "characters_present": [],
     "locations_present": [],
     "character_status_change": {},
+    "character_emotions": {},
     "location_status_change": {},
     "change_notes": [],
     "choice_1": "Continue forward",
@@ -96,11 +101,19 @@ def _parse_text_blocks(raw_blocks: Any) -> List[TextBlock]:
                 block_type = TextType(raw_type)
             except ValueError:
                 block_type = TextType.NARRATOR_DESCRIBING
+            # Resolve storyline — validate against StorylineType enum
+            raw_storyline = item.get("storyline") or item.get("storyline_type")
+            if raw_storyline:
+                try:
+                    StorylineType(raw_storyline)
+                except ValueError:
+                    raw_storyline = None
             blocks.append(TextBlock(
                 type=block_type,
                 content=content,
                 emotion=item.get("emotion"),
                 character=item.get("character"),
+                storyline=raw_storyline,
             ))
     return blocks
 
@@ -163,10 +176,17 @@ class StorySegment(StoryBlock):
     # Core Scene Information
     short_description: str = Field(default="", description="Brief summary of the scene")
     recap: Optional[str] = Field(None, description="AI-generated recap of this segment (set after generation or at episode end)")
+    storyline_type: Optional[str] = Field(None, description="Storyline type: action, mystery, romance, political, horror, comedy, drama, exploration")
     atmosphere: Optional[str] = Field(None, description="The overall mood and atmosphere of the scene")
     time_of_day: Optional[str] = Field(None, description="When the scene takes place")
     weather: Optional[str] = Field(None, description="Weather conditions during the scene")
     key_items: List[str] = Field(default_factory=list, description="Important items present or mentioned in the scene")
+    
+    # Character emotions snapshot at this segment
+    character_emotions: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Character emotions at this segment: {character_id_or_name: emotion_description}"
+    )
 
     text_blocks: List[TextBlock] = Field(default_factory=list, description="Sequence of text blocks that make up the scene")
 
@@ -511,8 +531,14 @@ class StorySegment(StoryBlock):
             "\n\nIMPORTANT: text_blocks must be a JSON array of objects, each with:\n"
             f"  - type: one of [{_TEXT_TYPE_VALUES}]\n"
             "  - content: the actual text\n"
-            "  - emotion: (optional) the emotional tone\n"
+            "  - emotion: (optional) the emotional tone, e.g. 'fearful', 'hopeful', 'suspicious'\n"
             "  - character: (optional) who is speaking\n"
+            f"  - storyline: (optional) one of [{_STORYLINE_VALUES}] — what kind of storyline this block serves\n"
+            "\nIMPORTANT: storyline_type must be one of: action, mystery, romance, political, horror, comedy, drama, exploration\n"
+            "  This describes the DOMINANT storyline of this scene.\n"
+            "\nIMPORTANT: character_emotions must be a JSON object mapping character names to their current emotion:\n"
+            '  e.g. {"Thorne": "determined but anxious", "Lyra": "quietly hopeful", "King Aldric": "seething with rage"}\n'
+            "  Track how each present character FEELS at the END of this scene. Be specific and nuanced.\n"
         )
 
         scene_data: dict = await generator.generate_structured(
@@ -652,10 +678,26 @@ class StorySegment(StoryBlock):
         
         # Create new segment
         logger.debug(f"[GEN_SCENE_CREATE_OBJ] Creating new StorySegment object")
+        # Resolve storyline_type from AI response
+        raw_storyline = scene_data.get("storyline_type") or scene_data.get("storyline")
+        if raw_storyline:
+            try:
+                StorylineType(raw_storyline)
+            except ValueError:
+                raw_storyline = None
+        
+        # Extract character emotions from AI response
+        raw_char_emotions = scene_data.get("character_emotions") or {}
+        if not isinstance(raw_char_emotions, dict):
+            raw_char_emotions = {}
+        # Normalize: ensure all values are strings
+        character_emotions = {str(k): str(v) for k, v in raw_char_emotions.items() if v}
+        
         new_segment = StorySegment(
             story=self.story,
             id=new_segment_id,
             short_description=scene_data.get("short_description") or "The scene continues",
+            storyline_type=raw_storyline,
             atmosphere=scene_data.get("atmosphere"),
             time_of_day=scene_data.get("time_of_day"),
             weather=scene_data.get("weather"),
@@ -663,6 +705,7 @@ class StorySegment(StoryBlock):
             text_blocks=scene_text_blocks,
             characters_present=scene_data.get("characters_present") or [],
             locations_present=scene_data.get("locations_present") or [],
+            character_emotions=character_emotions,
             # Link to parent segment for genealogy tracking
             parent_segment_id=self.id,
             # Episode/arc info (may be updated by lifecycle management above)
@@ -720,6 +763,56 @@ class StorySegment(StoryBlock):
             )
             logger.debug(f"  Location '{loc_id}' status: {new_status}")
 
+        # Process character emotions into EntityChange running_changes + character running_status
+        if character_emotions:
+            logger.debug(f"Processing {len(character_emotions)} character emotions")
+            # Try to find previous emotions for comparison
+            prev_emotions = self.character_emotions if hasattr(self, 'character_emotions') else {}
+            for char_name, new_emotion in character_emotions.items():
+                # Find character ID by name
+                char_id = char_name
+                character_obj = None
+                for c in self.story.get_all_characters():
+                    if c.name.lower() == char_name.lower():
+                        char_id = c.id
+                        character_obj = c
+                        break
+                
+                old_emotion = prev_emotions.get(char_name, prev_emotions.get(char_id))
+                
+                # Create EntityChange for emotion shift
+                if old_emotion and old_emotion != new_emotion:
+                    new_segment.running_changes.append(EntityChange(
+                        entity_id=char_id,
+                        entity_type="character",
+                        entity_name=char_name,
+                        property="emotion",
+                        from_value=old_emotion,
+                        to_value=new_emotion,
+                        description=f"{char_name}'s emotion changed from {old_emotion} to {new_emotion}",
+                    ))
+                elif not old_emotion:
+                    new_segment.running_changes.append(EntityChange(
+                        entity_id=char_id,
+                        entity_type="character",
+                        entity_name=char_name,
+                        property="emotion",
+                        from_value=None,
+                        to_value=new_emotion,
+                        description=f"{char_name} feels {new_emotion}",
+                    ))
+                
+                # Update character running_status if character object found
+                if character_obj:
+                    character_obj.add_state(
+                        segment_id=new_segment.id,
+                        emotion=new_emotion,
+                        status="present",
+                        notes=f"Emotion: {new_emotion}"
+                    )
+                
+                logger.debug(f"  Character '{char_name}' emotion: {old_emotion} -> {new_emotion}")
+        
         logger.debug(f"[GEN_SCENE_UPDATE_STATUS_DONE] Status updates completed")
 
         # Set up the choice pointers for connecting choice
