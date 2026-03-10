@@ -143,6 +143,11 @@ class SegmentContextBuilder:
             'magic_system': self._get_magic_system_context(),
             
             # ====================================================================
+            # WORLD CONTEXT (fundamental truths & worldbuilding)
+            # ====================================================================
+            'world_context': self._get_world_context(),
+            
+            # ====================================================================
             # EPISODE CONTEXT (all episodes in current arc)
             # ====================================================================
             'current_episode': self._get_current_episode_info(current_seg),
@@ -1386,3 +1391,32 @@ class SegmentContextBuilder:
             'technology_level': '',
             'status': 'unknown',
         }
+    
+    def _get_world_context(self) -> Dict[str, Any]:
+        """Get world context (fundamental truths and worldbuilding).
+        
+        Returns: {
+            'fundamental_truths': [str],
+            'worldbuilding': str,
+            'story_description': str
+        }
+        """
+        result: Dict[str, Any] = {
+            'fundamental_truths': [],
+            'worldbuilding': '',
+            'story_description': self.story.description or '',
+        }
+        
+        if hasattr(self.story, '_context') and self.story._context:
+            ctx = self.story._context
+            result['fundamental_truths'] = getattr(ctx, 'fundamental_truths', [])
+            worldbuilding = getattr(ctx, 'worldbuilding', '')
+            if isinstance(worldbuilding, dict):
+                parts = []
+                for key, value in worldbuilding.items():
+                    parts.append(f"{key}: {value}")
+                result['worldbuilding'] = '; '.join(parts)
+            else:
+                result['worldbuilding'] = str(worldbuilding) if worldbuilding else ''
+        
+        return result
