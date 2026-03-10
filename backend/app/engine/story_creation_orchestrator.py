@@ -341,8 +341,31 @@ Write an opening scene that:
             self._emit(9, "Choice Generator", "running")
             choices_list: List[StoryChoice] = []
             choice_count = 0
-            for choice_text in [scene_data.get("choice_1"), scene_data.get("choice_2")]:
-                if choice_text and len(choice_text.strip()) > 5:
+            
+            # Get choices from either new format (choices array) or old format (choice_1, choice_2)
+            choices_data = scene_data.get("choices")
+            if not choices_data:
+                # Fallback to old format for compatibility
+                choices_data = []
+                for choice_key in ["choice_1", "choice_2"]:
+                    choice_text = scene_data.get(choice_key)
+                    if choice_text:
+                        choices_data.append({"text": choice_text})
+            
+            # Create up to 4 choices
+            for choice_item in choices_data[:4]:
+                choice_text = None
+                choice_tone = None
+                choice_consequence = None
+                
+                if isinstance(choice_item, dict):
+                    choice_text = choice_item.get("text")
+                    choice_tone = choice_item.get("tone")
+                    choice_consequence = choice_item.get("consequence_hint")
+                elif isinstance(choice_item, str):
+                    choice_text = choice_item
+                
+                if choice_text and len(str(choice_text).strip()) > 5:
                     choice_count += 1
                     choice_id = f"choice_{choice_count}_{uuid.uuid4().hex[:8]}"
                     choice = StoryChoice(
@@ -350,7 +373,9 @@ Write an opening scene that:
                         id=choice_id,
                         from_segment_id="opening",
                         to_segment_id=None,
-                        text=choice_text.strip(),
+                        text=str(choice_text).strip(),
+                        tone=choice_tone,
+                        consequence_hint=choice_consequence,
                     )
                     opening_segment.add_outgoing_choice(choice)
                     story.add_choice(choice)

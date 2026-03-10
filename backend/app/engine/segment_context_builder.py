@@ -432,13 +432,17 @@ class SegmentContextBuilder:
         current_segment: StorySegment,
         changes: List[str]
     ) -> bool:
-        """Decide if this segment should end the episode."""
+        """Decide if this segment should end the episode.
+        
+        Primary signal: end_condition_proximity >= 0.8 (AI assessment of narrative proximity)
+        Secondary signals: segment count >= 25 (hard cap), end keywords in change notes
+        """
         if current_segment.end_condition_proximity >= 0.8:
             logger.debug(f"Segment {current_segment.id}: proximity >= 0.8, transitioning")
             return True
         
-        if current_segment.segment_number_in_episode >= 18:
-            logger.debug(f"Segment {current_segment.id}: count >= 18, transitioning")
+        if current_segment.segment_number_in_episode >= 25:
+            logger.debug(f"Segment {current_segment.id}: count >= 25 (hard cap), forcing transition")
             return True
         
         end_keywords = ['chapter', 'end', 'conclusion', 'climax', 'finale']
@@ -454,14 +458,31 @@ class SegmentContextBuilder:
         segment: StorySegment,
         will_transition: bool
     ) -> float:
-        """Calculate pacing weight (0.0 to 1.0)."""
+        """Calculate pacing weight (0.0 to 1.0).
+        
+        Factors:
+        - If transitioning: 0.9 (near end)
+        - Otherwise: quadratic interpolation between segment position and end_condition_proximity
+        - Endpoint: AI's assessment of narrative proximity to episode end
+        """
         if will_transition:
             return 0.9
         
         seg_num = segment.segment_number_in_episode
         max_segments = 20
         
-        weight = (seg_num / max_segments) ** 2
+        # Quadratic ramp based on segment position
+        segment_weight = (seg_num / max_segments) ** 2
+        
+        # Blend with AI's end_condition_proximity assessment
+        # Give more weight to AI assessment if it's high
+        if segment.end_condition_proximity > 0.5:
+            # AI thinks we're approaching end: favor its assessment
+            weight = segment.end_condition_proximity * 0.7 + segment_weight * 0.3
+        else:
+            # AI thinks we're early: favor segment position
+            weight = segment_weight * 0.7 + segment.end_condition_proximity * 0.3
+        
         return min(weight, 0.99)
     
     def _get_previous_episodes_context(self, full_parent_chain: List[str], current_episode: int, current_arc_id: Optional[str] = None) -> List[Dict[str, Any]]:

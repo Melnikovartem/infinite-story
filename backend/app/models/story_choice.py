@@ -16,6 +16,14 @@ class StoryChoice(StoryBlock):
     from_segment_id: Optional[str] = None
     to_segment_id: Optional[str] = None
     text: str
+    tone: Optional[str] = Field(
+        None,
+        description="The tone of this choice: aggressive, cautious, diplomatic, exploratory, etc."
+    )
+    consequence_hint: Optional[str] = Field(
+        None,
+        description="A brief hint about what this choice might lead to"
+    )
     clicks_logged: int = 0
     clicks_anonymous: int = 0
     flags: ChoiceFlags = Field(default_factory=ChoiceFlags)
@@ -41,6 +49,10 @@ class StoryChoice(StoryBlock):
     def to_context_full(self) -> str:
         """Full context: choice text with metadata."""
         parts = [f"Choice: {self.text}"]
+        if self.tone:
+            parts.append(f"Tone: {self.tone}")
+        if self.consequence_hint:
+            parts.append(f"May lead to: {self.consequence_hint}")
         if self.from_segment_id:
             parts.append(f"From: {self.from_segment_id}")
         if self.to_segment_id:

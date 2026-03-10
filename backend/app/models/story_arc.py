@@ -68,6 +68,26 @@ class StoryArc(StoryBase):
         ge=0,
         description="Number of episodes in this arc"
     )
+    min_episodes: int = Field(
+        8,
+        ge=1,
+        description="Minimum episodes before arc can complete (even if goal is reached)"
+    )
+    max_episodes: int = Field(
+        25,
+        ge=1,
+        description="Maximum episodes for arc (arc must complete by this point)"
+    )
+    conflict_resolution_progress: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="How resolved is the central conflict (0.0=unresolved, 1.0=resolved)"
+    )
+    mysteries_resolved: List[str] = Field(
+        default_factory=list,
+        description="Which mysteries from unresolved_mysteries have been resolved"
+    )
     
     start_segment_id: str = Field(
         ...,

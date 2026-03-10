@@ -45,8 +45,8 @@ class PromptFormatter:
                 if arc.get('recap'):
                     # Include the actual recap text (the whole point of this section)
                     recap_text = arc['recap']
-                    if len(recap_text) > 500:
-                        recap_text = recap_text[:500] + "..."
+                    if len(recap_text) > 1500:
+                        recap_text = recap_text[:1500] + "..."
                     parts.append(f"What happened: {recap_text}")
                 if arc.get('resolution'):
                     parts.append(f"Outcome: {arc['resolution']}")
@@ -73,7 +73,7 @@ class PromptFormatter:
             if current_arc.get('themes'):
                 parts.append(f"Themes: {', '.join(current_arc['themes'][:5])}")
             if current_arc.get('previous_arc_summary'):
-                parts.append(f"\nPrevious arc context: {current_arc['previous_arc_summary'][:300]}")
+                parts.append(f"\nPrevious arc context: {current_arc['previous_arc_summary'][:800]}")
             if current_arc.get('unresolved_mysteries'):
                 parts.append(f"Open mysteries: {', '.join(current_arc['unresolved_mysteries'][:5])}")
             if current_arc.get('plot_hooks'):
@@ -90,7 +90,7 @@ class PromptFormatter:
                     ep_line += f": {recap['title']}"
                 parts.append(ep_line)
                 if recap.get('summary'):
-                    parts.append(f"  {recap['summary'][:200]}")
+                    parts.append(f"  {recap['summary'][:600]}")
                 if recap.get('hook_for_next'):
                     parts.append(f"  Hook: {recap['hook_for_next']}")
         
@@ -100,7 +100,7 @@ class PromptFormatter:
         if context.get('previous_episode_recap'):
             prev_title = context.get('previous_episode_title', 'Last Episode')
             parts.append(f"\n=== PREVIOUSLY ({prev_title}) ===")
-            parts.append(context['previous_episode_recap'][:500])
+            parts.append(context['previous_episode_recap'][:1500])
         
         # ================================================================
         # CURRENT EPISODE & SCENE
@@ -133,11 +133,11 @@ class PromptFormatter:
                         parts.append(f"[{seg_info.get('segment_id', '?')}] {seg_info['description']}")
                     if seg_info.get('text'):
                         text = seg_info['text']
-                        if len(text) > 400:
-                            text = text[:400] + "..."
+                        if len(text) > 1000:
+                            text = text[:1000] + "..."
                         parts.append(text)
                 elif isinstance(seg_info, str):
-                    parts.append(seg_info[:400])
+                    parts.append(seg_info[:1000])
         elif context.get('previous_segments'):
             parts.append("\n=== RECENT SCENES ===")
             for seg in context['previous_segments'][-3:]:
@@ -157,7 +157,7 @@ class PromptFormatter:
                 if status:
                     line += f" ({status})"
                 if desc:
-                    line += f" — {desc[:80]}"
+                    line += f" — {desc[:200]}"
                 char_sections.append(f"• {line}")
         
         # Override with episode-level updates
@@ -203,7 +203,7 @@ class PromptFormatter:
                         name = f.get('name', f.get('id', '?'))
                         desc = f.get('description', f.get('status', ''))
                         goals = f.get('goals', [])
-                        line = f"• {name}: {desc[:80]}"
+                        line = f"• {name}: {desc[:200]}"
                         if goals and isinstance(goals, list):
                             line += f" (goals: {', '.join(goals[:2])})"
                         parts.append(line)
@@ -214,10 +214,10 @@ class PromptFormatter:
             ms = context['magic_system']
             if isinstance(ms, dict) and ms.get('name'):
                 parts.append(f"\n=== MAGIC/TECH SYSTEM ===")
-                parts.append(f"{ms['name']}: {ms.get('description', ms.get('summary', ''))[:150]}")
+                parts.append(f"{ms['name']}: {ms.get('description', ms.get('summary', ''))[:400]}")
             elif isinstance(ms, str) and ms:
                 parts.append(f"\n=== MAGIC/TECH SYSTEM ===")
-                parts.append(ms[:150])
+                parts.append(ms[:400])
         
         # ================================================================
         # MYSTERIES & THEMES — narrative tracking
@@ -263,6 +263,38 @@ class PromptFormatter:
             parts.append(f"The player chose: {context['user_choice']}")
         
         # ================================================================
+        # NARRATIVE DYNAMICS — tension, momentum, pacing trends
+        # ================================================================
+        if context.get('story_momentum') or context.get('tension_level') or context.get('pacing_trend'):
+            parts.append("\n=== NARRATIVE DYNAMICS ===")
+            
+            if context.get('story_momentum'):
+                momentum = context['story_momentum']
+                if isinstance(momentum, dict):
+                    direction = momentum.get('direction', 'unknown')
+                    intensity = momentum.get('intensity', 0)
+                    parts.append(f"Story momentum: {direction} (intensity: {intensity:.0%})")
+                else:
+                    parts.append(f"Story momentum: {str(momentum)}")
+            
+            if context.get('tension_level'):
+                tension = context['tension_level']
+                if isinstance(tension, dict):
+                    level = tension.get('level', 'unknown')
+                    score = tension.get('score', 0)
+                    parts.append(f"Tension level: {level} (score: {score:.0%})")
+                else:
+                    parts.append(f"Tension level: {str(tension)}")
+            
+            if context.get('pacing_trend'):
+                trend = context['pacing_trend']
+                if isinstance(trend, dict):
+                    trend_type = trend.get('trend', 'steady')
+                    parts.append(f"Pacing trend: {trend_type}")
+                else:
+                    parts.append(f"Pacing trend: {str(trend)}")
+        
+        # ================================================================
         # PACING — where we are in the episode
         # ================================================================
         pacing = context.get('pacing_weight', 0)
@@ -274,22 +306,45 @@ class PromptFormatter:
         parts.append(f"Progress through episode: {pacing_desc} ({pacing:.0%})")
         
         # ================================================================
-        # INSTRUCTIONS
+        # INSTRUCTIONS (Dynamic based on pacing)
         # ================================================================
         parts.append("\n=== GENERATION INSTRUCTIONS ===")
-        parts.append("Write the next scene that:")
+        
+        # Pacing-aware instructions
+        if pacing < 0.2:
+            parts.append("OPENING PHASE — Establish the situation and stakes")
+            parts.append("• Paint the scene vividly; let readers feel the world")
+            parts.append("• Introduce the immediate situation and what's at play")
+            parts.append("• Hint at larger forces or conflicts ahead")
+        elif pacing < 0.5:
+            parts.append("RISING ACTION — Develop conflict and deepen relationships")
+            parts.append("• Build on established elements; introduce complications")
+            parts.append("• Show how characters respond to challenges")
+            parts.append("• Create opportunities for meaningful choices")
+        elif pacing < 0.8:
+            parts.append("ESCALATION — Raise tension and create stakes")
+            parts.append("• Push characters toward difficult decisions")
+            parts.append("• Reveal new information or complications")
+            parts.append("• Build urgency and momentum toward the climax")
+        else:
+            parts.append("CLIMAX/RESOLUTION — Bring tensions to a head")
+            parts.append("• Escalate the central conflict toward resolution")
+            parts.append("• Create moments of truth for key characters")
+            parts.append("• Set up the bridge to the next episode")
+        
+        # Universal instructions
+        parts.append("\nCore requirements:")
         parts.append("1. Follows naturally from the player's choice")
         parts.append("2. Maintains continuity with previous arcs and episodes")
-        parts.append("3. Respects character states, relationships, and established world facts")
-        parts.append("4. Advances the current arc's premise and central conflict")
-        parts.append("5. Provides meaningful next choices")
+        parts.append("3. Respects character states, relationships, and established facts")
+        parts.append("4. Advances the arc's premise and central conflict")
+        parts.append("5. Provides meaningful choices (1-4 options with varied tones)")
         parts.append("6. Tracks how each character's EMOTION changes through the scene")
-        parts.append("7. Sets the storyline_type to match the scene's dominant narrative style")
-        parts.append("8. Uses varied text block types — mix narration, dialogue, thoughts, sounds, visual cues")
-        parts.append("9. Assigns a storyline tag to each text block where relevant (action for combat, mystery for clues, etc.)")
+        parts.append("7. Uses varied text block types — mix narration, dialogue, thoughts, sounds, visuals")
+        parts.append("8. For each choice: include tone (aggressive/cautious/diplomatic) and consequence_hint")
         
         parts.append("\nRespond with JSON containing: short_description, storyline_type, text_blocks, atmosphere, ")
-        parts.append("time_of_day, weather, characters_present, locations_present, character_emotions, choice_1, choice_2")
+        parts.append("time_of_day, weather, characters_present, locations_present, character_emotions, end_condition_progress, choices")
         
         return "\n".join(parts)
     

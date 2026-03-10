@@ -39,8 +39,8 @@ _SCENE_SCHEMA = ResponseSchema(
         FieldSpec("character_emotions", type="dict", aliases=["emotions", "character_feelings", "emotional_states"]),
         FieldSpec("location_status_change", type="dict", aliases=["location_changes"]),
         FieldSpec("change_notes", type="list", aliases=["changes", "notes", "episode_changes"]),
-        FieldSpec("choice_1", type="str", required=True, aliases=["first_choice", "option_1"]),
-        FieldSpec("choice_2", type="str", required=True, aliases=["second_choice", "option_2"]),
+        FieldSpec("end_condition_progress", type="float", aliases=["end_proximity", "progress_to_end"]),
+        FieldSpec("choices", type="list", required=True, aliases=["player_choices", "available_choices"]),
     ],
     expect_array=False,
 )
@@ -59,8 +59,11 @@ _SCENE_FALLBACK = {
     "character_emotions": {},
     "location_status_change": {},
     "change_notes": [],
-    "choice_1": "Continue forward",
-    "choice_2": "Reconsider your options",
+    "end_condition_progress": 0.3,
+    "choices": [
+        {"text": "Continue forward", "tone": "cautious", "consequence_hint": "You proceed as planned"},
+        {"text": "Reconsider your options", "tone": "cautious", "consequence_hint": "You pause to think carefully"},
+    ],
 }
 
 
@@ -629,9 +632,10 @@ class StorySegment(StoryBlock):
                         self.story.get_arc(self.arc_id).episode_count = arc.episode_count
                     logger.info(f"[GEN_SCENE_ARC_EP_COUNT] Arc {self.arc_id} episode_count now {arc.episode_count}")
                 
-                # Step 3: Check for arc transition (after ARC_COMPLETION_THRESHOLD episodes)
-                if arc and arc.episode_count >= ARC_COMPLETION_THRESHOLD:
-                    logger.info(f"[GEN_SCENE_ARC_TRANSITION] Arc {self.arc_id} reached {ARC_COMPLETION_THRESHOLD} episodes, checking transition")
+                # Step 3: Check for arc transition (when arc.episode_count >= arc.min_episodes)
+                # The ArcTransitionManager will use the arc's actual min/max thresholds
+                if arc and arc.episode_count >= arc.min_episodes:
+                    logger.info(f"[GEN_SCENE_ARC_TRANSITION] Arc {self.arc_id} reached {arc.episode_count} episodes, checking transition (min: {arc.min_episodes}, max: {arc.max_episodes})")
                     try:
                         transition_manager = ArcTransitionManager(self.story, generator)
                         new_arc_id = await transition_manager.check_and_handle_arc_completion(
@@ -693,6 +697,14 @@ class StorySegment(StoryBlock):
         # Normalize: ensure all values are strings
         character_emotions = {str(k): str(v) for k, v in raw_char_emotions.items() if v}
         
+        # Extract end_condition_progress from scene data (0.0-1.0)
+        end_condition_progress = scene_data.get("end_condition_progress", 0.0)
+        try:
+            end_condition_progress = float(end_condition_progress)
+            end_condition_progress = max(0.0, min(1.0, end_condition_progress))  # Clamp to 0-1
+        except (ValueError, TypeError):
+            end_condition_progress = 0.0
+        
         new_segment = StorySegment(
             story=self.story,
             id=new_segment_id,
@@ -723,6 +735,8 @@ class StorySegment(StoryBlock):
             triggers_episode_transition=should_transition,
             # Episode tracking: change notes from AI
             change_notes=scene_data.get("change_notes") or [],
+            # Pacing: end condition progress from AI assessment
+            end_condition_proximity=end_condition_progress,
         )
         logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
         logger.debug(f"[GEN_SCENE_ARC_INFO] arc_id={new_segment.arc_id}, episode={new_segment.episode_number}, seg_in_ep={new_segment.segment_number_in_episode}")
@@ -821,40 +835,55 @@ class StorySegment(StoryBlock):
         new_segment.add_incoming_choice(connecting_choice)
         self.add_outgoing_choice(connecting_choice)
 
-        # Generate unique choice IDs based on total number of choices
-        logger.debug(f"[GEN_SCENE_CREATE_CHOICES] Creating new choices for the segment")
+        # Generate unique choice IDs and create choices from the choices array
+        logger.debug(f"[GEN_SCENE_CREATE_CHOICES] Creating choices for the segment")
         choice_count = len(self.story.get_all_choices())
-        choice_1_id = f"choice_{choice_count + 1}_{uuid.uuid4().hex[:8]}"
-        choice_2_id = f"choice_{choice_count + 2}_{uuid.uuid4().hex[:8]}"
-
-        # Create the two new choices leading from new segment
-        choice_1 = StoryChoice(
-            story=self.story,
-            id=choice_1_id,
-            from_segment_id=new_segment.id,
-            to_segment_id=None,
-            text=scene_data.get("choice_1") or "Continue forward"
-        )
-
-        choice_2 = StoryChoice(
-            story=self.story,
-            id=choice_2_id,
-            from_segment_id=new_segment.id,
-            to_segment_id=None,
-            text=scene_data.get("choice_2") or "Reconsider your options"
-        )
-        logger.debug(f"[GEN_SCENE_CHOICES_CREATED] Created choices: {choice_1_id}, {choice_2_id}")
-
-        # Add outgoing choices to new segment
-        new_segment.add_outgoing_choice(choice_1)
-        new_segment.add_outgoing_choice(choice_2)
         
+        # Get choices array from scene data, default to fallback if missing
+        choices_data = scene_data.get("choices", _SCENE_FALLBACK.get("choices", []))
+        
+        # Ensure we have 1-4 choices
+        if not choices_data:
+            choices_data = _SCENE_FALLBACK.get("choices", [])
+        choices_data = choices_data[:4]  # Cap at 4
+        if not choices_data:
+            choices_data = _SCENE_FALLBACK.get("choices", [])
+        
+        # Create StoryChoice objects from the choices array
+        created_choices = []
+        for i, choice_data in enumerate(choices_data):
+            choice_id = f"choice_{choice_count + i + 1}_{uuid.uuid4().hex[:8]}"
+            
+            # Handle choice_data as dict or string
+            if isinstance(choice_data, dict):
+                choice_text = choice_data.get("text", f"Option {i+1}")
+                choice_tone = choice_data.get("tone")
+                choice_consequence = choice_data.get("consequence_hint")
+            else:
+                choice_text = str(choice_data) if choice_data else f"Option {i+1}"
+                choice_tone = None
+                choice_consequence = None
+            
+            choice = StoryChoice(
+                story=self.story,
+                id=choice_id,
+                from_segment_id=new_segment.id,
+                to_segment_id=None,
+                text=choice_text or f"Option {i+1}",
+                tone=choice_tone,
+                consequence_hint=choice_consequence
+            )
+            created_choices.append(choice)
+            new_segment.add_outgoing_choice(choice)
+        
+        logger.debug(f"[GEN_SCENE_CHOICES_CREATED] Created {len(created_choices)} choices")
+
         # Save everything
         save_start = time.time()
         logger.debug(f"[GEN_SCENE_SAVE_START] Saving segment and choices")
         new_segment.save()
-        choice_1.save()
-        choice_2.save()
+        for choice in created_choices:
+            choice.save()
         save_duration = time.time() - save_start
         logger.debug(f"[GEN_SCENE_SAVE_DONE] All entities saved in {save_duration:.2f}s")
         logger.info(f"[GEN_SCENE_COMPLETE] Scene generation completed successfully. New segment: {new_segment.id}")
