@@ -304,16 +304,16 @@ class PromptFormatter:
                 desc = info.get('short_description') or info.get('description', '') if isinstance(info, dict) else ''
                 line = f"  {name}"
                 if desc:
-                    line += f" - {desc[:60]}"
+                    line += f" - {desc[:200]}"  # Increased from 60 to 200 for fuller descriptions
                 if isinstance(ep_state, dict) and ep_state.get('emotional_status'):
                     line += f" | {ep_state['emotional_status']}"
                 if isinstance(ep_state, dict) and ep_state.get('status'):
-                    line += f" | {ep_state['status'][:60]}"
+                    line += f" | {ep_state['status'][:100]}"  # Increased from 60 to 100
                 if isinstance(seg_state, dict) and seg_state.get('status'):
                     line += f" | Now: {seg_state['status']}"
                 goal = char_goals.get(char_id, '')
                 if goal:
-                    line += f" | Goal: {goal[:50]}"
+                    line += f" | Goal: {goal[:100]}"  # Increased from 50 to 100
                 char_sections.append(line)
         
         # Minor characters (compact list)
@@ -383,7 +383,7 @@ class PromptFormatter:
                         if alignment:
                             line += f" ({alignment})"
                         if desc:
-                            line += f" - {desc[:80]}"
+                            line += f" - {desc[:250]}"  # Increased from 80 to 250
                         if goals and isinstance(goals, list):
                             line += f" | Goals: {', '.join(goals[:2])}"
                         parts.append(line)
@@ -400,13 +400,13 @@ class PromptFormatter:
         if isinstance(magic, dict) and magic.get('name') and magic['name'] != 'Unknown':
             parts.append(f"\n=== MAGIC/TECH: {magic['name']} ===")
             if magic.get('description'):
-                parts.append(f"{magic['description'][:200]}")
+                parts.append(f"{magic['description'][:500]}")  # Increased from 200 to 500
             if magic.get('capabilities'):
-                parts.append(f"Can do: {', '.join(magic['capabilities'][:3])}")
+                parts.append(f"Can do: {', '.join(magic['capabilities'][:5])}")  # Show more capabilities
             if magic.get('limitations'):
-                parts.append(f"Limits: {', '.join(magic['limitations'][:3])}")
+                parts.append(f"Limits: {', '.join(magic['limitations'][:5])}")  # Show more limits
             if magic.get('costs'):
-                parts.append(f"Costs: {', '.join(magic['costs'][:3])}")
+                parts.append(f"Costs: {', '.join(magic['costs'][:5])}")  # Show more costs
             parts.append("(Characters must respect these rules)")
         elif isinstance(magic, str) and magic:
             parts.append(f"\n=== MAGIC/TECH SYSTEM ===")
