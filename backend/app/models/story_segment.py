@@ -747,8 +747,17 @@ class StorySegment(StoryBlock):
         MAX_RUNNING_STATUS = 50
         logger.debug(f"[GEN_SCENE_COPY_STATUS] Copying character and location statuses")
         if should_transition:
-            # Episode boundary: start fresh — running status was captured in the episode recap
-            logger.debug(f"[GEN_SCENE_STATUS_RESET] Resetting running status for new episode")
+            # Episode boundary: carry forward recent status entries for continuity
+            # Keep last 10 entries to give new episode context about character/location state
+            logger.debug(f"[GEN_SCENE_STATUS_TRANSITION] Carrying forward recent status to new episode")
+            recent_char_count = min(10, len(self.characters_running_status))
+            recent_loc_count = min(10, len(self.locations_running_status))
+            new_segment.characters_running_status.extend(
+                self.characters_running_status[-recent_char_count:] if recent_char_count > 0 else []
+            )
+            new_segment.locations_running_status.extend(
+                self.locations_running_status[-recent_loc_count:] if recent_loc_count > 0 else []
+            )
         else:
             # Within episode: carry forward, pruning old entries if needed
             carried_chars = self.characters_running_status[-MAX_RUNNING_STATUS:] if len(self.characters_running_status) > MAX_RUNNING_STATUS else self.characters_running_status
