@@ -580,9 +580,27 @@ class PromptFormatter:
         else:
             parts.append("\nPacing note: Nearing the climax. Build tension, converge plot threads.")
         
-        parts.append("\nRespond with JSON containing: short_description, storyline_type, text_blocks, atmosphere, ")
-        parts.append("time_of_day, weather, key_items, characters_present, locations_present, ")
-        parts.append("character_emotions, character_status_change, location_status_change, choice_1, choice_2")
+        parts.append("\n=== RESPONSE FORMAT (JSON) ===")
+        parts.append("You MUST respond with valid JSON matching this structure:")
+        parts.append("""{
+  "short_description": "Brief summary of what happens",
+  "storyline_type": "action|mystery|romance|political|horror|comedy|drama|exploration",
+  "atmosphere": "The emotional/sensory mood",
+  "time_of_day": "dawn|morning|afternoon|sunset|night",
+  "weather": "Weather or 'clear'",
+  "text_blocks": [
+    {"type": "narrator_describing", "content": "Scene text...", "emotion": "tense"},
+    {"type": "character_speech", "content": "Dialogue", "character": "Name"}
+  ],
+  "characters_present": ["Name 1", "Name 2"],
+  "locations_present": ["Location"],
+  "character_emotions": {"Name": "specific emotion"},
+  "character_status_change": {"Name": "what changed"},
+  "location_status_change": {"Location": "how it changed"},
+  "change_notes": ["Key change"],
+  "choice_1": "Player choice A",
+  "choice_2": "Player choice B"
+}""")
         
         return "\n".join(parts)
     
