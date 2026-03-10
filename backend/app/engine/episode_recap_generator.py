@@ -125,7 +125,7 @@ Additionally, extract:
 - UNRESOLVED_NEW: Any NEW mysteries/questions raised this episode
 """
         
-        # 5. Call AI via generate_structured
+        # 5. Call AI via generate_structured with system prompt and JSON example
         logger.debug(f"Calling AI for episode {episode_number} recap generation")
         fallback = {
             "title": f"Episode {episode_number}",
@@ -135,8 +135,21 @@ Additionally, extract:
             "hook_for_next": "",
             "unresolved_new": [],
         }
+        
+        # System prompt for recap generation
+        recap_system_prompt = """You are an expert narrative summarizer for serialized storytelling. Your role is to capture the essence of an episode while preserving all critical continuity details.
+
+When summarizing an episode:
+- Capture what actually happened (events, dialogue, character moments) not just high-level themes
+- Track character states, relationships, and developments across scenes
+- Note any items, resources, or locations that were introduced or changed
+- Identify which themes were explored and how they manifested
+- Create a bridge to the next episode that respects story momentum
+
+Your summaries are used for AI context in future scenes, so be precise and complete. Avoid vague language."""
+        
         recap_data = await self.generator.generate_structured(
-            system_prompt="",
+            system_prompt=recap_system_prompt,
             user_prompt=recap_prompt,
             schema=RECAP_SCHEMA,
             fallback_defaults=[fallback],
@@ -314,8 +327,19 @@ Additionally, extract:
             "episode_focus": "",
             "story_hooks": [],
         }
+        # System prompt for episode context generation
+        ep_system_prompt = """You are a narrative architect designing the next episode of a serialized story. Your role is to set up the narrative direction, tone, and goals for the upcoming episode while respecting continuity with previous events.
+
+When designing an episode:
+- The tone should match the current story phase (opening = establish, rising action = develop, climax = escalate, resolution = conclude)
+- The end condition should be a specific narrative goal (character reaches a decision point, conflict escalates, mystery is partially revealed, etc.)
+- Story hooks should build on unresolved elements from previous episodes
+- Focus should be specific and actionable (e.g., "explore the protagonist's conflicting loyalties" not just "character development")
+
+Your context shapes how the next ~15-20 scenes will be generated."""
+        
         ep_data = await self.generator.generate_structured(
-            system_prompt="",
+            system_prompt=ep_system_prompt,
             user_prompt=prompt,
             schema=ep_ctx_schema,
             fallback_defaults=[ep_fallback],
@@ -543,11 +567,14 @@ Additionally, extract:
         arc_id: Optional[str] = None
     ) -> str:
         """
-        Build prompt for AI to generate recap.
+        Build comprehensive prompt for AI to generate episode recap.
+        
+        Uses full scene text (not just short_description) for richer context.
+        Includes all episode segments, not just the first 10.
         
         Args:
-            segments: List of segments in the episode
-            changes: List of character change notes
+            segments: List of all segments in the episode
+            changes: List of all character change notes
             episode_number: The episode number
             arc_id: Optional arc ID
             
@@ -555,36 +582,44 @@ Additionally, extract:
             The prompt to send to the AI
         """
         
-        # Summarize key scenes
-        scene_summaries = []
-        for i, seg in enumerate(segments[:10]):  # First 10 scenes
-            overview = seg.short_description if hasattr(seg, 'short_description') else f"Segment {seg.id}"
-            scene_summaries.append(f"Scene {i+1}: {overview}")
+        # Include full narrative for all scenes (not just summaries)
+        scene_narratives = []
+        for i, seg in enumerate(segments):
+            # Try to get full scene text via get_plain_text_script
+            try:
+                if hasattr(seg, 'get_plain_text_script'):
+                    scene_text = seg.get_plain_text_script()
+                    if scene_text:
+                        scene_narratives.append(f"\n--- Scene {i+1} ---\n{scene_text[:800]}")
+                    else:
+                        scene_narratives.append(f"\n--- Scene {i+1} ---\n{seg.short_description}")
+                else:
+                    scene_narratives.append(f"\n--- Scene {i+1} ---\n{seg.short_description}")
+            except:
+                scene_narratives.append(f"\n--- Scene {i+1} ---\n{seg.short_description}")
         
         prompt = f"""
-You are a narrative summarizer. Generate a recap for the following episode:
+You are a master narrative summarizer. Generate a comprehensive recap for the following episode, capturing all key events, character developments, and plot threads.
 
 EPISODE {episode_number}
 Arc: {arc_id or '(unassigned)'}
 Total Scenes: {len(segments)}
 
-KEY SCENES:
-{chr(10).join(scene_summaries) if scene_summaries else '(no scenes recorded)'}
+COMPLETE EPISODE NARRATIVE:
+{''.join(scene_narratives) if scene_narratives else '(no scenes recorded)'}
 
-CHARACTER CHANGES THIS EPISODE:
-{chr(10).join(changes) if changes else '(no explicit changes recorded)'}
+CHARACTER & LOCATION CHANGES THIS EPISODE:
+{chr(10).join(f'• {change}' for change in changes) if changes else '(no explicit changes recorded)'}
 
-Generate a 2-3 paragraph narrative recap that:
-1. Captures the core story arc of the episode
-2. Summarizes how characters evolved
-3. Sets up thematic threads for next episode
+Generate a comprehensive 3-5 paragraph narrative recap that:
+1. Captures the complete story arc of the episode (what happened, in order)
+2. Highlights all significant character developments, relationship shifts, and emotional beats
+3. Notes any items, locations, or resources gained or lost
+4. Identifies which themes were explored and how
+5. Sets up bridging hooks for the next episode
 
-Respond with JSON:
-{{
-    "title": "Episode Title",
-    "summary": "2-3 paragraphs...",
-    "key_themes": ["theme1", "theme2", ...]
-}}
+Focus on capturing what actually happened in the narrative, not just high-level summaries.
+Include specific character moments, dialogue callbacks, and plot details that matter to continuity.
 """
         return prompt
     
