@@ -29,17 +29,17 @@ print_help() {
     echo "Usage: ./run.sh [COMMAND] [OPTIONS]"
     echo ""
 echo "Commands:"
-echo "  run-story [story_id]          Play a story (default command)"
+echo "  run-story [story_id]          Play a story (opens picker if no ID given)"
 echo "  create-story-ai [id]          Create story with AI generation"
 echo "  create-story-step [id]        Create story step-by-step (can skip/retry broken steps)"
 echo "  list-stories                  List all available stories"
-echo "  delete-story [story_id]       Delete a story"
-echo "  clear-state [story_id]        Reset story to beginning"
-echo "  test-generation [story_id]    Test AI generation on a story"
+echo "  delete-story <story_id>       Delete a story"
+echo "  clear-state <story_id>        Reset story to beginning"
+echo "  test-generation <story_id>    Test AI generation on a story"
     echo ""
     echo "Options for run-story:"
-    echo "  --mode [immersive|debug]      Display mode (default: immersive)"
     echo "  --resume                      Resume from previous session"
+    echo "  --auto-pick N                 Auto-select choice 1 for N turns (0=unlimited)"
     echo ""
     echo "Options for create-story-ai:"
     echo "  --title TEXT                  Story title (required)"
@@ -49,8 +49,8 @@ echo "  test-generation [story_id]    Test AI generation on a story"
     echo "  --scene TEXT                  Optional: opening scene direction (AI creates if empty)"
     echo ""
     echo "Examples:"
-    echo "  ./run.sh                                    # Play default story"
-    echo "  ./run.sh my_story --mode debug              # Play with debug output"
+    echo "  ./run.sh                                    # Open story picker"
+    echo "  ./run.sh my_story                           # Play a story"
     echo "  ./run.sh my_story --resume                  # Resume previous session"
     echo "  ./run.sh create-story-ai my_story --title \"Lost City\" --description \"An ancient city awakens\" --genre \"Adventure\""
     echo "  ./run.sh create-story-ai my_story --title \"Lost City\" --description \"An ancient city awakens\" --genre \"Adventure\" --world \"Tech and nature merged\""
@@ -66,7 +66,7 @@ fi
 
 # Determine if first arg is a command or story name
 COMMAND="run-story"
-STORY_NAME="veil_of_thornreach"
+STORY_NAME=""
 REMAINING_ARGS=()
 
 if [ $# -gt 0 ]; then
@@ -116,37 +116,15 @@ cd "$SCRIPT_DIR/backend"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="$SCRIPT_DIR/backend"
 
-# Handle run-story command specifically (check if story exists)
+# Handle run-story command
 if [ "$COMMAND" = "run-story" ]; then
-    print_message "Checking if story '$STORY_NAME' exists..."
-    python -c "
-from app.models.story import Story
-story_ids = Story.list_stories()
-if '$STORY_NAME' not in story_ids:
-    exit(1)
-"
-    
-    # Check if the Python command failed
-    if [ $? -ne 0 ]; then
-        if [ "$STORY_NAME" = "veil_of_thornreach" ]; then
-            print_warning "Story '$STORY_NAME' does not exist! Setting up example stories..."
-            if ! python scripts/setup_example_stories.py > /dev/null 2>&1; then
-                print_error "Failed to create example stories!"
-                python scripts/setup_example_stories.py  # Show error output
-                exit 1
-            fi
-            print_message "Example stories created successfully!"
-        else
-            print_error "Story '$STORY_NAME' does not exist!"
-            print_message "Use './run.sh list-stories' to see available stories"
-            print_message "Use './run.sh create-story my_story --title \"Title\" --description \"...\" --genre \"Genre\"' to create a new story"
-            exit 1
-        fi
-    fi
-    
-    # Run the story with remaining arguments
     print_message "Starting the story CLI..."
-    python -u -m app.cli run-story "$STORY_NAME" "${REMAINING_ARGS[@]}"
+    if [ -n "$STORY_NAME" ]; then
+        python -u -m app.cli run-story "$STORY_NAME" "${REMAINING_ARGS[@]}"
+    else
+        # No story ID provided — CLI will open the story picker
+        python -u -m app.cli run-story "${REMAINING_ARGS[@]}"
+    fi
 else
     # Run other commands directly
     case "$COMMAND" in
@@ -163,26 +141,28 @@ else
             python -u -m app.cli list-stories
             ;;
         delete-story)
-            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
+            if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
                 print_error "Please specify a story ID to delete"
                 exit 1
             fi
-            print_message "Deleting story '$STORY_NAME'..."
-            python -u -m app.cli delete-story "$STORY_NAME"
+            print_message "Deleting story '${REMAINING_ARGS[0]}'..."
+            python -u -m app.cli delete-story "${REMAINING_ARGS[@]}"
             ;;
         clear-state)
-            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
-                STORY_NAME="${REMAINING_ARGS[0]:-veil_of_thornreach}"
+            if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
+                print_error "Please specify a story ID to clear"
+                exit 1
             fi
-            print_message "Clearing state for story '$STORY_NAME'..."
-            python -u -m app.cli clear-state "$STORY_NAME"
+            print_message "Clearing state for story '${REMAINING_ARGS[0]}'..."
+            python -u -m app.cli clear-state "${REMAINING_ARGS[@]}"
             ;;
         test-generation)
-            if [ -z "$STORY_NAME" ] || [ "$STORY_NAME" = "veil_of_thornreach" ]; then
-                STORY_NAME="${REMAINING_ARGS[0]:-veil_of_thornreach}"
+            if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
+                print_error "Please specify a story ID to test"
+                exit 1
             fi
-            print_message "Testing generation for story '$STORY_NAME'..."
-            python -u -m app.cli test-generation "$STORY_NAME"
+            print_message "Testing generation for story '${REMAINING_ARGS[0]}'..."
+            python -u -m app.cli test-generation "${REMAINING_ARGS[@]}"
             ;;
     esac
 fi
