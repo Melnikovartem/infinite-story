@@ -580,9 +580,9 @@ class PromptFormatter:
         else:
             parts.append("\nPacing note: Nearing the climax. Build tension, converge plot threads.")
         
-         parts.append("\n=== RESPONSE FORMAT (JSON) ===")
-         parts.append("You MUST respond with valid JSON matching this structure:")
-         parts.append("""{
+        parts.append("\n=== RESPONSE FORMAT (JSON) ===")
+        parts.append("You MUST respond with valid JSON matching this structure:")
+        parts.append("""{
   "short_description": "Brief summary of what happens",
   "storyline_type": "action|mystery|romance|political|horror|comedy|drama|exploration",
   "atmosphere": "The emotional/sensory mood",
@@ -601,8 +601,8 @@ class PromptFormatter:
   "choice_1": "Player choice A",
   "choice_2": "Player choice B"
 }""")
-         
-         return "\n".join(parts)
+        
+        return "\n".join(parts)
     
     @staticmethod
     def _build_theme_directive(themes: List[str], context: Dict[str, Any]) -> str:
