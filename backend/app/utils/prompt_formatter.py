@@ -64,38 +64,42 @@ class PromptFormatter:
         if fundamental_truths or worldbuilding or story_desc:
             parts.append("=== WORLD ===")
             if story_desc:
-                parts.append(story_desc[:200])
+                parts.append(story_desc[:500])  # Increased from 200 to 500
             if fundamental_truths:
                 parts.append("Fundamental truths:")
-                for truth in fundamental_truths[:5]:
-                    parts.append(f"  - {truth[:120]}")
+                for truth in fundamental_truths[:7]:  # Increased from 5 to 7
+                    parts.append(f"  - {truth[:200]}")  # Increased from 120 to 200
             if worldbuilding:
-                parts.append(f"Setting: {worldbuilding[:250]}")
+                parts.append(f"Setting: {worldbuilding[:600]}")  # Increased from 250 to 600
         
         # ================================================================
         # 2. PREVIOUS ARCS — long-term story memory (condensed)
         # ================================================================
         if context.get('previous_arcs'):
             parts.append("\n=== STORY SO FAR (PREVIOUS ARCS) ===")
-            for arc in context['previous_arcs'][:3]:
+            for arc in context['previous_arcs'][:4]:  # Increased from 3 to 4
                 arc_name = arc.get('name', arc.get('arc_id', 'Unknown'))
                 if arc_name and (arc_name.startswith('{') or arc_name.startswith('"') or len(arc_name) > 100):
                     arc_name = f"Arc ({arc.get('arc_id', 'previous')[:20]})"
                 parts.append(f"\n--- {arc_name} ---")
                 if arc.get('premise'):
-                    parts.append(f"Premise: {arc['premise'][:150]}")
+                    parts.append(f"Premise: {arc['premise'][:250]}")  # Increased from 150 to 250
                 if arc.get('recap'):
                     recap_text = arc['recap']
-                    if len(recap_text) > 500:
-                        recap_text = recap_text[:500] + "..."
+                    if len(recap_text) > 1000:  # Increased from 500 to 1000
+                        recap_text = recap_text[:1000] + "..."
                     parts.append(f"What happened: {recap_text}")
                 if arc.get('resolution'):
-                    parts.append(f"Outcome: {arc['resolution'][:150]}")
+                    parts.append(f"Outcome: {arc['resolution'][:250]}")  # Increased from 150 to 250
                 if arc.get('unresolved'):
-                    parts.append(f"Unresolved threads: {', '.join(arc['unresolved'][:5])}")
+                    unresolved_list = ', '.join(arc['unresolved'][:8])  # Increased from 5 to 8
+                    if len(unresolved_list) > 300:
+                        unresolved_list = unresolved_list[:300] + "..."
+                    parts.append(f"Unresolved threads: {unresolved_list}")
                 if arc.get('character_arcs'):
-                    for char_id, resolution in list(arc['character_arcs'].items())[:3]:
-                        parts.append(f"  - {char_id}: {resolution[:100]}")
+                    parts.append("Character arcs:")
+                    for char_id, resolution in list(arc['character_arcs'].items())[:5]:  # Increased from 3 to 5
+                        parts.append(f"  - {char_id}: {resolution[:150]}")  # Increased from 100 to 150
         
         # ================================================================
         # 3. CURRENT ARC — what the story is about right now
@@ -179,7 +183,15 @@ class PromptFormatter:
         if context.get('previous_episode_recap'):
             prev_title = context.get('previous_episode_title', 'Last Episode')
             parts.append(f"\n=== PREVIOUSLY ({prev_title}) ===")
-            parts.append(context['previous_episode_recap'][:500])
+            parts.append(context['previous_episode_recap'][:2000])  # Expanded from 500 to 2000
+            
+            # Also include full previous episode scenes if available
+            if context.get('previous_episode_full_text'):
+                parts.append("\n--- PREVIOUS EPISODE FULL NARRATIVE ---")
+                full_text = context['previous_episode_full_text']
+                if len(full_text) > 2500:
+                    full_text = full_text[:2500] + "..."
+                parts.append(full_text)
         
         # ================================================================
         # 6. CURRENT EPISODE — tone, themes, focus, hooks
@@ -238,22 +250,25 @@ class PromptFormatter:
         # ================================================================
         if recent_full:
             parts.append("\n=== RECENT SCENES (FULL) ===")
-            for seg_info in recent_full[-2:]:
+            for seg_info in recent_full[-3:]:  # Show 3 instead of 2
                 if isinstance(seg_info, dict):
                     if seg_info.get('description'):
                         parts.append(f"--- {seg_info['description']} ---")
                     if seg_info.get('text'):
                         text = seg_info['text']
-                        if len(text) > 500:
-                            text = text[:500] + "..."
+                        if len(text) > 1000:  # Increased from 500 to 1000
+                            text = text[:1000] + "..."
                         parts.append(text)
                     if seg_info.get('changes'):
-                        parts.append(f"  Changes: {'; '.join(seg_info['changes'][:3])}")
+                        parts.append(f"  Changes: {'; '.join(seg_info['changes'][:5])}")  # Show 5 changes
+                    if seg_info.get('characters_present'):
+                        chars = ', '.join(seg_info['characters_present'][:6]) if isinstance(seg_info['characters_present'], list) else seg_info['characters_present']
+                        parts.append(f"  Characters: {chars}")
                 elif isinstance(seg_info, str):
-                    parts.append(seg_info[:400])
+                    parts.append(seg_info[:600])  # Increased from 400
         elif context.get('previous_segments'):
-            parts.append("\n=== RECENT SCENES ===")
-            for seg in context['previous_segments'][-3:]:
+            parts.append("\n=== RECENT SCENES (SUMMARY) ===")
+            for seg in context['previous_segments'][-5:]:  # Show 5 instead of 3
                 parts.append(f"  {seg}")
         
         # ================================================================
@@ -339,17 +354,43 @@ class PromptFormatter:
                 char_sections.append(f"  {line}")
         
         if char_sections:
-            parts.append("\n=== CHARACTERS ===")
+            parts.append("\n=== CHARACTERS (SUMMARY) ===")
             parts.extend(char_sections)
+        
+        # Full character profiles for major characters
+        major_char_profiles = []
+        for char_id, info in arc_characters.items():
+            if char_id == protagonist_id:
+                continue
+            name = info.get('name', char_id) if isinstance(info, dict) else char_id
+            importance = info.get('importance', 'minor') if isinstance(info, dict) else 'minor'
+            if importance in ('major', 'antagonist', 'ally'):
+                full_desc = info.get('description', info.get('short_description', '')) if isinstance(info, dict) else ''
+                personality = info.get('personality', '') if isinstance(info, dict) else ''
+                goals = info.get('goals', '') if isinstance(info, dict) else ''
+                if full_desc or personality or goals:
+                    profile = f"\n**{name}** ({importance.upper()})"
+                    if full_desc:
+                        profile += f"\n  {full_desc[:400]}"  # Full description, 400 chars
+                    if personality:
+                        profile += f"\n  Personality: {personality[:250]}"
+                    if goals:
+                        profile += f"\n  Goals: {goals[:200]}"
+                    major_char_profiles.append(profile)
+        
+        if major_char_profiles:
+            parts.append("\n=== FULL CHARACTER PROFILES (MAJOR) ===")
+            for profile in major_char_profiles[:6]:  # Show up to 6 major characters
+                parts.append(profile)
         
         # Character relationships
         relationships = context.get('character_relationships', {})
         rel_changes = context.get('relationship_changes', [])
         if relationships or rel_changes:
-            parts.append("Relationships:")
-            for char_id, rels in list(relationships.items())[:5]:
+            parts.append("\n=== CHARACTER RELATIONSHIPS ===")
+            for char_id, rels in list(relationships.items())[:8]:  # Increased from 5 to 8
                 char_name = arc_characters.get(char_id, {}).get('name', char_id) if isinstance(arc_characters.get(char_id), dict) else char_id
-                for target, rel_type in list(rels.items())[:3]:
+                for target, rel_type in list(rels.items())[:4]:  # Increased from 3 to 4
                     target_name = arc_characters.get(target, {}).get('name', target) if isinstance(arc_characters.get(target), dict) else target
                     parts.append(f"  {char_name} <-> {target_name}: {rel_type}")
             if rel_changes:
@@ -372,8 +413,9 @@ class PromptFormatter:
                 factions_list = []
             
             if factions_list:
-                parts.append("\n=== FACTIONS ===")
-                for f in factions_list[:5]:
+                parts.append("\n=== FACTIONS (SUMMARY) ===")
+                faction_profiles = []
+                for f in factions_list[:7]:  # Show all factions
                     if isinstance(f, dict):
                         name = f.get('name', f.get('id', '?'))
                         desc = f.get('description', f.get('status', ''))
@@ -385,16 +427,42 @@ class PromptFormatter:
                         if desc:
                             line += f" - {desc[:250]}"  # Increased from 80 to 250
                         if goals and isinstance(goals, list):
-                            line += f" | Goals: {', '.join(goals[:2])}"
+                            line += f" | Goals: {', '.join(goals[:3])}"  # Show 3 goals
                         parts.append(line)
+                        
+                        # Store for full profiles
+                        faction_profiles.append(f)
                     else:
                         parts.append(f"  {str(f)[:100]}")
                 
+                # Full faction profiles
+                if faction_profiles:
+                    parts.append("\n=== FULL FACTION PROFILES ===")
+                    for f in faction_profiles[:5]:  # Full profiles for 5 main factions
+                        if isinstance(f, dict):
+                            name = f.get('name', f.get('id', '?'))
+                            alignment = f.get('alignment', '')
+                            desc = f.get('description', '')
+                            goals = f.get('goals', [])
+                            structure = f.get('structure', '')
+                            conflicts = f.get('conflicts', '')
+                            
+                            profile = f"\n**{name}** ({alignment})"
+                            if desc:
+                                profile += f"\n  Description: {desc[:400]}"
+                            if goals:
+                                profile += f"\n  Goals: {', '.join(goals[:5])}"
+                            if structure:
+                                profile += f"\n  Structure: {structure[:250]}"
+                            if conflicts:
+                                profile += f"\n  Key Conflicts: {conflicts[:250]}"
+                            parts.append(profile)
+                
                 faction_alignment = context.get('character_faction_alignment', {})
                 if faction_alignment:
-                    parts.append("  Allegiances:")
-                    for char_name, faction_name in list(faction_alignment.items())[:6]:
-                        parts.append(f"    {char_name} -> {faction_name}")
+                    parts.append("\n=== FACTION ALLEGIANCES ===")
+                    for char_name, faction_name in list(faction_alignment.items())[:10]:  # Increased from 6 to 10
+                        parts.append(f"  {char_name} -> {faction_name}")
         
         magic = context.get('magic_system', {})
         if isinstance(magic, dict) and magic.get('name') and magic['name'] != 'Unknown':
@@ -430,34 +498,55 @@ class PromptFormatter:
                 parts.append(line)
         
         # ================================================================
+        # 11.5. LOCATIONS (EXPANDED)
+        # ================================================================
+        locations = context.get('location_states', {})
+        if locations:
+            parts.append("\n=== KEY LOCATIONS (DETAILED) ===")
+            for loc_id, loc_info in list(locations.items())[:8]:  # Increased from 5 to 8
+                name = loc_info.get('name', loc_id)
+                desc = loc_info.get('description', '')
+                status = loc_info.get('status', '')
+                significance = loc_info.get('significance', '')
+                
+                loc_profile = f"\n**{name}**"
+                if desc:
+                    loc_profile += f"\n  {desc[:300]}"  # Increased detail
+                if status:
+                    loc_profile += f"\n  Current Status: {status[:200]}"
+                if significance:
+                    loc_profile += f"\n  Significance: {significance[:200]}"
+                parts.append(loc_profile)
+        
+        # ================================================================
         # 12. MYSTERIES & THEME TRACKING
         # ================================================================
         mysteries = context.get('mysteries_tracking', {})
         if isinstance(mysteries, dict) and mysteries:
             parts.append("\n=== OPEN MYSTERIES ===")
-            for mystery, status in list(mysteries.items())[:5]:
-                parts.append(f"  - {mystery} [{status}]")
+            for mystery, status in list(mysteries.items())[:8]:  # Increased from 5 to 8
+                parts.append(f"  - {mystery[:200]} [{status}]")  # Show more details
         elif isinstance(mysteries, list) and mysteries:
             parts.append("\n=== OPEN MYSTERIES ===")
-            for m in mysteries[:5]:
+            for m in mysteries[:8]:  # Increased from 5 to 8
                 if isinstance(m, dict):
-                    parts.append(f"  - {m.get('mystery', m.get('name', str(m)))[:100]}")
+                    parts.append(f"  - {m.get('mystery', m.get('name', str(m)))[:150]}")  # 150 chars
                 else:
-                    parts.append(f"  - {str(m)[:100]}")
+                    parts.append(f"  - {str(m)[:150]}")
         
         themes_explored = context.get('themes_explored', {})
         theme_depth = context.get('theme_depth', {})
         if theme_depth:
             parts.append("\n=== THEME TRACKING ===")
-            for theme, depth in list(theme_depth.items())[:6]:
+            for theme, depth in list(theme_depth.items())[:10]:  # Increased from 6 to 10
                 count = themes_explored.get(theme, 0)
                 parts.append(f"  {theme}: {depth} (appeared {count}x)")
         
         new_mysteries = context.get('new_mysteries_introduced', [])
         if new_mysteries:
             parts.append("  New mysteries this episode:")
-            for m in new_mysteries[-3:]:
-                parts.append(f"    - {m[:80]}")
+            for m in new_mysteries[-5:]:  # Increased from 3 to 5
+                parts.append(f"    - {m[:100]}")
         
         # ================================================================
         # 13. STORY DYNAMICS — tension, momentum, pacing
