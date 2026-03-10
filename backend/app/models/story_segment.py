@@ -763,8 +763,10 @@ class StorySegment(StoryBlock):
             storyteller_id=storyteller.string_id,
             storyteller_version=storyteller.version,
             model_used=model_used,
+            # Mark as generated (segment is complete and ready to use)
+            status=SegmentStatus.GENERATED,
         )
-        logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
+        logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created with status=GENERATED")
         logger.debug(f"[GEN_SCENE_ARC_INFO] arc_id={new_segment.arc_id}, episode={new_segment.episode_number}, seg_in_ep={new_segment.segment_number_in_episode}")
 
         # Copy over existing running status from current segment
