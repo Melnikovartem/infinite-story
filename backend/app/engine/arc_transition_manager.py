@@ -8,7 +8,8 @@ from app.engine.generator import TextGenerator
 
 logger = logging.getLogger("infinite_story.engine.arc_transition_manager")
 
-# Number of episodes that trigger arc completion and finalization
+# Legacy: kept for backwards compatibility but no longer used
+# Arc completion now uses min/max episodes from the arc model
 ARC_COMPLETION_THRESHOLD = 15
 
 
@@ -34,7 +35,11 @@ class ArcTransitionManager:
         """
         Check if arc is complete after episode finalization.
         
-        When episode {ARC_COMPLETION_THRESHOLD} completes, this method:
+        Arc completion uses variable thresholds based on arc.min_episodes and arc.max_episodes:
+        - Arc can complete when: conflict_resolution_progress >= 0.8 AND episode_count >= min_episodes
+        - Arc must complete when: episode_count >= max_episodes (hard cap)
+        
+        When arc completes, this method:
         1. Finalizes the current arc (mark mainline, archive branches)
         2. Determines next arc to use (activate existing or generate new)
         3. Feeds previous arc context to next arc
@@ -54,12 +59,25 @@ class ArcTransitionManager:
         
         logger.info(f"Checking arc completion: arc={arc_id}, episode={episode_number}")
         
-        # Check if this episode triggers arc completion
-        if episode_number != ARC_COMPLETION_THRESHOLD:
-            logger.debug(f"Arc not yet complete (episode {episode_number}/{ARC_COMPLETION_THRESHOLD})")
+        # Check if arc should complete based on min/max episodes and conflict resolution
+        should_complete = False
+        
+        # Must complete if max_episodes reached
+        if arc.episode_count >= arc.max_episodes:
+            logger.info(f"Arc {arc_id} reached max episodes ({arc.episode_count}/{arc.max_episodes}), forcing completion")
+            should_complete = True
+        # Can complete if min_episodes met and conflict well-resolved
+        elif arc.episode_count >= arc.min_episodes and arc.conflict_resolution_progress >= 0.8:
+            logger.info(f"Arc {arc_id} reached narrative completion ({arc.conflict_resolution_progress:.0%} resolved, {arc.episode_count} episodes)")
+            should_complete = True
+        else:
+            logger.debug(f"Arc not yet complete: episode {arc.episode_count} (min: {arc.min_episodes}, max: {arc.max_episodes}), resolution: {arc.conflict_resolution_progress:.0%}")
             return None
         
-        logger.info(f"Arc {arc_id} has completed {ARC_COMPLETION_THRESHOLD} episodes, finalizing...")
+        if not should_complete:
+            return None
+        
+        logger.info(f"Arc {arc_id} is complete, finalizing...")
         
         # Step 1: Finalize current arc (select mainline, archive branches)
         await self._finalize_arc(arc_id)

@@ -130,9 +130,15 @@ class SceneTextGeneratorResponse(TextGeneratorResponse):
         description="Running log of character/location changes for episode tracking (e.g., 'Knight received conflicting order', 'Trust in king wavered')"
     )
     
-    # Choices
-    choice_1: Optional[str] = Field(None, description="First choice presented to the player")
-    choice_2: Optional[str] = Field(None, description="Second choice presented to the player")
+    # Choices (array format: 1-4 choices per scene)
+    choices: Optional[List[Dict[str, Any]]] = Field(
+        None, 
+        description="Array of 1-4 choices, each with text, tone, and consequence_hint fields"
+    )
+    end_condition_progress: Optional[float] = Field(
+        None,
+        description="Progress toward the episode's end condition (0.0-1.0, where 1.0 means condition is met)"
+    )
 
 class ChoiceGenerationResponse(TextGeneratorResponse):
     """Response for generating story choices."""

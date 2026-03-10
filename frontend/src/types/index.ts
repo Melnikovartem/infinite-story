@@ -59,6 +59,8 @@ export interface StoryChoice {
   from_segment_id: string;
   to_segment_id: string | null;
   choice_text: string;
+  tone?: string; // aggressive, cautious, diplomatic, exploratory, etc.
+  consequence_hint?: string; // what this choice might lead to
   popularity_score?: number;
   is_custom?: boolean;
   created_at?: string;
