@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 import logging
+import json
 
 console = Console(force_terminal=True, legacy_windows=False)
 logger = logging.getLogger("infinite_story.display")
@@ -423,20 +424,59 @@ def show_segment_info(segment, context: Optional[Dict[str, Any]] = None) -> None
 # AI PROMPT VIEW
 # ============================================================================
 
+def _build_full_prompt(context: Optional[Dict[str, Any]] = None) -> tuple:
+    """Build and return both system + user prompts.
+    
+    Returns:
+        (system_prompt, user_prompt, formatted_prompt, char_count, token_est)
+    """
+    if not context:
+        return None, None, None, 0, 0
+
+    from app.utils.prompt_formatter import PromptFormatter
+    
+    # System prompt (standard)
+    system_prompt = "You are a narrative AI creating immersive, coherent story scenes. Generate compelling, character-driven content that respects established world rules and maintains narrative continuity."
+    
+    # User prompt (formatted context)
+    user_prompt = PromptFormatter.format_scene_context(dict(context))
+    
+    # Add text_blocks instruction
+    _TEXT_TYPE_VALUES = "narrator_describing, character_speech, character_thought, narrator_commentary, scene_title, flashback, dream_sequence, sfx, visual_cue, location_label, poem_or_song, letter_or_note, system_message, media_overlay"
+    _STORYLINE_VALUES = "action, mystery, romance, political, horror, comedy, drama, exploration"
+    
+    text_blocks_hint = (
+        "\n\nIMPORTANT: text_blocks must be a JSON array of objects, each with:\n"
+        f"  - type: one of [{_TEXT_TYPE_VALUES}]\n"
+        "  - content: the actual text\n"
+        "  - emotion: (optional) the emotional tone, e.g. 'fearful', 'hopeful', 'suspicious'\n"
+        "  - character: (optional) who is speaking\n"
+        f"  - storyline: (optional) one of [{_STORYLINE_VALUES}] — what kind of storyline this block serves\n"
+        "\nIMPORTANT: storyline_type must be one of: action, mystery, romance, political, horror, comedy, drama, exploration\n"
+        "  This describes the DOMINANT storyline of this scene.\n"
+        "\nIMPORTANT: character_emotions must be a JSON object mapping character names to their current emotion:\n"
+        '  e.g. {"Thorne": "determined but anxious", "Lyra": "quietly hopeful", "King Aldric": "seething with rage"}\n'
+        "  Track how each present character FEELS at the END of this scene. Be specific and nuanced.\n"
+    )
+    
+    full_user_prompt = user_prompt + text_blocks_hint
+    
+    char_count = len(full_user_prompt)
+    token_est = char_count // 4
+    
+    return system_prompt, full_user_prompt, user_prompt, char_count, token_est
+
+
 def show_prompt(context: Optional[Dict[str, Any]] = None) -> None:
     """Build and display the formatted AI prompt, then wait for Enter."""
-    if not context:
+    system_prompt, full_user_prompt, formatted, char_count, token_est = _build_full_prompt(context)
+    
+    if not full_user_prompt:
         console.print("[yellow]No context available (need at least one generated segment)[/yellow]")
         Prompt.ask("[dim]Press Enter to go back[/dim]", default="")
         return
 
     try:
-        from app.utils.prompt_formatter import PromptFormatter
-        formatted = PromptFormatter.format_scene_context(dict(context))
-
-        char_count = len(formatted)
-        token_est = char_count // 4
-
         console.print(Panel(
             formatted,
             title=f"AI Prompt  ({char_count:,} chars  ~{token_est:,} tokens)",
@@ -492,17 +532,13 @@ def show_segment_info_noninteractive(segment, context: Optional[Dict[str, Any]] 
 
 def show_prompt_noninteractive(context: Optional[Dict[str, Any]] = None) -> None:
     """Print AI prompt without waiting for Enter (for --dump mode)."""
-    if not context:
+    system_prompt, full_user_prompt, formatted, char_count, token_est = _build_full_prompt(context)
+    
+    if not full_user_prompt:
         console.print("[yellow]No context available[/yellow]")
         return
 
     try:
-        from app.utils.prompt_formatter import PromptFormatter
-        formatted = PromptFormatter.format_scene_context(dict(context))
-
-        char_count = len(formatted)
-        token_est = char_count // 4
-
         console.print(Panel(
             formatted,
             title=f"AI Prompt  ({char_count:,} chars  ~{token_est:,} tokens)",
@@ -511,4 +547,45 @@ def show_prompt_noninteractive(context: Optional[Dict[str, Any]] = None) -> None
         ))
     except Exception as e:
         console.print(f"[red]Could not format prompt: {e}[/red]")
-        console.print(f"[dim]Context keys: {', '.join(context.keys())}[/dim]")
+        if context:
+            console.print(f"[dim]Context keys: {', '.join(context.keys())}[/dim]")
+
+
+# ============================================================================
+# AI REQUEST/RESPONSE LOGGING (for debug logs)
+# ============================================================================
+
+def log_ai_request_response(context: Optional[Dict[str, Any]] = None, raw_response: Optional[Dict[str, Any]] = None) -> None:
+    """Log the full AI request (system + user prompts) and raw response at DEBUG level.
+    
+    This is called during generation to capture everything sent to/from the LLM.
+    
+    Args:
+        context: Generation context (used to build prompts)
+        raw_response: Raw response dict from generator.generate_structured()
+    """
+    if not logger.isEnabledFor(logging.DEBUG):
+        return  # Skip if not in debug mode
+    
+    system_prompt, full_user_prompt, _, _, _ = _build_full_prompt(context)
+    
+    logger.debug(
+        f"\n\n{'='*80}\n"
+        f"AI GENERATION REQUEST\n"
+        f"{'='*80}\n\n"
+        f"[SYSTEM PROMPT]\n{system_prompt}\n\n"
+        f"[USER PROMPT]\n{full_user_prompt}\n"
+    )
+    
+    if raw_response:
+        try:
+            response_json = json.dumps(raw_response, indent=2, default=str)
+        except Exception as e:
+            response_json = str(raw_response)
+        
+        logger.debug(
+            f"\n\n{'='*80}\n"
+            f"AI GENERATION RESPONSE\n"
+            f"{'='*80}\n\n"
+            f"{response_json}\n"
+        )

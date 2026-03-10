@@ -578,6 +578,10 @@ class StorySegment(StoryBlock):
         generator.temperature = original_temperature
         gen_api_duration = time.time() - gen_api_start
         logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response in {gen_api_duration:.2f}s")
+        
+        # Log full request/response at DEBUG level
+        from app.ui.story_debug_display import log_ai_request_response
+        log_ai_request_response(context=generation_context, raw_response=scene_data)
 
         # Convert raw text_blocks dicts into TextBlock objects
         scene_text_blocks = _parse_text_blocks(scene_data.get("text_blocks", []))
