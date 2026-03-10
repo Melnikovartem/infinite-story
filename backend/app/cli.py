@@ -2,7 +2,6 @@ import json
 import asyncio
 import logging
 import sys
-from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,9 +10,6 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.panel import Panel
-from rich.spinner import Spinner
-from rich.live import Live
-from rich import print as rprint
 
 from app.models.story_base import LOCAL_DATA_DIR
 from app.models.story import Story
@@ -49,13 +45,6 @@ def _setup_logging():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("h11").setLevel(logging.WARNING)
-
-class RunMode(str, Enum):
-    """CLI display modes."""
-    IMMERSIVE = "immersive"
-    UI_DEBUG = "ui_debug"
-    STORY_DEBUG = "story_debug"
-    DEV = "dev"
 
 def setup_logging(log_level: str):
     """Configure logging level for the app."""
@@ -99,6 +88,8 @@ def select_story(stories: List[dict]) -> Optional[dict]:
     """Let user select a story using arrow keys."""
     if not stories:
         console.print("[red]No stories available![/red]")
+        console.print("[yellow]Create one with:[/yellow]")
+        console.print("  ./run.sh create-story-ai my_story --title \"Title\" --description \"...\" --genre \"Genre\"")
         return None
 
     story_ids = [str(story.get("id", "")) for story in stories]
@@ -757,12 +748,11 @@ def clear_state(story_id: str = typer.Argument(..., help="Story ID to reset")):
     console.print(f"[green]✅ Session cleared for '{story_id}'[/green]")
     logger.info(f"State cleared for story: {story_id}")
 
-async def _initialize_generator(config: Config):
+async def _initialize_generator(config: Config, quiet: bool = False):
     """Initialize and return generator based on config."""
     logger.debug(f"[INIT_GEN_START] Initializing generator with provider: {config.generator.provider}")
     if config.generator.provider == "openrouter":
         logger.info(f"Initializing OpenRouter generator with model: {config.generator.model}")
-        logger.debug(f"[INIT_GEN_OPENROUTER] Creating OpenRouter generator instance")
         generator = OpenRouterGenerator(
             api_key=config.generator.api_key,
             model=config.generator.model,
@@ -772,11 +762,10 @@ async def _initialize_generator(config: Config):
             site_name=config.generator.site_name,
             auto_fallback=True
         )
-        logger.debug(f"[INIT_GEN_OPENROUTER_DONE] OpenRouter generator initialized")
-        console.print(f"[cyan]Using OpenRouter with model: {generator.model}[/cyan]")
+        if not quiet:
+            console.print(f"[cyan]Using OpenRouter with model: {generator.model}[/cyan]")
     else:  # openai
         logger.info(f"Initializing OpenAI generator with model: {config.generator.model}")
-        logger.debug(f"[INIT_GEN_OPENAI] Creating OpenAI generator instance")
         generator = OpenAIGenerator(
             api_base=config.generator.base_url,
             api_key=config.generator.api_key,
@@ -784,239 +773,150 @@ async def _initialize_generator(config: Config):
             temperature=config.generator.temperature,
             max_tokens=config.generator.max_tokens
         )
-        logger.debug(f"[INIT_GEN_OPENAI_DONE] OpenAI generator initialized")
-        console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
-    logger.debug(f"[INIT_GEN_DONE] Generator initialization complete")
+        if not quiet:
+            console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
     return generator
 
-async def _run_immersive_mode(runner: StoryRunner, generator, auto_pick: Optional[int] = None):
-    """Run story in immersive mode - beautiful narrative focus."""
-    from app.ui.formatter import display_segment_immersive, prompt_choice_immersive
-    
-    auto_remaining = auto_pick  # None = interactive, 0 = unlimited, N = N picks left
-    
-    try:
-        while runner.is_running:
-            # Display current segment beautifully
-            if runner.current_segment:
-                display_segment_immersive(runner.current_segment)
-            
-            # Get user choice
-            choices = runner.get_available_choices()
-            if not choices:
-                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
-                logger.info("Story ended - no more choices available")
-                break
-            
-            # Auto-pick or interactive
-            if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
-                choice_id = choices[0].id
-                console.print(f"\n[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'} remaining] Selecting: {choices[0].text[:60]}[/bold magenta]")
-                if auto_remaining > 0:
-                    auto_remaining -= 1
-                    if auto_remaining == 0:
-                        auto_remaining = None  # Switch to interactive
-            else:
-                choice_id = prompt_choice_immersive(runner.current_segment, choices)
-            
-            # Execute choice
-            try:
-                await _execute_choice(runner, choice_id, generator, mode=RunMode.IMMERSIVE)
-            except Exception as e:
-                error_type, technical_msg = handle_api_error(e)
-                message, suggestion = ErrorHandler.handle_error(
-                    error_type,
-                    e,
-                    "Processing your choice"
-                )
-                console.print(f"[red]Error: {message}[/red]")
-                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
-                continue
-            
-            # Auto-save state
-            runner.save_state()
-    
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error: {str(e)}[/red]")
-        import traceback
-        console.print(f"[red]{traceback.format_exc()}[/red]")
+async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = None, dump: Optional[str] = None):
+    """Run story in unified interactive mode.
 
+    Displays the segment text, then presents a menu:
+      [1-N] Pick a choice
+      [L]   Toggle logs
+      [I]   View segment info
+      [P]   View AI prompt
 
-async def _run_ui_debug_mode(runner: StoryRunner, generator, auto_pick: Optional[int] = None):
-    """Run story in UI debug mode - blocks appear one-by-one with space."""
-    from app.ui.ui_debug_display import display_segment_ui_debug, prompt_choice_ui_debug
-    
-    auto_remaining = auto_pick
-    
-    try:
-        while runner.is_running:
-            if runner.current_segment:
-                display_segment_ui_debug(runner.current_segment)
-            
-            choices = runner.get_available_choices()
-            if not choices:
-                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
-                break
-            
-            if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
-                choice_id = choices[0].id
-                console.print(f"\n[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'} remaining] Selecting: {choices[0].text[:60]}[/bold magenta]")
-                if auto_remaining > 0:
-                    auto_remaining -= 1
-                    if auto_remaining == 0:
-                        auto_remaining = None
-            else:
-                choice_id = prompt_choice_ui_debug(runner.current_segment, choices)
-            
-            try:
-                await _execute_choice(runner, choice_id, generator, mode=RunMode.UI_DEBUG)
-            except Exception as e:
-                error_type, technical_msg = handle_api_error(e)
-                message, suggestion = ErrorHandler.handle_error(
-                    error_type,
-                    e,
-                    "Processing your choice"
-                )
-                console.print(f"[red]Error: {message}[/red]")
-                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
-                continue
-            
-            runner.save_state()
-    
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error: {str(e)}[/red]")
-        import traceback
-        console.print(f"[red]{traceback.format_exc()}[/red]")
-
-
-async def _run_story_debug_mode(runner: StoryRunner, generator, auto_pick: Optional[int] = None):
-    """Run story in story debug mode - comprehensive generation context."""
+    If dump is set ("info", "prompt", or "all"), auto-picks through scenes
+    then prints the requested debug output and exits (no interaction).
+    """
     from app.ui.story_debug_display import (
-        display_segment_story_debug,
-        display_generation_context_story_debug,
-        display_generation_result_story_debug,
-        prompt_choice_story_debug
+        display_segment,
+        prompt_menu,
+        toggle_logs,
+        show_segment_info,
+        show_prompt,
+        display_generation_result,
+        show_segment_info_noninteractive,
+        show_prompt_noninteractive,
     )
     from app.engine.segment_context_builder import SegmentContextBuilder
-    
-    auto_remaining = auto_pick
-    
-    try:
-        while runner.is_running:
-            if runner.current_segment:
-                display_segment_story_debug(runner.current_segment)
-            
+
+    auto_remaining = auto_pick  # None = interactive, 0 = unlimited, N = N picks left
+
+    # ── Dump mode: auto-pick N scenes, print debug, exit ──
+    if dump:
+        # Auto-pick through scenes first (if auto_pick given)
+        picks_to_do = auto_pick if auto_pick and auto_pick > 0 else 0
+        for _ in range(picks_to_do):
+            if not runner.current_segment:
+                break
             choices = runner.get_available_choices()
             if not choices:
-                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
                 break
-            
-            # Build generation context to show what will be sent to AI
-            context = None
             try:
-                # Don't pass generator here - story_debug mode should display EXISTING context only,
-                # not auto-generate missing data (which would be slow and block the UI)
+                await _execute_choice(runner, choices[0].id, generator)
+            except Exception as e:
+                console.print(f"[red]Error during auto-pick: {e}[/red]")
+                return
+            runner.save_state()
+
+        if not runner.current_segment:
+            console.print("[red]No current segment[/red]")
+            return
+
+        # Build context for current segment
+        context = None
+        choices = runner.get_available_choices()
+        try:
+            context_builder = SegmentContextBuilder(runner.story)
+            context = await context_builder.build_context(
+                runner.current_segment.id,
+                choices[0].text if choices else "unknown"
+            )
+        except Exception as e:
+            logger.debug(f"Could not build context: {e}")
+
+        # Print requested dump
+        dump_lower = dump.lower()
+        if dump_lower in ("info", "all"):
+            show_segment_info_noninteractive(runner.current_segment, context)
+        if dump_lower in ("prompt", "all"):
+            show_prompt_noninteractive(context)
+        if dump_lower not in ("info", "prompt", "all"):
+            console.print(f"[red]Unknown dump type: {dump}. Use info, prompt, or all.[/red]")
+        return
+
+    # ── Normal interactive mode ──
+    try:
+        while runner.is_running:
+            if not runner.current_segment:
+                break
+
+            # Build context (used by Info and Prompt views)
+            context = None
+            choices = runner.get_available_choices()
+            try:
                 context_builder = SegmentContextBuilder(runner.story)
                 context = await context_builder.build_context(
                     runner.current_segment.id,
-                    choices[0].text if choices else "unknown"  # This will be updated after choice
+                    choices[0].text if choices else "unknown"
                 )
             except Exception as e:
                 logger.debug(f"Could not build context: {e}")
-            
-            # Show generation context before each choice
-            display_generation_context_story_debug(runner, runner.current_segment, context)
-            
-            if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
-                choice_id = choices[0].id
-                console.print(f"\n[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'} remaining] Selecting: {choices[0].text[:60]}[/bold magenta]")
-                if auto_remaining > 0:
-                    auto_remaining -= 1
-                    if auto_remaining == 0:
-                        auto_remaining = None
-            else:
-                choice_id = prompt_choice_story_debug(runner.current_segment, choices)
-            
-            # Update context with actual chosen text
-            if context:
-                choice_text = next((c.text for c in choices if c.id == choice_id), "unknown")
-                context['user_choice'] = choice_text
-            
-            try:
-                await _execute_choice(runner, choice_id, generator, mode=RunMode.STORY_DEBUG)
-            except Exception as e:
-                error_type, technical_msg = handle_api_error(e)
-                message, suggestion = ErrorHandler.handle_error(
-                    error_type,
-                    e,
-                    "Processing your choice"
-                )
-                console.print(f"[red]Error: {message}[/red]")
-                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
-                continue
-            
-            # Show result with context info
-            if runner.current_segment:
-                display_generation_result_story_debug(runner.current_segment, context)
-            
-            runner.save_state()
-    
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error: {str(e)}[/red]")
-        import traceback
-        console.print(f"[red]{traceback.format_exc()}[/red]")
 
+            # Display the segment
+            display_segment(runner.current_segment)
 
-async def _run_dev_mode(runner: StoryRunner, generator, auto_pick: Optional[int] = None):
-    """Run story in dev mode - minimal info with important details."""
-    from app.ui.dev_display import display_segment_dev, display_generation_context_dev, prompt_choice_dev
-    
-    auto_remaining = auto_pick
-    
-    try:
-        while runner.is_running:
-            if runner.current_segment:
-                display_segment_dev(runner.current_segment)
-            
-            # Show minimal context
-            display_generation_context_dev(runner, runner.current_segment)
-            
-            choices = runner.get_available_choices()
             if not choices:
-                console.print("\n[yellow]No more choices available. The story has ended.[/yellow]")
+                console.print("[yellow]No more choices. The story has ended.[/yellow]")
                 break
-            
+
+            # Auto-pick path
             if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
                 choice_id = choices[0].id
-                console.print(f"\n[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'} remaining] Selecting: {choices[0].text[:60]}[/bold magenta]")
+                console.print(f"[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'}] {choices[0].text[:60]}[/bold magenta]")
                 if auto_remaining > 0:
                     auto_remaining -= 1
                     if auto_remaining == 0:
-                        auto_remaining = None
+                        auto_remaining = None  # switch to interactive
             else:
-                choice_id = prompt_choice_dev(runner.current_segment, choices)
-            
+                # Interactive menu loop
+                while True:
+                    result = prompt_menu(runner.current_segment, choices, context)
+
+                    if result == "CMD_LOGS":
+                        toggle_logs()
+                        continue
+                    if result == "CMD_INFO":
+                        show_segment_info(runner.current_segment, context)
+                        display_segment(runner.current_segment)
+                        continue
+                    if result == "CMD_PROMPT":
+                        show_prompt(context)
+                        display_segment(runner.current_segment)
+                        continue
+                    # Otherwise it's a choice id
+                    choice_id = result
+                    break
+
+            # Execute the choice
             try:
-                await _execute_choice(runner, choice_id, generator, mode=RunMode.DEV)
+                await _execute_choice(runner, choice_id, generator)
             except Exception as e:
                 error_type, technical_msg = handle_api_error(e)
                 message, suggestion = ErrorHandler.handle_error(
-                    error_type,
-                    e,
-                    "Processing your choice"
+                    error_type, e, "Processing your choice"
                 )
                 console.print(f"[red]Error: {message}[/red]")
-                console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
+                console.print(f"[yellow]Suggestion:[/yellow]\n{suggestion}")
                 continue
-            
+
+            # Brief generation result
+            if runner.current_segment:
+                display_generation_result(runner.current_segment)
+
             runner.save_state()
-    
+
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
     except Exception as e:
@@ -1025,85 +925,69 @@ async def _run_dev_mode(runner: StoryRunner, generator, auto_pick: Optional[int]
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
 
-
-async def _execute_choice(runner: StoryRunner, choice_id: str, generator, mode: RunMode = RunMode.IMMERSIVE):
+async def _execute_choice(runner: StoryRunner, choice_id: str, generator):
     """Execute a choice and advance the story."""
-    logger.debug(f"[EXEC_CHOICE_START] Executing choice: {choice_id}")
+    logger.debug(f"Executing choice: {choice_id}")
     choice = runner.story.get_choice(choice_id)
     if not choice:
         console.print(f"[red]Choice '{choice_id}' not found[/red]")
-        logger.error(f"[EXEC_CHOICE_ERROR] Choice not found: {choice_id}")
         return
-    
-    # Check if choice leads to existing segment or needs generation
+
     if choice.to_segment_id:
-        # Navigate to existing segment
-        logger.debug(f"[EXEC_CHOICE_NAV] Navigating to existing segment: {choice.to_segment_id}")
         runner.make_choice(choice_id)
-        if mode != RunMode.IMMERSIVE:
-            console.print(f"\n[cyan]Navigated to segment: {runner.current_segment.id}[/cyan]")
-        logger.debug(f"[EXEC_CHOICE_NAV_DONE] Navigation complete. Current segment: {runner.current_segment.id}")
+        logger.debug(f"Navigated to segment: {runner.current_segment.id}")
     else:
-        # Generate new segment
-        logger.debug(f"[EXEC_CHOICE_GEN_START] Starting generation for choice: {choice.text}")
-        console.print("[bold yellow]⏳ Generating next scene...[/bold yellow]")
-        logger.debug(f"[EXEC_CHOICE_GEN_CALL] Calling generate_next_scene()")
-        
+        console.print("[bold yellow]Generating next scene...[/bold yellow]")
         try:
             new_segment = await runner.current_segment.generate_next_scene(choice, generator)
-            logger.debug(f"[EXEC_CHOICE_GEN_RECEIVED] Received new segment: {new_segment.id}")
             runner.current_segment = new_segment
             runner.visited_segments.add(new_segment.id)
-            console.print("[green]✅ Scene generated successfully![/green]")
-            logger.debug(f"[EXEC_CHOICE_GEN_DONE] New segment set as current: {new_segment.id}")
-            
-            if mode != RunMode.IMMERSIVE:
-                console.print(f"\n[cyan]New segment: {new_segment.id}[/cyan]")
+            console.print("[green]Scene generated.[/green]")
         except Exception as e:
-            logger.error(f"[EXEC_CHOICE_GEN_ERROR] Generation failed: {str(e)}", exc_info=True)
-            console.print(f"[red]❌ Scene generation failed: {str(e)}[/red]")
+            logger.error(f"Generation failed: {str(e)}", exc_info=True)
+            console.print(f"[red]Generation failed: {str(e)}[/red]")
             raise
 
-async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERSIVE, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None):
-    """Run a story in one of four modes.
+async def run_story_async(story_name: str = None, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None, dump: Optional[str] = None):
+    """Run a story in the unified interactive mode.
     
     Args:
         story_name: Optional story ID to run directly (skips selection)
-        mode: IMMERSIVE (default), UI_DEBUG, STORY_DEBUG, or DEV
         resume: Resume from previous session if available
         log_level: error (default), warn, or debug
         auto_pick: If set, auto-select choice 1 for N turns (0 = unlimited)
+        dump: If set, non-interactive mode. "info", "prompt", or "all"
     """
 
-    # Setup logging based on mode
-    if log_level:
+    # In dump mode, suppress all noise — only show the dump output
+    if dump:
+        logging.disable(logging.CRITICAL)
+    elif log_level:
         setup_logging(log_level)
     
     # Load configuration
     try:
         config = Config.load()
-        logger.info("Configuration loaded successfully")
     except ValueError as e:
         message, suggestion = ErrorHandler.handle_error(
-            ErrorType.MISSING_CONFIG,
-            e,
-            "Loading configuration for story"
+            ErrorType.MISSING_CONFIG, e, "Loading configuration for story"
         )
         console.print(f"[red]Error: {message}[/red]")
         console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
         return
 
-    # Initialize generator
-    try:
-        generator = await _initialize_generator(config)
-    except Exception as e:
-        console.print(f"[red]Failed to initialize generator: {e}[/red]")
-        logger.error(f"Generator initialization failed: {e}")
-        return
+    # Initialize generator (only needed if dump will auto-pick through generated scenes)
+    generator = None
+    needs_generator = not dump or (auto_pick and auto_pick > 0)
+    if needs_generator:
+        try:
+            generator = await _initialize_generator(config, quiet=bool(dump))
+        except Exception as e:
+            console.print(f"[red]Failed to initialize generator: {e}[/red]")
+            return
 
     # Get story selection
     if story_name:
-        logger.info(f"Using provided story: {story_name}")
         selected_story = {
             "id": story_name,
             "title": story_name,
@@ -1111,13 +995,9 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
             "description": "Story"
         }
     else:
-        # List and let user select
-        logger.info("Listing available stories")
         story_ids = Story.list_stories()
-        logger.debug(f"Found {len(story_ids)} story IDs: {story_ids}")
         stories = []
         for story_id in story_ids:
-            logger.debug(f"Loading story: {story_id}")
             story = Story.load(story_id, story_id)
             if story:
                 stories.append({
@@ -1130,53 +1010,35 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
 
         selected_story = select_story(stories)
         if not selected_story:
-            logger.warning("No story selected")
             return
-    
-    logger.info(f"Selected story: {selected_story['id']}")
 
-    console.print(Panel(
-        f"[green]Starting story: {selected_story.get('title', 'Untitled')}[/green]\n[cyan]Mode: {mode.value}[/cyan]",
-        title="Story Runner",
-        border_style="green"
-    ))
+    if not dump:
+        console.print(Panel(
+            f"[green]{selected_story.get('title', 'Untitled')}[/green]",
+            title="Story Runner",
+            border_style="green"
+        ))
 
-    # Load story and runner
-    logger.info(f"Loading story data for: {selected_story['id']}")
+    # Load story
     story = Story.load(selected_story["id"], selected_story["id"])
     if not story:
         console.print("[red]Failed to load story![/red]")
-        logger.error(f"Failed to load story: {selected_story['id']}")
         return
 
-    logger.info(f"Initializing StoryRunner for: {story.id}")
     runner = StoryRunner(story)
     
     try:
-        # Load all story components first
         runner.load_all_components(story)
         
-        # Load or start story
         if resume and runner.load_state():
-            console.print("[yellow]Resuming from saved state...[/yellow]")
-            logger.info("Loaded previous state, resuming story")
-            console.print(f"[green]Resumed at segment: {runner.current_segment.short_description}[/green]")
-            logger.info(f"Resumed at segment: {runner.current_segment.id}")
+            if not dump:
+                console.print(f"[yellow]Resumed at: {runner.current_segment.short_description}[/yellow]")
         else:
-            logger.info("Starting story from beginning")
             runner.start()
-            console.print("[green]Story started successfully![/green]")
-            logger.info(f"Story started at segment: {runner.current_segment.id}")
+            if not dump:
+                console.print("[green]Story started.[/green]")
         
-        # Run appropriate mode
-        if mode == RunMode.IMMERSIVE:
-            await _run_immersive_mode(runner, generator, auto_pick=auto_pick)
-        elif mode == RunMode.UI_DEBUG:
-            await _run_ui_debug_mode(runner, generator, auto_pick=auto_pick)
-        elif mode == RunMode.STORY_DEBUG:
-            await _run_story_debug_mode(runner, generator, auto_pick=auto_pick)
-        elif mode == RunMode.DEV:
-            await _run_dev_mode(runner, generator, auto_pick=auto_pick)
+        await _run_story(runner, generator, auto_pick=auto_pick, dump=dump)
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
@@ -1188,11 +1050,6 @@ async def run_story_async(story_name: str = None, mode: RunMode = RunMode.IMMERS
 @app.command()
 def run_story(
     story: str = typer.Argument(None, help="Optional story ID to run directly"),
-    mode: RunMode = typer.Option(
-        RunMode.IMMERSIVE,
-        "--mode",
-        help="CLI mode: immersive (beautiful), ui_debug (blocks one-by-one), story_debug (generation context), dev (minimal)"
-    ),
     resume: bool = typer.Option(
         False,
         "--resume",
@@ -1208,32 +1065,30 @@ def run_story(
         "--auto-pick",
         help="Auto-select choice 1 for N turns, then switch to interactive. Use 0 for unlimited auto-pick."
     ),
+    dump: Optional[str] = typer.Option(
+        None,
+        "--dump",
+        help="Non-interactive: auto-pick N scenes then dump debug info and exit. Values: info, prompt, all"
+    ),
 ):
+    """Run a story in the interactive view.
+    
+    Shows the story text with an interactive menu:
+      [1-N] Pick a choice     [L] Toggle logs     [I] Segment info     [P] View prompt
+    
+    Non-interactive dump (for scripting/debugging):
+      --dump info     Print segment info after N auto-picks, then exit
+      --dump prompt   Print the AI prompt after N auto-picks, then exit
+      --dump all      Print both
+    
+    Examples:
+      python -m app.cli run-story my_story
+      python -m app.cli run-story my_story --resume
+      python -m app.cli run-story my_story --auto-pick 5 --dump info
+      python -m app.cli run-story my_story --auto-pick 0 --dump prompt
+      python -m app.cli run-story my_story --dump all                    # opening scene
     """
-    Run a story with four modes:
-    
-    Immersive (default):
-      python -m app.cli run-story story_name
-      Beautiful narrative experience, focus on prose.
-    
-    UI Debug:
-      python -m app.cli run-story story_name --mode ui_debug
-      Blocks appear one-by-one, press ENTER to continue.
-    
-    Story Debug:
-      python -m app.cli run-story story_name --mode story_debug
-      See comprehensive generation context before each choice.
-    
-    Dev:
-      python -m app.cli run-story story_name --mode dev
-      Minimal interface with important details (arc, parent, etc).
-    
-    Auto-pick:
-      python -m app.cli run-story story_name --auto-pick 20
-      Auto-select choice 1 for 20 turns (useful for testing episode/arc transitions).
-      Use --auto-pick 0 for unlimited auto-picking.
-    """
-    asyncio.run(run_story_async(story_name=story, mode=mode, resume=resume, log_level=log_level, auto_pick=auto_pick))
+    asyncio.run(run_story_async(story_name=story, resume=resume, log_level=log_level, auto_pick=auto_pick, dump=dump))
 
 @app.command()
 def list_models(
