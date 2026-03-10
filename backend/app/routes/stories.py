@@ -52,6 +52,8 @@ class SegmentResponse(BaseModel):
     text_blocks: List[TextBlock] = Field(default_factory=list, description="Text blocks")
     characters_present: List[str] = Field(default_factory=list, description="Character IDs present")
     locations_present: List[str] = Field(default_factory=list, description="Location IDs present")
+    storyteller_id: Optional[str] = Field(None, description="The storyteller/narrative voice used")
+    model_used: Optional[str] = Field(None, description="The AI model used to generate this segment")
 
 
 class StoryDetailResponse(BaseModel):
@@ -116,6 +118,8 @@ def _build_segment_response(segment, choices: list, story=None) -> Dict[str, Any
             ],
             "characters_present": segment.characters_present,
             "locations_present": segment.locations_present,
+            "storyteller_id": getattr(segment, "storyteller_id", None),
+            "model_used": getattr(segment, "model_used", None),
         },
         "choices": {
             "top": choice_responses[:2],
@@ -415,3 +419,37 @@ async def generate_next_scene(
     except Exception as e:
         logger.error(f"generate_next_scene error: {e}", exc_info=True)
         return error_response(f"Scene generation failed: {str(e)}")
+
+
+# ============================================================================
+# Storyteller Management Endpoints
+# ============================================================================
+
+@router.get("/storytellers")
+async def list_storytellers():
+    """Get all available storytellers.
+    
+    Returns:
+        List of storyteller definitions with metadata
+    """
+    try:
+        from app.storytellers import get_all_storytellers
+        
+        storytellers = get_all_storytellers()
+        result = [
+            {
+                "string_id": s.string_id,
+                "version": s.version,
+                "name": s.name,
+                "short_description": s.short_description,
+                "temperature": s.temperature,
+                "preferred_model": s.preferred_model,
+                "examples": s.examples,
+            }
+            for s in storytellers
+        ]
+        
+        return success_response(result)
+    except Exception as e:
+        logger.error(f"Failed to list storytellers: {e}", exc_info=True)
+        return error_response(f"Failed to list storytellers: {str(e)}")

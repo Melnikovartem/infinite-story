@@ -5,7 +5,10 @@ that are easier for AI to understand and generate responses for.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..storytellers import Storyteller
 
 logger = logging.getLogger("infinite_story.utils.prompt_formatter")
 
@@ -14,7 +17,11 @@ class PromptFormatter:
     """Format context into natural language prompts."""
     
     @staticmethod
-    def format_scene_context(context: Dict[str, Any], choice_text: str = None) -> str:
+    def format_scene_context(
+        context: Dict[str, Any],
+        choice_text: str = None,
+        storyteller: Optional['Storyteller'] = None
+    ) -> str:
         """Format scene generation context into a comprehensive natural prompt.
         
         Builds a layered prompt from oldest context to most recent:
@@ -32,11 +39,12 @@ class PromptFormatter:
         12. Story dynamics (tension, momentum, pacing)
         13. Theme tracking & accumulated changes
         14. Player choice
-        15. Generation instructions (context-aware)
+        15. Generation instructions (context-aware, includes storyteller style if provided)
         
         Args:
             context: Generation context dict from SegmentContextBuilder
             choice_text: Optional override for user choice text
+            storyteller: Optional Storyteller instance for narrative style injection
             
         Returns:
             Natural language prompt for scene generation
@@ -521,6 +529,18 @@ class PromptFormatter:
         # 15. GENERATION INSTRUCTIONS (context-aware)
         # ================================================================
         parts.append("\n=== GENERATION INSTRUCTIONS ===")
+        
+        # Inject storyteller style if provided
+        if storyteller:
+            parts.append(f"[Narrative Voice: {storyteller.name}]")
+            parts.append(storyteller.style_instructions)
+            parts.append("")
+            if storyteller.examples:
+                parts.append("Example of this style:")
+                for i, example in enumerate(storyteller.examples[:1], 1):
+                    parts.append(f"  \"{example[:150]}...\"")
+            parts.append("")
+        
         parts.append("Write the next scene. Your scene MUST:")
         parts.append("1. Follow naturally from the player's choice")
         parts.append("2. Maintain continuity with previous arcs, episodes, and established world facts")
