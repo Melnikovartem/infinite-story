@@ -752,7 +752,7 @@ async def _initialize_generator(config: Config, quiet: bool = False):
             console.print(f"[cyan]Using OpenAI with model: {config.generator.model}[/cyan]")
     return generator
 
-async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = None, dump: Optional[str] = None):
+async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = None, dump: Optional[str] = None, dump_context: bool = False):
     """Run story in unified interactive mode.
 
     Displays the segment text, then presents a menu:
@@ -763,6 +763,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
 
     If dump is set ("info", "prompt", or "all"), auto-picks through scenes
     then prints the requested debug output and exits (no interaction).
+    
+    If dump_context is True, print the full context dict as JSON and exit.
     """
     from app.ui.story_debug_display import (
         display_segment,
@@ -777,6 +779,45 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
     from app.engine.segment_context_builder import SegmentContextBuilder
 
     auto_remaining = auto_pick  # None = interactive, 0 = unlimited, N = N picks left
+
+    # ── Dump context: auto-pick N scenes, print context dict as JSON, exit ──
+    if dump_context:
+        # Auto-pick through scenes first (if auto_pick given)
+        picks_to_do = auto_pick if auto_pick and auto_pick > 0 else 0
+        for _ in range(picks_to_do):
+            if not runner.current_segment:
+                break
+            choices = runner.get_available_choices()
+            if not choices:
+                break
+            try:
+                await _execute_choice(runner, choices[0].id, generator)
+            except Exception as e:
+                console.print(f"[red]Error during auto-pick: {e}[/red]")
+                return
+            runner.save_state()
+
+        if not runner.current_segment:
+            console.print("[red]No current segment[/red]")
+            return
+
+        # Build context for current segment
+        context = None
+        choices = runner.get_available_choices()
+        try:
+            context_builder = SegmentContextBuilder(runner.story)
+            context = await context_builder.build_context(
+                runner.current_segment.id,
+                choices[0].text if choices else "unknown"
+            )
+        except Exception as e:
+            logger.debug(f"Could not build context: {e}")
+            context = {}
+
+        # Dump full context as JSON
+        import json
+        console.print(json.dumps(context, indent=2, default=str))
+        return
 
     # ── Dump mode: auto-pick N scenes, print debug, exit ──
     if dump:
@@ -923,7 +964,7 @@ async def _execute_choice(runner: StoryRunner, choice_id: str, generator):
             console.print(f"[red]Generation failed: {str(e)}[/red]")
             raise
 
-async def run_story_async(story_name: str = None, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None, dump: Optional[str] = None):
+async def run_story_async(story_name: str = None, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None, dump: Optional[str] = None, dump_context: bool = False):
     """Run a story in the unified interactive mode.
     
     Args:
@@ -932,6 +973,7 @@ async def run_story_async(story_name: str = None, resume: bool = False, log_leve
         log_level: error (default), warn, or debug
         auto_pick: If set, auto-select choice 1 for N turns (0 = unlimited)
         dump: If set, non-interactive mode. "info", "prompt", or "all"
+        dump_context: If True, dump full context dict as JSON and exit
     """
 
     # In dump mode, suppress all noise — only show the dump output
@@ -1013,7 +1055,7 @@ async def run_story_async(story_name: str = None, resume: bool = False, log_leve
             if not dump:
                 console.print("[green]Story started.[/green]")
         
-        await _run_story(runner, generator, auto_pick=auto_pick, dump=dump)
+        await _run_story(runner, generator, auto_pick=auto_pick, dump=dump, dump_context=dump_context)
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Story interrupted. Thanks for playing![/yellow]")
@@ -1045,6 +1087,11 @@ def run_story(
         "--dump",
         help="Non-interactive: auto-pick N scenes then dump debug info and exit. Values: info, prompt, all"
     ),
+    dump_context: bool = typer.Option(
+        False,
+        "--dump-context",
+        help="Non-interactive: auto-pick N scenes then dump full context dict as JSON and exit"
+    ),
 ):
     """Run a story in the interactive view.
     
@@ -1052,18 +1099,20 @@ def run_story(
       [1-N] Pick a choice     [L] Toggle logs     [I] Segment info     [P] View prompt
     
     Non-interactive dump (for scripting/debugging):
-      --dump info     Print segment info after N auto-picks, then exit
-      --dump prompt   Print the AI prompt after N auto-picks, then exit
-      --dump all      Print both
+      --dump info           Print segment info after N auto-picks, then exit
+      --dump prompt         Print the AI prompt after N auto-picks, then exit
+      --dump all            Print both
+      --dump-context        Print full context dict as JSON after N auto-picks, then exit
     
     Examples:
       python -m app.cli run-story my_story
       python -m app.cli run-story my_story --resume
       python -m app.cli run-story my_story --auto-pick 5 --dump info
       python -m app.cli run-story my_story --auto-pick 0 --dump prompt
-      python -m app.cli run-story my_story --dump all                    # opening scene
+      python -m app.cli run-story my_story --dump all
+      python -m app.cli run-story my_story --auto-pick 2 --dump-context    # dump context dict
     """
-    asyncio.run(run_story_async(story_name=story, resume=resume, log_level=log_level, auto_pick=auto_pick, dump=dump))
+    asyncio.run(run_story_async(story_name=story, resume=resume, log_level=log_level, auto_pick=auto_pick, dump=dump, dump_context=dump_context))
 
 @app.command()
 def list_models(
