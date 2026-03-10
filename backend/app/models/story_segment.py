@@ -9,6 +9,7 @@ from .text_types import TextBlock
 from .story_choice import StoryChoice
 from app.utils.prompt_builder import ScenePromptBuilder
 from app.utils.ai_response_parser import ResponseSchema, FieldSpec
+from app.storytellers import get_storyteller_or_default
 
 if TYPE_CHECKING:
     from ..engine.generator import TextGenerator
@@ -306,6 +307,20 @@ class StorySegment(StoryBlock):
         description="Whether this segment is part of the arc's canonical mainline path"
     )
     
+    # -- Storyteller & Model Tracking --
+    storyteller_id: Optional[str] = Field(
+        None,
+        description="The narrative voice/style persona used to generate this segment"
+    )
+    storyteller_version: Optional[str] = Field(
+        None,
+        description="Version of the storyteller used (for tracking prompt evolution)"
+    )
+    model_used: Optional[str] = Field(
+        None,
+        description="The AI model used to generate this segment"
+    )
+    
     # Non-Stored Information
     # Pointers to choices
     incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead to this segment
@@ -497,6 +512,10 @@ class StorySegment(StoryBlock):
         
         gen_start_time = time.time()
         
+        # Resolve storyteller
+        storyteller = get_storyteller_or_default(self.story.storyteller_id)
+        logger.info(f"📖 Using storyteller: {storyteller.name} ({storyteller.string_id}@{storyteller.version})")
+        
         # Build rich context using full parent chain walking
         logger.info(f"🎬 Starting scene generation for choice: {connecting_choice.text[:50]}...")
         logger.debug(f"Building context with SegmentContextBuilder (walks full parent chain)")
@@ -515,7 +534,8 @@ class StorySegment(StoryBlock):
         formatter = PromptFormatter()
         user_prompt = formatter.format_scene_context(
             context=context,
-            choice_text=connecting_choice.text
+            choice_text=connecting_choice.text,
+            storyteller=storyteller
         )
         prompt_duration = time.time() - prompt_start
         logger.debug(f"Formatted prompt with {len(user_prompt)} characters in {prompt_duration:.2f}s")
@@ -541,12 +561,21 @@ class StorySegment(StoryBlock):
             "  Track how each present character FEELS at the END of this scene. Be specific and nuanced.\n"
         )
 
+        # Temporarily override temperature if storyteller specifies one
+        original_temperature = generator.temperature
+        if storyteller.temperature is not None:
+            generator.temperature = storyteller.temperature
+            logger.debug(f"Storyteller temperature override: {original_temperature} -> {generator.temperature}")
+
         scene_data: dict = await generator.generate_structured(
-            system_prompt=generator.DEFAULT_SYSTEM_PROMPT,
+            system_prompt=storyteller.system_prompt,
             user_prompt=user_prompt + text_blocks_hint,
             schema=_SCENE_SCHEMA,
             fallback_defaults=[_SCENE_FALLBACK],
         )
+        
+        # Restore original temperature
+        generator.temperature = original_temperature
         gen_api_duration = time.time() - gen_api_start
         logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response in {gen_api_duration:.2f}s")
 
@@ -693,6 +722,9 @@ class StorySegment(StoryBlock):
         # Normalize: ensure all values are strings
         character_emotions = {str(k): str(v) for k, v in raw_char_emotions.items() if v}
         
+        # Get model name from generator for tracking
+        model_used = getattr(generator, 'model', 'unknown')
+        
         new_segment = StorySegment(
             story=self.story,
             id=new_segment_id,
@@ -723,6 +755,10 @@ class StorySegment(StoryBlock):
             triggers_episode_transition=should_transition,
             # Episode tracking: change notes from AI
             change_notes=scene_data.get("change_notes") or [],
+            # Storyteller & model tracking
+            storyteller_id=storyteller.string_id,
+            storyteller_version=storyteller.version,
+            model_used=model_used,
         )
         logger.debug(f"[GEN_SCENE_CREATE_OK] StorySegment object created")
         logger.debug(f"[GEN_SCENE_ARC_INFO] arc_id={new_segment.arc_id}, episode={new_segment.episode_number}, seg_in_ep={new_segment.segment_number_in_episode}")

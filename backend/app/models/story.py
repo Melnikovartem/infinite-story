@@ -28,6 +28,7 @@ class Story(StoryBase):
     genre: Optional[str] = None
     user_id: Optional[str] = None
     start_segment_id: Optional[str] = None  # Reference to the first segment of the story
+    storyteller_id: Optional[str] = None  # The narrative voice/style persona for this story
     
     # Private component caches
     _characters: Dict[str, 'StoryCharacter'] = PrivateAttr(default_factory=dict)
