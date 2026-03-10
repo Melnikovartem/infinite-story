@@ -143,7 +143,7 @@ def display_segment(segment) -> None:
 # INTERACTIVE MENU
 # ============================================================================
 
-def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None) -> str:
+def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None, story=None) -> str:
     """Show choices + debug menu. Returns a choice ID or a command string.
 
     Commands returned:
@@ -151,13 +151,39 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
       "CMD_INFO"   - show segment info
       "CMD_PROMPT" - show AI prompt
       choice.id    - user picked a story choice
+      
+    Args:
+      segment: Current segment
+      choices: Available choices
+      context: Optional context dict
+      story: Optional Story object to look up target segments
     """
     # ── Show choices ──
     console.print("[bold]Choices:[/bold]")
     for i, choice in enumerate(choices, 1):
         text = choice.text if hasattr(choice, 'text') else str(choice)
         to_seg = choice.to_segment_id if hasattr(choice, 'to_segment_id') else None
-        target = "[dim](new)[/dim]" if not to_seg else f"[dim]-> {to_seg}[/dim]"
+        
+        if not to_seg:
+            target = "[dim](generates new)[/dim]"
+        else:
+            # Try to get info about the target segment
+            target_info = ""
+            if story:
+                try:
+                    target_seg = story.get_segment(to_seg)
+                    if target_seg:
+                        ep = getattr(target_seg, 'episode_number', '?')
+                        seg_num = getattr(target_seg, 'segment_number_in_episode', '?')
+                        sl = getattr(target_seg, 'storyline_type', None)
+                        parts = [f"Ep {ep} Seg {seg_num}"]
+                        if sl:
+                            parts.append(sl)
+                        target_info = f" [{', '.join(parts)}]"
+                except:
+                    pass
+            target = f"[dim]-> {to_seg}{target_info}[/dim]"
+        
         console.print(f"  [bold cyan]{i}[/bold cyan]  {text}  {target}")
 
     # ── Menu bar ──

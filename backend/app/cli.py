@@ -923,7 +923,7 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
             else:
                 # Interactive menu loop
                 while True:
-                    result = prompt_menu(runner.current_segment, choices, context)
+                    result = prompt_menu(runner.current_segment, choices, context, story=runner.story)
 
                     if result == "CMD_LOGS":
                         toggle_logs()
