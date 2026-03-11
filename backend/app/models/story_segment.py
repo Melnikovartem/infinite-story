@@ -987,9 +987,15 @@ class StorySegment(StoryBlock):
                             description=f"{source_char.name}'s relationship with {target_name}: {rel_desc}",
                         ))
                         
-                        # Update the character's relationships dict
+                        # Update the character's relationships dict and persist
                         source_char.relationships[target_id] = str(rel_desc)
                         logger.debug(f"  Relationship: {source_char.name} -> {target_name}: {rel_desc}")
+                    
+                    # Save character with updated relationships
+                    try:
+                        source_char.save()
+                    except Exception as e:
+                        logger.debug(f"  Failed to save relationship update for {source_char.name}: {e}")
                 
                 elif isinstance(rel_info, str):
                     # Flat string: treat as a general relationship note
