@@ -114,17 +114,39 @@ class SegmentContextBuilder:
         # Walk full parent chain to include previous episodes
         full_parent_chain = self._walk_full_parent_chain(current_segment_id)
         
-        # Build structured character context (arc -> episode -> segment hierarchy)
+        # Build structured character context (3-tier: present / arc / available)
         char_context = self._get_structured_character_context(current_seg, episode_chain)
+        
+        # Build tiered location context (3-tier: present / arc / available)
+        loc_context = self._get_tiered_location_context(current_seg, episode_chain)
+        
+        # Build previous segment details for continuity
+        prev_seg_details = self._get_previous_segment_details(current_seg)
         
         # Build comprehensive context
         context_dict = {
             # ====================================================================
-            # CHARACTER CONTEXT (HIERARCHICAL)
+            # CHARACTER CONTEXT (3-TIER)
             # ====================================================================
-            'arc_characters': char_context['arc_characters'],           # All characters (short)
-            'episode_characters': char_context['episode_characters'],   # Updated states (full)
-            'segment_character_changes': char_context['segment_character_changes'],  # Running changes
+            'characters_present': char_context['characters_present'],       # Tier 1: in previous segment
+            'characters_in_arc': char_context['characters_in_arc'],         # Tier 2: arc active, not present
+            'characters_available': char_context['characters_available'],   # Tier 3: all others (short)
+            # Legacy (backward compat)
+            'arc_characters': char_context['arc_characters'],
+            'episode_characters': char_context['episode_characters'],
+            'segment_character_changes': char_context['segment_character_changes'],
+            
+            # ====================================================================
+            # LOCATION CONTEXT (3-TIER)
+            # ====================================================================
+            'locations_present_tiered': loc_context['locations_present'],     # Tier 1
+            'locations_in_arc': loc_context['locations_in_arc'],             # Tier 2
+            'locations_available': loc_context['locations_available'],       # Tier 3
+            
+            # ====================================================================
+            # PREVIOUS SEGMENT DETAILS
+            # ====================================================================
+            'previous_segment_details': prev_seg_details,
             'character_changes_this_episode': accumulated_changes,
             'character_relationships': self._get_character_relationships(episode_chain),
             'relationship_changes': self._get_relationship_changes(episode_chain),
@@ -632,88 +654,377 @@ class SegmentContextBuilder:
         current_seg: StorySegment,
         episode_chain: List[str]
     ) -> Dict[str, Any]:
-        """Build comprehensive, hierarchical character context for LLM.
+        """Build comprehensive, 3-tier character context for LLM.
         
-        Hierarchy:
-        1. ALL CHARACTERS (from arc): short description only
-        2. Episode characters (updated states): full context + all fields
-        3. Segment running changes: current state overrides
+        Tiers:
+        1. CHARACTERS PRESENT — characters in previous segment's characters_present
+           Full detail: id, description, inventory, state, running changes
+        2. CHARACTERS IN ARC — arc active_characters NOT present in previous segment
+           Same full detail
+        3. CHARACTERS AVAILABLE — all remaining story characters
+           Short: id, name, role, emotional state, running changes if any
         
-        Returns:
-            {
-                'arc_characters': {...},           # All characters in arc (short)
-                'episode_characters': {...},       # Updated in episode (full context)
-                'segment_character_changes': {...} # Running changes this segment
-            }
+        Also builds legacy arc_characters / episode_characters / segment_character_changes
+        for backward compatibility with existing prompt_formatter code.
+        
+        Returns dict with both tiered and legacy keys.
         """
         from app.models.story_arc import StoryArc
         from app.models.story_episode import StoryEpisode
         
+        # Legacy structures (kept for backward compat)
         arc_characters = {}
         episode_characters = {}
         segment_changes = {}
         
+        # New tiered structures
+        characters_present = {}   # Tier 1: in previous segment
+        characters_in_arc = {}    # Tier 2: in arc but not present
+        characters_available = {} # Tier 3: all others
+        
         try:
-            # Load arc to get all characters
+            # Determine which characters were present in the previous (current) segment
+            present_ids = set(current_seg.characters_present or [])
+            
+            # Also resolve present characters by name -> id
+            all_chars = {c.id: c for c in self.story.get_all_characters()}
+            name_to_id = {c.name.lower(): c.id for c in all_chars.values()}
+            
+            # Expand present_ids: characters_present may contain names instead of IDs
+            resolved_present_ids = set()
+            for p in present_ids:
+                if p in all_chars:
+                    resolved_present_ids.add(p)
+                elif p.lower() in name_to_id:
+                    resolved_present_ids.add(name_to_id[p.lower()])
+                else:
+                    resolved_present_ids.add(p)  # keep as-is
+            
+            # Load arc to determine arc-active characters
+            arc_active_ids = set()
+            arc = None
             if current_seg.arc_id:
                 arc = StoryArc.load(self.story.id, current_seg.arc_id)
                 if arc:
-                    # Get all characters from story and provide short descriptions
-                    for character in self.story.get_all_characters():
-                        try:
-                            arc_characters[character.id] = {
-                                'name': character.name,
-                                'short_description': character.description,
-                                'importance': character.role.value if hasattr(character, 'role') else 'minor',
-                            }
-                        except Exception as e:
-                            logger.debug(f"Failed to get arc character {character.id}: {e}")
+                    arc_active_ids = set(arc.active_characters or [])
+                    arc_active_ids.update(arc.key_characters or [])
             
-            # Load episode metadata to get updated character states
+            # Load episode metadata for state snapshots
+            episode_state_snapshots = {}
+            episode_active_ids = set()
             if current_seg.arc_id and current_seg.episode_number:
                 episode_meta_id = f"episode_meta_{current_seg.episode_number}_{current_seg.arc_id}"
                 episode_meta = StoryEpisode.load(self.story.id, episode_meta_id, story=self.story)
                 
-                if episode_meta and episode_meta.character_state_snapshot:
-                    # Pack episode character states with full context
-                    for char_id, state_snapshot in episode_meta.character_state_snapshot.items():
-                        try:
-                            character = self.story.get_character(char_id)
-                            episode_characters[char_id] = {
-                                'name': character.name if character else f"Character {char_id}",
-                                'description': state_snapshot.description,
-                                'health_status': state_snapshot.health_status,
-                                'emotional_status': state_snapshot.emotional_status,
-                                'relationship_notes': state_snapshot.relationship_notes,
-                                'inventory': state_snapshot.inventory,
-                                'character_arc_goal': state_snapshot.character_arc_goal,
-                                'goal_progress': state_snapshot.goal_progress,
-                                'goal_notes': state_snapshot.goal_notes,
-                                'is_active': char_id in (episode_meta.active_characters or []),
-                            }
-                        except Exception as e:
-                            logger.debug(f"Failed to get episode character {char_id}: {e}")
+                if episode_meta:
+                    if episode_meta.character_state_snapshot:
+                        episode_state_snapshots = episode_meta.character_state_snapshot
+                    episode_active_ids = set(episode_meta.active_characters or [])
             
-            # Get segment-level running changes
-            for seg_id in episode_chain[-1:]:  # Last segment
+            # Collect running changes from episode chain segments
+            # running_changes is List[EntityChange] on each segment
+            char_running_changes: Dict[str, List[Dict[str, Any]]] = {}
+            for seg_id in episode_chain:
                 seg = self.story.get_segment(seg_id)
-                if seg and seg.character_states:
-                    for char_id, state_dict in seg.character_states.items():
-                        if isinstance(state_dict, dict):
-                            segment_changes[char_id] = {
-                                'emotion': state_dict.get('emotion'),
-                                'status': state_dict.get('status'),
-                                'notes': state_dict.get('notes'),
-                            }
+                if seg:
+                    for rc in seg.running_changes:
+                        if rc.entity_type == 'character':
+                            if rc.entity_id not in char_running_changes:
+                                char_running_changes[rc.entity_id] = []
+                            char_running_changes[rc.entity_id].append({
+                                'property': rc.property,
+                                'from': rc.from_value,
+                                'to': rc.to_value,
+                                'description': rc.description,
+                            })
+            
+            # Also collect from segment.character_states (last segment only)
+            last_seg = self.story.get_segment(episode_chain[-1]) if episode_chain else None
+            if last_seg and last_seg.character_states:
+                for char_id, state_dict in last_seg.character_states.items():
+                    if isinstance(state_dict, dict):
+                        segment_changes[char_id] = {
+                            'emotion': state_dict.get('emotion'),
+                            'status': state_dict.get('status'),
+                            'notes': state_dict.get('notes'),
+                        }
+            
+            # Helper: build full character dict
+            def _build_full_char_dict(char_id: str, character) -> Dict[str, Any]:
+                """Build a full detail dict for a character (tier 1 and 2)."""
+                result = {
+                    'id': char_id,
+                    'name': character.name,
+                    'role': character.role.value if hasattr(character, 'role') else 'minor',
+                    'description': character.full_description or character.description or '',
+                    'background': character.background or '',
+                    'personality': character.personality if isinstance(character.personality, list) else [],
+                    'goals': character.goals or '',
+                    'relationships': character.relationships or {},
+                    'recap': character.recap or '',
+                }
+                
+                # Overlay episode state snapshot if available
+                snapshot = episode_state_snapshots.get(char_id)
+                if snapshot:
+                    result['inventory'] = snapshot.inventory or {}
+                    result['health_status'] = snapshot.health_status or 'healthy'
+                    result['emotional_status'] = snapshot.emotional_status or ''
+                    result['relationship_notes'] = snapshot.relationship_notes or {}
+                    result['arc_goal'] = snapshot.character_arc_goal or ''
+                    result['goal_progress'] = snapshot.goal_progress
+                    result['goal_notes'] = snapshot.goal_notes or ''
+                else:
+                    result['inventory'] = {}
+                    result['health_status'] = 'unknown'
+                    result['emotional_status'] = ''
+                    result['relationship_notes'] = {}
+                    result['arc_goal'] = ''
+                    result['goal_progress'] = 0.0
+                    result['goal_notes'] = ''
+                
+                # Current state from character model
+                if character.current_state:
+                    cs = character.current_state
+                    if not result['emotional_status'] and cs.get('mood'):
+                        result['emotional_status'] = cs['mood']
+                
+                # Overlay character emotions from the current segment
+                char_emotion = current_seg.character_emotions.get(character.name) or current_seg.character_emotions.get(char_id)
+                if char_emotion:
+                    result['emotional_status'] = char_emotion
+                
+                # Running changes
+                result['running_changes'] = char_running_changes.get(char_id, [])
+                
+                return result
+            
+            # Helper: build short character dict
+            def _build_short_char_dict(char_id: str, character) -> Dict[str, Any]:
+                """Build a short summary dict for a character (tier 3)."""
+                emotional = ''
+                # From segment emotions
+                char_emotion = current_seg.character_emotions.get(character.name) or current_seg.character_emotions.get(char_id)
+                if char_emotion:
+                    emotional = char_emotion
+                # From episode snapshot
+                elif char_id in episode_state_snapshots:
+                    emotional = episode_state_snapshots[char_id].emotional_status or ''
+                # From character model
+                elif character.current_state and character.current_state.get('mood'):
+                    emotional = character.current_state['mood']
+                
+                result = {
+                    'id': char_id,
+                    'name': character.name,
+                    'role': character.role.value if hasattr(character, 'role') else 'minor',
+                    'description': character.description or '',
+                    'emotional_status': emotional,
+                    'running_changes': char_running_changes.get(char_id, []),
+                }
+                return result
+            
+            # Classify each character into tiers
+            for char_id, character in all_chars.items():
+                try:
+                    if char_id in resolved_present_ids:
+                        characters_present[char_id] = _build_full_char_dict(char_id, character)
+                    elif char_id in arc_active_ids or char_id in episode_active_ids:
+                        characters_in_arc[char_id] = _build_full_char_dict(char_id, character)
+                    else:
+                        characters_available[char_id] = _build_short_char_dict(char_id, character)
+                except Exception as e:
+                    logger.debug(f"Failed to build character context for {char_id}: {e}")
+                
+                # Also populate legacy arc_characters
+                try:
+                    arc_characters[char_id] = {
+                        'name': character.name,
+                        'short_description': character.description,
+                        'full_description': character.full_description or '',
+                        'description': character.description or '',
+                        'background': character.background or '',
+                        'personality': character.personality if isinstance(character.personality, list) else [],
+                        'goals': character.goals or '',
+                        'role': character.role.value if hasattr(character, 'role') else 'minor',
+                        'importance': character.role.value if hasattr(character, 'role') else 'minor',
+                        'relationships': character.relationships or {},
+                    }
+                except Exception as e:
+                    logger.debug(f"Failed to build legacy arc character {char_id}: {e}")
+            
+            # Populate legacy episode_characters
+            for char_id, snapshot in episode_state_snapshots.items():
+                try:
+                    character = all_chars.get(char_id)
+                    episode_characters[char_id] = {
+                        'name': character.name if character else f"Character {char_id}",
+                        'description': snapshot.description,
+                        'health_status': snapshot.health_status,
+                        'emotional_status': snapshot.emotional_status,
+                        'relationship_notes': snapshot.relationship_notes,
+                        'inventory': snapshot.inventory,
+                        'character_arc_goal': snapshot.character_arc_goal,
+                        'goal_progress': snapshot.goal_progress,
+                        'goal_notes': snapshot.goal_notes,
+                        'is_active': char_id in episode_active_ids,
+                    }
+                except Exception as e:
+                    logger.debug(f"Failed to build legacy episode character {char_id}: {e}")
         
         except Exception as e:
             logger.warning(f"Failed to build structured character context: {e}")
         
         return {
+            # New tiered context
+            'characters_present': characters_present,
+            'characters_in_arc': characters_in_arc,
+            'characters_available': characters_available,
+            # Legacy (backward compat)
             'arc_characters': arc_characters,
             'episode_characters': episode_characters,
             'segment_character_changes': segment_changes,
         }
+    
+    def _get_tiered_location_context(
+        self,
+        current_seg: StorySegment,
+        episode_chain: List[str]
+    ) -> Dict[str, Any]:
+        """Build 3-tier location context for LLM.
+        
+        Tiers:
+        1. LOCATIONS PRESENT — in previous segment's locations_present
+           Full detail: id, name, description, full_description, current_state
+        2. LOCATIONS IN ARC — arc active_locations NOT present
+           Same full detail
+        3. LOCATIONS AVAILABLE — all remaining story locations
+           Short: id, name, short description
+        
+        Returns dict with tiered keys.
+        """
+        from app.models.story_arc import StoryArc
+        
+        locations_present = {}
+        locations_in_arc = {}
+        locations_available = {}
+        
+        try:
+            # Determine which locations are present in the current segment
+            present_ids = set(current_seg.locations_present or [])
+            
+            # Resolve by name too
+            all_locs = {}
+            for loc in self.story.get_all_locations():
+                all_locs[loc.id] = loc
+            name_to_id = {loc.name.lower(): loc.id for loc in all_locs.values()}
+            
+            resolved_present_ids = set()
+            for p in present_ids:
+                if p in all_locs:
+                    resolved_present_ids.add(p)
+                elif p.lower() in name_to_id:
+                    resolved_present_ids.add(name_to_id[p.lower()])
+                else:
+                    resolved_present_ids.add(p)
+            
+            # Get arc active locations
+            arc_active_ids = set()
+            if current_seg.arc_id:
+                arc = StoryArc.load(self.story.id, current_seg.arc_id)
+                if arc:
+                    arc_active_ids = set(arc.active_locations or [])
+            
+            # Collect running changes for locations from episode chain
+            loc_running_changes: Dict[str, List[Dict[str, Any]]] = {}
+            for seg_id in episode_chain:
+                seg = self.story.get_segment(seg_id)
+                if seg:
+                    for rc in seg.running_changes:
+                        if rc.entity_type == 'location':
+                            if rc.entity_id not in loc_running_changes:
+                                loc_running_changes[rc.entity_id] = []
+                            loc_running_changes[rc.entity_id].append({
+                                'property': rc.property,
+                                'from': rc.from_value,
+                                'to': rc.to_value,
+                                'description': rc.description,
+                            })
+            
+            # Also check location_status_change from segments
+            for seg_id in episode_chain:
+                seg = self.story.get_segment(seg_id)
+                if seg:
+                    for ls in seg.locations_running_status:
+                        loc_id = ls.location_id
+                        if loc_id not in loc_running_changes:
+                            loc_running_changes[loc_id] = []
+                        loc_running_changes[loc_id].append({
+                            'property': 'status',
+                            'from': None,
+                            'to': ls.current_status,
+                            'description': f"{loc_id}: {ls.current_status}",
+                        })
+            
+            def _build_full_loc_dict(loc_id: str, location) -> Dict[str, Any]:
+                result = {
+                    'id': loc_id,
+                    'name': location.name,
+                    'description': location.full_description or location.description or '',
+                    'importance': location.importance or 'minor',
+                    'associated_factions': location.associated_factions or [],
+                    'current_state': location.current_state or {},
+                    'running_changes': loc_running_changes.get(loc_id, []),
+                }
+                return result
+            
+            def _build_short_loc_dict(loc_id: str, location) -> Dict[str, Any]:
+                result = {
+                    'id': loc_id,
+                    'name': location.name,
+                    'description': location.description or '',
+                    'running_changes': loc_running_changes.get(loc_id, []),
+                }
+                return result
+            
+            for loc_id, location in all_locs.items():
+                try:
+                    if loc_id in resolved_present_ids:
+                        locations_present[loc_id] = _build_full_loc_dict(loc_id, location)
+                    elif loc_id in arc_active_ids:
+                        locations_in_arc[loc_id] = _build_full_loc_dict(loc_id, location)
+                    else:
+                        locations_available[loc_id] = _build_short_loc_dict(loc_id, location)
+                except Exception as e:
+                    logger.debug(f"Failed to build location context for {loc_id}: {e}")
+        
+        except Exception as e:
+            logger.warning(f"Failed to build tiered location context: {e}")
+        
+        return {
+            'locations_present': locations_present,
+            'locations_in_arc': locations_in_arc,
+            'locations_available': locations_available,
+        }
+    
+    def _get_previous_segment_details(self, current_seg: StorySegment) -> Dict[str, Any]:
+        """Build detailed context about the previous (current) segment.
+        
+        Includes characters present, their emotions, locations, items, atmosphere.
+        """
+        details: Dict[str, Any] = {}
+        
+        details['short_description'] = current_seg.short_description or ''
+        details['characters_present'] = current_seg.characters_present or []
+        details['locations_present'] = current_seg.locations_present or []
+        details['key_items'] = current_seg.key_items or []
+        details['atmosphere'] = current_seg.atmosphere or ''
+        details['character_emotions'] = current_seg.character_emotions or {}
+        details['storyline_type'] = current_seg.storyline_type or ''
+        details['time_of_day'] = current_seg.time_of_day or ''
+        details['weather'] = current_seg.weather or ''
+        
+        return details
     
     def _get_extended_character_info(self, recent_segments: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get full character info for characters in last 3 segments."""

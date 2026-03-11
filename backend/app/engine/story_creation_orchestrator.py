@@ -299,16 +299,61 @@ Write an opening scene that:
 - Is vivid, atmospheric, and 2-3 paragraphs
 - Ends with two meaningful choices for the player"""
             
-            scene_data = await self.generator.generate_structured(
-                system_prompt=(
-                    "You are a master storyteller creating immersive opening scenes. "
-                    "Write with vivid sensory details. Always provide two compelling, "
-                    "distinct choices for the player at the end."
-                ),
-                user_prompt=opening_prompt,
-                schema=_SCENE_SCHEMA,
-                fallback_defaults=[_SCENE_FALLBACK],
-            )
+            # Retry loop for opening scene generation
+            MAX_OPENING_RETRIES = 3
+            scene_data = None
+            
+            for attempt in range(1, MAX_OPENING_RETRIES + 1):
+                scene_data = await self.generator.generate_structured(
+                    system_prompt=(
+                        "You are a master storyteller creating immersive opening scenes. "
+                        "Write with vivid sensory details. Always provide two compelling, "
+                        "distinct choices for the player at the end."
+                    ),
+                    user_prompt=opening_prompt,
+                    schema=_SCENE_SCHEMA,
+                    fallback_defaults=[_SCENE_FALLBACK],
+                )
+                
+                # Detect fallback
+                is_fallback = (
+                    scene_data.get("short_description") == _SCENE_FALLBACK["short_description"]
+                    or scene_data.get("text_blocks") == _SCENE_FALLBACK["text_blocks"]
+                )
+                
+                text_blocks_raw = scene_data.get("text_blocks", [])
+                has_real_content = False
+                if isinstance(text_blocks_raw, list):
+                    for tb in text_blocks_raw:
+                        content = tb.get("content", "") if isinstance(tb, dict) else str(tb)
+                        if content and content not in ("The story continues...", "The story begins...", "The scene continues"):
+                            has_real_content = True
+                            break
+                
+                if not is_fallback and has_real_content:
+                    logger.info(f"[OPENING_SCENE_OK] Opening scene generated on attempt {attempt}")
+                    break
+                
+                raw = getattr(self.generator, 'last_raw_response', None) or ''
+                logger.warning(
+                    f"[OPENING_SCENE_RETRY] Attempt {attempt}/{MAX_OPENING_RETRIES} returned fallback. "
+                    f"short_description='{scene_data.get('short_description', '')}'\n"
+                    f"--- RAW AI RESPONSE ({len(raw)} chars) ---\n"
+                    f"{raw[:3000]}\n"
+                    f"--- END RAW RESPONSE ---"
+                )
+                if attempt == 1:
+                    logger.warning(
+                        f"[OPENING_SCENE_RETRY_PROMPT] Prompt ({len(opening_prompt)} chars):\n"
+                        f"{opening_prompt[:2000]}\n"
+                        f"--- END PROMPT PREVIEW ---"
+                    )
+                
+                if attempt < MAX_OPENING_RETRIES:
+                    import asyncio
+                    await asyncio.sleep(1.0)
+            else:
+                logger.error(f"[OPENING_SCENE_ALL_RETRIES_FAILED] All {MAX_OPENING_RETRIES} attempts returned fallback.")
             
             first_arc_id = arcs[0].id if arcs else "arc_1"
             scene_text_blocks = _parse_text_blocks(scene_data.get("text_blocks", []))

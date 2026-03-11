@@ -38,6 +38,7 @@ _SCENE_SCHEMA = ResponseSchema(
         FieldSpec("locations_present", type="list", aliases=["locations", "present_locations"]),
         FieldSpec("character_status_change", type="dict", aliases=["character_changes", "status_changes"]),
         FieldSpec("character_emotions", type="dict", aliases=["emotions", "character_feelings", "emotional_states"]),
+        FieldSpec("relationship_changes", type="dict", aliases=["relationship_updates", "relationships_changed"]),
         FieldSpec("location_status_change", type="dict", aliases=["location_changes"]),
         FieldSpec("change_notes", type="list", aliases=["changes", "notes", "episode_changes"]),
         FieldSpec("choice_1", type="str", required=True, aliases=["first_choice", "option_1"]),
@@ -58,6 +59,7 @@ _SCENE_FALLBACK = {
     "locations_present": [],
     "character_status_change": {},
     "character_emotions": {},
+    "relationship_changes": {},
     "location_status_change": {},
     "change_notes": [],
     "choice_1": "Continue forward",
@@ -559,6 +561,9 @@ class StorySegment(StoryBlock):
             "\nIMPORTANT: character_emotions must be a JSON object mapping character names to their current emotion:\n"
             '  e.g. {"Thorne": "determined but anxious", "Lyra": "quietly hopeful", "King Aldric": "seething with rage"}\n'
             "  Track how each present character FEELS at the END of this scene. Be specific and nuanced.\n"
+            "\nIMPORTANT: relationship_changes must be a JSON object tracking how character relationships shifted this scene:\n"
+            '  e.g. {"Thorne": {"Lyra": "growing trust after shared danger", "King Aldric": "deepening suspicion"}}\n'
+            "  Only include relationships that ACTUALLY CHANGED this scene. Omit if no relationships shifted.\n"
         )
 
         # Temporarily override temperature if storyteller specifies one
@@ -567,12 +572,65 @@ class StorySegment(StoryBlock):
             generator.temperature = storyteller.temperature
             logger.debug(f"Storyteller temperature override: {original_temperature} -> {generator.temperature}")
 
-        scene_data: dict = await generator.generate_structured(
-            system_prompt=storyteller.system_prompt,
-            user_prompt=user_prompt + text_blocks_hint,
-            schema=_SCENE_SCHEMA,
-            fallback_defaults=[_SCENE_FALLBACK],
-        )
+        # Retry loop: detect fallback responses and retry up to MAX_RETRIES times
+        MAX_SCENE_RETRIES = 3
+        scene_data = None
+        
+        for attempt in range(1, MAX_SCENE_RETRIES + 1):
+            scene_data = await generator.generate_structured(
+                system_prompt=storyteller.system_prompt,
+                user_prompt=user_prompt + text_blocks_hint,
+                schema=_SCENE_SCHEMA,
+                fallback_defaults=[_SCENE_FALLBACK],
+            )
+            
+            # Detect if we got the fallback response
+            is_fallback = (
+                scene_data.get("short_description") == _SCENE_FALLBACK["short_description"]
+                or scene_data.get("text_blocks") == _SCENE_FALLBACK["text_blocks"]
+            )
+            
+            # Also detect empty/trivial text_blocks
+            text_blocks_raw = scene_data.get("text_blocks", [])
+            has_real_content = False
+            if isinstance(text_blocks_raw, list):
+                for tb in text_blocks_raw:
+                    content = tb.get("content", "") if isinstance(tb, dict) else str(tb)
+                    if content and content not in ("The story continues...", "The scene continues"):
+                        has_real_content = True
+                        break
+            
+            if not is_fallback and has_real_content:
+                logger.info(f"[GEN_SCENE_OK] Scene generated on attempt {attempt}")
+                break
+            
+            # Log the raw AI response that failed parsing
+            raw = getattr(generator, 'last_raw_response', None) or ''
+            logger.warning(
+                f"[GEN_SCENE_RETRY] Attempt {attempt}/{MAX_SCENE_RETRIES} returned fallback/empty response. "
+                f"short_description='{scene_data.get('short_description', '')}'\n"
+                f"--- RAW AI RESPONSE ({len(raw)} chars) ---\n"
+                f"{raw[:3000]}\n"
+                f"--- END RAW RESPONSE ---"
+            )
+            if attempt == 1:
+                # Log the prompt on first failure so we can diagnose prompt issues
+                prompt_preview = (user_prompt + text_blocks_hint)[:2000]
+                logger.warning(
+                    f"[GEN_SCENE_RETRY_PROMPT] Prompt that caused failure ({len(user_prompt)} chars):\n"
+                    f"{prompt_preview}\n"
+                    f"--- END PROMPT PREVIEW ---"
+                )
+            
+            if attempt < MAX_SCENE_RETRIES:
+                # Small delay before retry to avoid rate limits
+                import asyncio
+                await asyncio.sleep(1.0)
+        else:
+            logger.error(
+                f"[GEN_SCENE_ALL_RETRIES_FAILED] All {MAX_SCENE_RETRIES} attempts returned fallback. "
+                f"Using last response as-is."
+            )
         
         # Restore original temperature
         generator.temperature = original_temperature
@@ -586,7 +644,7 @@ class StorySegment(StoryBlock):
         # Convert raw text_blocks dicts into TextBlock objects
         scene_text_blocks = _parse_text_blocks(scene_data.get("text_blocks", []))
         if not scene_text_blocks:
-            # Absolute fallback — should rarely happen
+            # Absolute fallback — should rarely happen after retries
             scene_text_blocks = [TextBlock(type=TextType.NARRATOR_DESCRIBING, content="The story continues...")]
             logger.warning("[GEN_SCENE_FALLBACK] No text blocks parsed, using fallback")
 
@@ -785,6 +843,7 @@ class StorySegment(StoryBlock):
             new_segment.locations_running_status.extend(carried_locs)
 
         # Update character and location statuses based on changes
+        # Also create EntityChange entries so the flush generator gets richer data
         char_status_changes = scene_data.get("character_status_change") or {}
         if not isinstance(char_status_changes, dict):
             char_status_changes = {}
@@ -793,6 +852,24 @@ class StorySegment(StoryBlock):
             new_segment.characters_running_status.append(
                 CharacterStatus(character_id=str(char_id), current_status=str(new_status))
             )
+            # Create EntityChange for status change
+            # Resolve character name for display
+            char_name = str(char_id)
+            resolved_id = str(char_id)
+            for c in self.story.get_all_characters():
+                if c.name.lower() == str(char_id).lower() or c.id == str(char_id):
+                    char_name = c.name
+                    resolved_id = c.id
+                    break
+            new_segment.running_changes.append(EntityChange(
+                entity_id=resolved_id,
+                entity_type="character",
+                entity_name=char_name,
+                property="status",
+                from_value=None,
+                to_value=str(new_status),
+                description=f"{char_name}: {new_status}",
+            ))
             logger.debug(f"  Character '{char_id}' status: {new_status}")
 
         loc_status_changes = scene_data.get("location_status_change") or {}
@@ -803,6 +880,23 @@ class StorySegment(StoryBlock):
             new_segment.locations_running_status.append(
                 LocationStatus(location_id=str(loc_id), current_status=str(new_status))
             )
+            # Create EntityChange for location status change
+            loc_name = str(loc_id)
+            resolved_loc_id = str(loc_id)
+            for loc in self.story.get_all_locations():
+                if loc.name.lower() == str(loc_id).lower() or loc.id == str(loc_id):
+                    loc_name = loc.name
+                    resolved_loc_id = loc.id
+                    break
+            new_segment.running_changes.append(EntityChange(
+                entity_id=resolved_loc_id,
+                entity_type="location",
+                entity_name=loc_name,
+                property="status",
+                from_value=None,
+                to_value=str(new_status),
+                description=f"{loc_name}: {new_status}",
+            ))
             logger.debug(f"  Location '{loc_id}' status: {new_status}")
 
         # Process character emotions into EntityChange running_changes + character running_status
@@ -854,6 +948,121 @@ class StorySegment(StoryBlock):
                     )
                 
                 logger.debug(f"  Character '{char_name}' emotion: {old_emotion} -> {new_emotion}")
+        
+        # Process relationship_changes into EntityChange + update StoryCharacter.relationships
+        raw_rel_changes = scene_data.get("relationship_changes") or {}
+        if not isinstance(raw_rel_changes, dict):
+            raw_rel_changes = {}
+        if raw_rel_changes:
+            logger.debug(f"Processing {len(raw_rel_changes)} relationship changes")
+            all_characters = self.story.get_all_characters()
+            # Build name->character lookup
+            char_by_name = {}
+            for c in all_characters:
+                char_by_name[c.name.lower()] = c
+                char_by_name[c.id.lower()] = c
+            
+            for source_name, rel_info in raw_rel_changes.items():
+                # rel_info can be a dict like {"Lyra": "growing trust after shared danger"}
+                # or a string like "trust with Lyra deepened"
+                source_char = char_by_name.get(source_name.lower())
+                if not source_char:
+                    logger.debug(f"  Relationship source '{source_name}' not found, skipping")
+                    continue
+                
+                if isinstance(rel_info, dict):
+                    for target_name, rel_desc in rel_info.items():
+                        target_char = char_by_name.get(target_name.lower())
+                        target_id = target_char.id if target_char else target_name
+                        old_rel = source_char.relationships.get(target_id, source_char.relationships.get(target_name, ""))
+                        
+                        # Create EntityChange for relationship shift
+                        new_segment.running_changes.append(EntityChange(
+                            entity_id=source_char.id,
+                            entity_type="character",
+                            entity_name=source_char.name,
+                            property="relationship",
+                            from_value=old_rel or None,
+                            to_value=str(rel_desc),
+                            description=f"{source_char.name}'s relationship with {target_name}: {rel_desc}",
+                        ))
+                        
+                        # Update the character's relationships dict
+                        source_char.relationships[target_id] = str(rel_desc)
+                        logger.debug(f"  Relationship: {source_char.name} -> {target_name}: {rel_desc}")
+                
+                elif isinstance(rel_info, str):
+                    # Flat string: treat as a general relationship note
+                    new_segment.running_changes.append(EntityChange(
+                        entity_id=source_char.id,
+                        entity_type="character",
+                        entity_name=source_char.name,
+                        property="relationship",
+                        from_value=None,
+                        to_value=rel_info,
+                        description=f"{source_char.name}: {rel_info}",
+                    ))
+        
+        # Extract inventory/health EntityChanges from change_notes
+        raw_change_notes = scene_data.get("change_notes") or []
+        if raw_change_notes and isinstance(raw_change_notes, list):
+            _health_kw = {'wound': 'wounded', 'injur': 'injured', 'heal': 'healed',
+                          'poison': 'poisoned', 'sick': 'ill', 'dying': 'dying',
+                          'dead': 'dead', 'recover': 'recovering'}
+            _inventory_kw = ['received', 'gained', 'acquired', 'found', 'picked up',
+                             'lost', 'dropped', 'gave away', 'destroyed', 'broke',
+                             'sword', 'shield', 'potion', 'letter', 'ring', 'book',
+                             'key', 'artifact', 'weapon', 'amulet', 'scroll', 'map',
+                             'coin', 'gold', 'gem', 'armor', 'cloak', 'dagger', 'staff']
+            
+            all_chars_for_notes = self.story.get_all_characters()
+            for note in raw_change_notes:
+                if not isinstance(note, str):
+                    continue
+                note_lower = note.lower()
+                
+                # Try to match a character to this note
+                matched_char = None
+                for c in all_chars_for_notes:
+                    if c.name.lower() in note_lower:
+                        matched_char = c
+                        break
+                    # Also try first name
+                    first_name = c.name.split()[0].lower() if c.name else ""
+                    if first_name and len(first_name) > 2 and first_name in note_lower:
+                        matched_char = c
+                        break
+                
+                if not matched_char:
+                    continue
+                
+                # Check for health changes
+                for kw, status in _health_kw.items():
+                    if kw in note_lower:
+                        new_segment.running_changes.append(EntityChange(
+                            entity_id=matched_char.id,
+                            entity_type="character",
+                            entity_name=matched_char.name,
+                            property="health",
+                            from_value=None,
+                            to_value=status,
+                            description=note,
+                        ))
+                        break
+                
+                # Check for inventory changes
+                for kw in _inventory_kw:
+                    if kw in note_lower:
+                        new_segment.running_changes.append(EntityChange(
+                            entity_id=matched_char.id,
+                            entity_type="character",
+                            entity_name=matched_char.name,
+                            property="inventory",
+                            from_value=None,
+                            to_value=note,
+                            description=note,
+                        ))
+                        break
         
         logger.debug(f"[GEN_SCENE_UPDATE_STATUS_DONE] Status updates completed")
 

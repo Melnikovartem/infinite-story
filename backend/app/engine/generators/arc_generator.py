@@ -1,7 +1,7 @@
 """Arc generator for creating future arc outlines."""
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import uuid
 
 from app.models.story import Story
@@ -38,6 +38,22 @@ ARC_EXAMPLE = {
     "themes": ["corruption", "loyalty", "survival"],
     "mysteries": ["Who assassinated the High King?", "What lies beneath the Sunken Citadel?"],
     "hooks": ["The Great Schism splits the largest faction", "A prophet emerges from the wasteland"],
+}
+
+# Schema for character arc goals generation (separate from world-level arc)
+_CHAR_GOALS_SCHEMA = ResponseSchema(
+    fields=[
+        FieldSpec("character_goals", type="list", required=True,
+                  aliases=["goals", "character_arc_goals", "characters"]),
+    ],
+    expect_array=False,
+)
+
+_CHAR_GOALS_EXAMPLE = {
+    "character_goals": [
+        {"character_id": "char_abc123", "goal": "Learn to trust others despite past betrayals"},
+        {"character_id": "char_def456", "goal": "Prove their loyalty is not weakness but strength"},
+    ]
 }
 
 
@@ -122,6 +138,30 @@ Each arc shows a different phase of the world's evolution.""",
                 arc.save()
                 arcs.append(arc)
                 logger.info(f"Created arc outline: {arc.title} (active={arc.is_active})")
+            
+            # Select active characters and generate character arc goals for each arc
+            all_characters = self.story.get_all_characters()
+            if all_characters:
+                for arc in arcs:
+                    try:
+                        # Select which characters are active in this arc
+                        active_ids = await self.select_active_characters_for_arc(arc)
+                        if active_ids:
+                            arc.active_characters = active_ids
+                            arc.key_characters = active_ids[:3]  # Top 3 are key characters
+                        
+                        # Generate personal arc goals for active characters
+                        goals = await self._generate_character_arc_goals(arc, all_characters)
+                        if goals:
+                            arc.character_arc_goals = goals
+                            logger.info(
+                                f"Generated {len(goals)} character arc goals for '{arc.title}': "
+                                f"{list(goals.keys())}"
+                            )
+                        
+                        arc.save()
+                    except Exception as e:
+                        logger.warning(f"Failed to generate character goals for arc '{arc.title}': {e}")
             
             return arcs
             
@@ -265,3 +305,108 @@ Include exactly the character IDs. Be selective - focus on the most important ch
         except Exception as e:
             logger.error(f"Failed to select active characters: {e}", exc_info=True)
             return []
+    
+    async def _generate_character_arc_goals(
+        self,
+        arc: StoryArc,
+        all_characters: Optional[list] = None
+    ) -> Dict[str, str]:
+        """Generate personal arc goals for characters active in this arc.
+        
+        Uses the arc's themes, premise, and conflict plus each character's
+        personality/background to produce a personal goal per character.
+        
+        Args:
+            arc: The StoryArc to generate goals for
+            all_characters: Optional pre-fetched character list
+            
+        Returns:
+            Dict mapping character_id -> goal string
+        """
+        try:
+            if all_characters is None:
+                all_characters = self.story.get_all_characters()
+            
+            if not all_characters:
+                return {}
+            
+            # Focus on active characters if set, otherwise use all
+            target_ids = set(arc.active_characters) if arc.active_characters else None
+            target_chars = []
+            for char in all_characters:
+                if target_ids is None or char.id in target_ids:
+                    target_chars.append(char)
+            
+            if not target_chars:
+                return {}
+            
+            # Build character profiles for the prompt
+            char_profiles = []
+            for char in target_chars:
+                personality_str = ", ".join(char.personality) if char.personality else "unknown"
+                profile = (
+                    f"- {char.name} (ID: {char.id}, role: {char.role.value})\n"
+                    f"  Description: {char.description}\n"
+                    f"  Background: {char.background}\n"
+                    f"  Personality: {personality_str}\n"
+                    f"  Current goals: {char.goals or 'None defined'}"
+                )
+                char_profiles.append(profile)
+            
+            char_profiles_text = "\n".join(char_profiles)
+            
+            format_instruction = AIResponseParser.get_prompt_instruction(
+                _CHAR_GOALS_SCHEMA, OutputFormat.JSON, example=_CHAR_GOALS_EXAMPLE
+            )
+            
+            prompt = f"""Given this story arc and its characters, generate a personal arc goal for each character.
+
+ARC: {arc.title}
+Premise: {arc.premise}
+Central Conflict: {arc.central_conflict}
+Themes: {', '.join(arc.themes)}
+Narrative Direction: {arc.narrative_direction}
+
+CHARACTERS:
+{char_profiles_text}
+
+For each character, create a personal arc goal that:
+- Connects to the arc's themes and conflict
+- Reflects their personality, background, and existing goals
+- Represents internal growth or a personal challenge (not just plot objectives)
+- Is specific enough to track progress but broad enough to develop over multiple episodes
+- Examples: "Learn to trust despite past betrayals", "Choose between duty and personal desire",
+  "Confront the truth about their origins", "Find redemption for past mistakes"
+
+{format_instruction}"""
+            
+            data = await self.generator.generate_structured(
+                system_prompt=(
+                    "You are a character development specialist. "
+                    "You design personal growth arcs that interweave with world-level narrative arcs. "
+                    "Each character's goal should feel organic to who they are."
+                ),
+                user_prompt=prompt,
+                schema=_CHAR_GOALS_SCHEMA,
+                fallback_defaults=[{"character_goals": []}],
+            )
+            
+            # Parse the response into a dict
+            goals_dict: Dict[str, str] = {}
+            raw_goals = data.get("character_goals", [])
+            if isinstance(raw_goals, list):
+                for entry in raw_goals:
+                    if isinstance(entry, dict):
+                        cid = entry.get("character_id", "")
+                        goal = entry.get("goal", "")
+                        if cid and goal:
+                            goals_dict[cid] = goal
+                    elif isinstance(entry, str):
+                        # Handle case where AI returns flat strings
+                        logger.debug(f"Skipping non-dict character goal entry: {entry[:80]}")
+            
+            return goals_dict
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate character arc goals: {e}", exc_info=True)
+            return {}

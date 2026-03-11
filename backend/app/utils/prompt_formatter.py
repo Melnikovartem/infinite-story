@@ -299,131 +299,122 @@ class PromptFormatter:
                 parts.append(f"  {seg}")
         
         # ================================================================
-        # 9. CHARACTERS — hierarchical (protagonist > major > minor)
+        # 9. CHARACTERS — 3-tier system (present / arc / available)
         # ================================================================
-        arc_characters = context.get('arc_characters', {})
-        episode_characters = context.get('episode_characters', {})
-        segment_changes = context.get('segment_character_changes', {})
-        char_goals = context.get('character_arc_goals') or current_arc.get('character_arc_goals', {})
-        role_tiers = context.get('character_role_tiers', {})
-        protagonist_id = context.get('protagonist_id')
+        characters_present = context.get('characters_present', {})
+        characters_in_arc = context.get('characters_in_arc', {})
+        characters_available = context.get('characters_available', {})
         
-        char_sections = []
+        # Helper: format a full character entry (used for tier 1 and 2)
+        def _format_full_character(char_id: str, char: dict) -> str:
+            lines = []
+            name = char.get('name', char_id)
+            role = char.get('role', 'unknown').upper()
+            lines.append(f"id: {char_id}")
+            lines.append(f"name: {name} ({role})")
+            
+            if char.get('description'):
+                lines.append(f"description: {char['description']}")
+            if char.get('background'):
+                lines.append(f"background: {char['background']}")
+            if char.get('personality') and isinstance(char['personality'], list):
+                lines.append(f"personality: {', '.join(char['personality'])}")
+            if char.get('goals'):
+                lines.append(f"goals: {char['goals']}")
+            if char.get('recap'):
+                lines.append(f"recap: {char['recap']}")
+            
+            # Inventory
+            inv = char.get('inventory', {})
+            if inv and isinstance(inv, dict):
+                inv_parts = [f"{k}: {v}" for k, v in inv.items()]
+                lines.append(f"inventory: {'; '.join(inv_parts)}")
+            
+            # State
+            state_parts = []
+            if char.get('health_status') and char['health_status'] != 'unknown':
+                state_parts.append(f"health={char['health_status']}")
+            if char.get('emotional_status'):
+                state_parts.append(f"feeling={char['emotional_status']}")
+            if char.get('arc_goal'):
+                progress_pct = int(char.get('goal_progress', 0) * 100)
+                state_parts.append(f"arc_goal={char['arc_goal']} ({progress_pct}%)")
+            if char.get('goal_notes'):
+                state_parts.append(f"goal_notes={char['goal_notes']}")
+            if state_parts:
+                lines.append(f"state: {', '.join(state_parts)}")
+            
+            # Relationships
+            rels = char.get('relationships', {})
+            if rels and isinstance(rels, dict):
+                for rel_target, rel_desc in rels.items():
+                    lines.append(f"  relationship -> {rel_target}: {rel_desc}")
+            rel_notes = char.get('relationship_notes', {})
+            if rel_notes and isinstance(rel_notes, dict):
+                for rel_target, rel_desc in rel_notes.items():
+                    lines.append(f"  relationship_change -> {rel_target}: {rel_desc}")
+            
+            # Running changes
+            rcs = char.get('running_changes', [])
+            if rcs:
+                lines.append("running_changes:")
+                for rc in rcs:
+                    rc_desc = rc.get('description') or f"{rc.get('property', '?')}: {rc.get('from', '?')} -> {rc.get('to', '?')}"
+                    lines.append(f"  - {rc_desc}")
+            
+            return "\n".join(lines)
         
-        # Protagonist
-        if protagonist_id and protagonist_id in arc_characters:
-            char = arc_characters[protagonist_id]
-            ep_state = episode_characters.get(protagonist_id, {})
-            seg_state = segment_changes.get(protagonist_id, {})
-            line = f"PROTAGONIST: {char.get('name', protagonist_id)}"
-            desc = char.get('short_description') or char.get('description', '')
+        # Helper: format a short character entry (tier 3)
+        def _format_short_character(char_id: str, char: dict) -> str:
+            name = char.get('name', char_id)
+            role = char.get('role', 'unknown').upper()
+            desc = char.get('description', '')
+            emotional = char.get('emotional_status', '')
+            
+            line = f"{char_id} - {name} ({role})"
             if desc:
-                line += f" - {desc[:10000]}"
-            if ep_state.get('emotional_status'):
-                line += f" | Feeling: {ep_state['emotional_status']}"
-            if ep_state.get('health_status'):
-                line += f" | Health: {ep_state['health_status']}"
-            if seg_state.get('status'):
-                line += f" | Now: {seg_state['status']}"
-            goal = char_goals.get(protagonist_id, '')
-            if goal:
-                line += f" | Goal: {goal[:10000]}"
-                progress = ep_state.get('goal_progress', '')
-                if progress:
-                    line += f" ({progress})"
-            char_sections.append(line)
+                line += f" - {desc}"
+            if emotional:
+                line += f" [feeling: {emotional}]"
+            
+            rcs = char.get('running_changes', [])
+            if rcs:
+                rc_summaries = [rc.get('description', '') for rc in rcs if rc.get('description')]
+                if rc_summaries:
+                    line += f"\n  running_changes: {'; '.join(rc_summaries)}"
+            
+            return line
         
-        # Major characters
-        major_names = role_tiers.get('major', [])
-        for char_id, info in arc_characters.items():
-            if char_id == protagonist_id:
-                continue
-            name = info.get('name', char_id) if isinstance(info, dict) else char_id
-            importance = info.get('importance', 'minor') if isinstance(info, dict) else 'minor'
-            if importance in ('major', 'antagonist', 'ally') or name in major_names:
-                ep_state = episode_characters.get(char_id, {})
-                seg_state = segment_changes.get(char_id, {})
-                desc = info.get('short_description') or info.get('description', '') if isinstance(info, dict) else ''
-                line = f"  {name}"
-                if desc:
-                    line += f" - {desc[:10000]}"  # Increased from 60 to 200 for fuller descriptions
-                if isinstance(ep_state, dict) and ep_state.get('emotional_status'):
-                    line += f" | {ep_state['emotional_status']}"
-                if isinstance(ep_state, dict) and ep_state.get('status'):
-                    line += f" | {ep_state['status'][:10000]}"  # Increased from 60 to 100
-                if isinstance(seg_state, dict) and seg_state.get('status'):
-                    line += f" | Now: {seg_state['status']}"
-                goal = char_goals.get(char_id, '')
-                if goal:
-                    line += f" | Goal: {goal[:10000]}"  # Increased from 50 to 100
-                char_sections.append(line)
+        if characters_present:
+            parts.append("\n=== CHARACTERS PRESENT ===")
+            for char_id, char in characters_present.items():
+                parts.append(f"\n{_format_full_character(char_id, char)}")
         
-        # Minor characters (compact list)
-        minor_chars = []
-        for char_id, info in arc_characters.items():
-            if char_id == protagonist_id:
-                continue
-            name = info.get('name', char_id) if isinstance(info, dict) else char_id
-            importance = info.get('importance', 'minor') if isinstance(info, dict) else 'minor'
-            if importance not in ('major', 'protagonist', 'antagonist', 'ally') and name not in major_names:
-                minor_chars.append(name)
-        if minor_chars:
-            char_sections.append(f"  Minor: {', '.join(minor_chars[:10000])}")
+        if characters_in_arc:
+            parts.append("\n=== CHARACTERS IN ARC ===")
+            for char_id, char in characters_in_arc.items():
+                parts.append(f"\n{_format_full_character(char_id, char)}")
         
-        # Fallback: old format
-        if not char_sections and context.get('all_characters'):
-            for char_id, char_info in list(context['all_characters'].items())[:10000]:
-                name = char_info.get('name', char_id) if isinstance(char_info, dict) else char_id
-                status = char_info.get('status', '') if isinstance(char_info, dict) else ''
-                line = name
-                if status:
-                    line += f" ({status})"
-                char_sections.append(f"  {line}")
+        if characters_available:
+            parts.append("\n=== CHARACTERS AVAILABLE (AI CAN REFERENCE) ===")
+            for char_id, char in characters_available.items():
+                parts.append(_format_short_character(char_id, char))
         
-        if char_sections:
-            parts.append("\n=== CHARACTERS (SUMMARY) ===")
-            parts.extend(char_sections)
-        
-        # Full character profiles for major characters
-        major_char_profiles = []
-        for char_id, info in arc_characters.items():
-            if char_id == protagonist_id:
-                continue
-            name = info.get('name', char_id) if isinstance(info, dict) else char_id
-            importance = info.get('importance', 'minor') if isinstance(info, dict) else 'minor'
-            if importance in ('major', 'antagonist', 'ally'):
-                full_desc = info.get('description', info.get('short_description', '')) if isinstance(info, dict) else ''
-                personality = info.get('personality', '') if isinstance(info, dict) else ''
-                goals = info.get('goals', '') if isinstance(info, dict) else ''
-                if full_desc or personality or goals:
-                    profile = f"\n**{name}** ({importance.upper()})"
-                    if full_desc:
-                        profile += f"\n  {full_desc[:10000]}"  # Full description, 400 chars
-                    if personality:
-                        profile += f"\n  Personality: {personality[:10000]}"
-                    if goals:
-                        profile += f"\n  Goals: {goals[:10000]}"
-                    major_char_profiles.append(profile)
-        
-        if major_char_profiles:
-            parts.append("\n=== FULL CHARACTER PROFILES (MAJOR) ===")
-            for profile in major_char_profiles[:10000]:  # Show up to 6 major characters
-                parts.append(profile)
-        
-        # Character relationships
+        # Character relationships (kept for cross-character context)
+        arc_characters = context.get('arc_characters', {})
         relationships = context.get('character_relationships', {})
         rel_changes = context.get('relationship_changes', [])
         if relationships or rel_changes:
             parts.append("\n=== CHARACTER RELATIONSHIPS ===")
-            for char_id, rels in list(relationships.items())[:10000]:  # Increased from 5 to 8
+            for char_id, rels in list(relationships.items()):
                 char_name = arc_characters.get(char_id, {}).get('name', char_id) if isinstance(arc_characters.get(char_id), dict) else char_id
-                for target, rel_type in list(rels.items())[:10000]:  # Increased from 3 to 4
+                for target, rel_type in list(rels.items()):
                     target_name = arc_characters.get(target, {}).get('name', target) if isinstance(arc_characters.get(target), dict) else target
                     parts.append(f"  {char_name} <-> {target_name}: {rel_type}")
             if rel_changes:
-                for change in rel_changes[-3:]:
+                for change in rel_changes[-5:]:
                     ch = change.get('change', change) if isinstance(change, dict) else str(change)
-                    parts.append(f"  (shift) {ch[:10000]}")
+                    parts.append(f"  (shift) {ch}")
         
         # ================================================================
         # 10. FACTIONS & MAGIC
@@ -508,42 +499,85 @@ class PromptFormatter:
             parts.append(magic[:10000])
         
         # ================================================================
-        # 11. LOCATIONS
+        # 11. LOCATIONS — 3-tier system (present / arc / available)
         # ================================================================
-        locations = context.get('location_states', {})
-        if locations:
-            parts.append("\n=== ACTIVE LOCATIONS ===")
-            for loc_id, loc_info in list(locations.items())[:10000]:
-                name = loc_info.get('name', loc_id)
-                desc = loc_info.get('description', '')
-                status = loc_info.get('status', '')
-                line = f"  {name}"
-                if desc:
-                    line += f" - {desc[:10000]}"
-                if status:
-                    line += f" [{status}]"
-                parts.append(line)
+        locations_present = context.get('locations_present_tiered', {})
+        locations_in_arc = context.get('locations_in_arc', {})
+        locations_available = context.get('locations_available', {})
         
-        # ================================================================
-        # 11.5. LOCATIONS (EXPANDED)
-        # ================================================================
-        locations = context.get('location_states', {})
-        if locations:
-            parts.append("\n=== KEY LOCATIONS (DETAILED) ===")
-            for loc_id, loc_info in list(locations.items())[:10000]:  # Increased from 5 to 8
-                name = loc_info.get('name', loc_id)
-                desc = loc_info.get('description', '')
-                status = loc_info.get('status', '')
-                significance = loc_info.get('significance', '')
-                
-                loc_profile = f"\n**{name}**"
-                if desc:
-                    loc_profile += f"\n  {desc[:10000]}"  # Increased detail
-                if status:
-                    loc_profile += f"\n  Current Status: {status[:10000]}"
-                if significance:
-                    loc_profile += f"\n  Significance: {significance[:10000]}"
-                parts.append(loc_profile)
+        # Helper: format a full location entry (tier 1 and 2)
+        def _format_full_location(loc_id: str, loc: dict) -> str:
+            lines = []
+            name = loc.get('name', loc_id)
+            lines.append(f"id: {loc_id}")
+            lines.append(f"name: {name}")
+            
+            if loc.get('description'):
+                lines.append(f"description: {loc['description']}")
+            if loc.get('importance') and loc['importance'] != 'minor':
+                lines.append(f"importance: {loc['importance']}")
+            if loc.get('associated_factions'):
+                lines.append(f"factions: {', '.join(loc['associated_factions'])}")
+            
+            cs = loc.get('current_state', {})
+            if cs and isinstance(cs, dict):
+                state_parts = [f"{k}={v}" for k, v in cs.items() if v]
+                if state_parts:
+                    lines.append(f"state: {', '.join(state_parts)}")
+            
+            rcs = loc.get('running_changes', [])
+            if rcs:
+                lines.append("running_changes:")
+                for rc in rcs:
+                    rc_desc = rc.get('description') or f"{rc.get('property', '?')}: {rc.get('from', '?')} -> {rc.get('to', '?')}"
+                    lines.append(f"  - {rc_desc}")
+            
+            return "\n".join(lines)
+        
+        # Helper: format a short location entry (tier 3)
+        def _format_short_location(loc_id: str, loc: dict) -> str:
+            name = loc.get('name', loc_id)
+            desc = loc.get('description', '')
+            line = f"{loc_id} - {name}"
+            if desc:
+                line += f" - {desc}"
+            rcs = loc.get('running_changes', [])
+            if rcs:
+                rc_summaries = [rc.get('description', '') for rc in rcs if rc.get('description')]
+                if rc_summaries:
+                    line += f"\n  running_changes: {'; '.join(rc_summaries)}"
+            return line
+        
+        if locations_present:
+            parts.append("\n=== LOCATIONS PRESENT ===")
+            for loc_id, loc in locations_present.items():
+                parts.append(f"\n{_format_full_location(loc_id, loc)}")
+        
+        if locations_in_arc:
+            parts.append("\n=== LOCATIONS IN ARC ===")
+            for loc_id, loc in locations_in_arc.items():
+                parts.append(f"\n{_format_full_location(loc_id, loc)}")
+        
+        if locations_available:
+            parts.append("\n=== LOCATIONS AVAILABLE (AI CAN REFERENCE) ===")
+            for loc_id, loc in locations_available.items():
+                parts.append(_format_short_location(loc_id, loc))
+        
+        # Legacy fallback: if no tiered data, use location_states
+        if not locations_present and not locations_in_arc and not locations_available:
+            locations = context.get('location_states', {})
+            if locations:
+                parts.append("\n=== ACTIVE LOCATIONS ===")
+                for loc_id, loc_info in list(locations.items()):
+                    name = loc_info.get('name', loc_id)
+                    desc = loc_info.get('description', '')
+                    status = loc_info.get('status', '')
+                    line = f"  {name}"
+                    if desc:
+                        line += f" - {desc}"
+                    if status:
+                        line += f" [{status}]"
+                    parts.append(line)
         
         # ================================================================
         # 12. MYSTERIES & THEME TRACKING
@@ -668,13 +702,18 @@ class PromptFormatter:
             parts.append(f"4. Connect to the central conflict: {arc_conflict[:10000]}")
         else:
             parts.append("4. Advance the current arc's premise and central conflict")
-        parts.append("5. Respect character states, goals, and relationships")
+        parts.append("5. Respect AND ADVANCE character states, goals, and relationships:")
+        parts.append("   - Show characters making progress (or setbacks) toward their arc goals")
+        parts.append("   - Deepen, challenge, or transform character relationships through events")
+        parts.append("   - Let characters grow — change beliefs, gain skills, face inner conflicts")
+        parts.append("   - If a character has an arc_goal, the scene should move them toward or away from it")
         parts.append("6. Track how each character's EMOTION changes through the scene")
-        parts.append("7. Set the storyline_type to match the scene's dominant narrative style")
-        parts.append("8. Use varied text block types — mix narration, dialogue, thoughts, sounds, visual cues")
-        parts.append("9. Assign a storyline tag to each text block where relevant (action for combat, mystery for clues, etc.)")
+        parts.append("7. Track how character RELATIONSHIPS shift — report in relationship_changes")
+        parts.append("8. Set the storyline_type to match the scene's dominant narrative style")
+        parts.append("9. Use varied text block types — mix narration, dialogue, thoughts, sounds, visual cues")
+        parts.append("10. Assign a storyline tag to each text block where relevant (action for combat, mystery for clues, etc.)")
         
-        instr_num = 10
+        instr_num = 11
         has_factions = bool(context.get('factions', {}).get('factions') if isinstance(context.get('factions'), dict) else context.get('factions'))
         if has_factions:
             parts.append(f"{instr_num}. Reflect faction tensions and allegiances where relevant")
@@ -687,14 +726,19 @@ class PromptFormatter:
         # Pacing-specific guidance
         if pacing < 0.2:
             parts.append("\nPacing note: Early episode. Establish setting, introduce tensions, plant seeds.")
+            parts.append("Character note: Reveal character motivations and set up internal conflicts.")
         elif pacing < 0.5:
             parts.append("\nPacing note: Build complexity. Deepen conflicts, reveal motivations, raise stakes.")
+            parts.append("Character note: Challenge character beliefs. Test relationships. Force difficult choices.")
         elif pacing < 0.8:
             parts.append("\nPacing note: Rising action. Accelerate toward the episode's climactic moment.")
+            parts.append("Character note: Characters should face consequences of earlier choices. Show growth or regression.")
         elif context.get('should_transition_episode'):
             parts.append("\nPacing note: CLIMAX. Deliver a powerful conclusion or cliffhanger.")
+            parts.append("Character note: Characters must make defining choices. Relationships are tested at their limits.")
         else:
             parts.append("\nPacing note: Nearing the climax. Build tension, converge plot threads.")
+            parts.append("Character note: Intensify internal conflicts. Alliances and loyalties should be strained.")
         
         parts.append("\n=== RESPONSE FORMAT (JSON) ===")
         parts.append("You MUST respond with valid JSON matching this structure:")
@@ -711,6 +755,7 @@ class PromptFormatter:
   "characters_present": ["Name 1", "Name 2"],
   "locations_present": ["Location"],
   "character_emotions": {"Name": "specific emotion"},
+  "relationship_changes": {"Name": {"Other Name": "how their relationship changed"}},
   "character_status_change": {"Name": "what changed"},
   "location_status_change": {"Location": "how it changed"},
   "change_notes": ["Key change"],

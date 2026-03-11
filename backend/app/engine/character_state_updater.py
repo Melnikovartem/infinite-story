@@ -23,6 +23,7 @@ _ENHANCE_SCHEMA = ResponseSchema(
         FieldSpec("goal_progress", type="float", aliases=["progress"]),
         FieldSpec("goal_notes", type="str", aliases=["progress_notes", "arc_progress"]),
         FieldSpec("relationship_notes", type="list", aliases=["relationships", "relationship_changes"]),
+        FieldSpec("recap", type="str", aliases=["character_recap", "summary", "current_recap"]),
     ],
     expect_array=False,
 )
@@ -316,6 +317,7 @@ class CharacterStateUpdater:
                     "goal_progress": 0.4,
                     "goal_notes": "Closer to uncovering the conspiracy but at great personal cost",
                     "relationship_notes": ["Trust in the captain deepened after the rescue", "Growing suspicion of the merchant guild"],
+                    "recap": "Survived the ambush but was wounded. Discovered the captain's true loyalty. Growing suspicious of the merchant guild's motives.",
                 }
             )
             
@@ -333,6 +335,8 @@ EPISODE {episode_number} EVENTS INVOLVING {char.name.upper()}:
 
 Based on these events, provide updated character state. Only change fields that the events actually affected.
 For goal_progress, use a value from 0.0 (no progress) to 1.0 (goal achieved).
+For recap, write 1-2 sentences summarizing what happened to this character THIS episode
+  (e.g. "Survived the ambush but was wounded. Discovered the captain's true loyalty.").
 
 {format_instruction}"""
 
@@ -371,6 +375,10 @@ For goal_progress, use a value from 0.0 (no progress) to 1.0 (goal achieved).
                 snapshot.relationship_notes = {
                     f"rel_{i}": str(note) for i, note in enumerate(data['relationship_notes'])
                 }
+            
+            # Store the recap on the snapshot so _update_character_description can use it
+            if data.get('recap'):
+                snapshot._recap_text = data['recap']
             
             logger.debug(f"AI-enhanced state for {char.name}: emotion={snapshot.emotional_status}, health={snapshot.health_status}")
             return snapshot
@@ -505,7 +513,7 @@ The character should:
         char: StoryCharacter,
         snapshot: CharacterStateSnapshot
     ) -> None:
-        """Update character's permanent description with new narrative.
+        """Update character's permanent description and recap with new narrative.
         
         Args:
             char: The StoryCharacter to update
@@ -534,6 +542,14 @@ The character should:
         
         if updates:
             char.description = "\n".join([char.description] + updates)
+        
+        # Update the character recap field — this is the concise "what happened last"
+        recap_text = getattr(snapshot, '_recap_text', None)
+        if recap_text:
+            char.recap = recap_text
+        elif updates:
+            # Fallback: build a recap from state info
+            char.recap = ". ".join(updates)
     
     def _extract_health_status(self, changes: List[str]) -> str:
         """Extract health status from change notes.

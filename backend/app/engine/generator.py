@@ -45,6 +45,7 @@ IMPORTANT: You MUST return a valid JSON object that includes ALL required fields
         """
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.last_raw_response: Optional[str] = None  # Last raw AI response (for debugging)
         
     async def generate_structured(
         self,
@@ -90,6 +91,7 @@ IMPORTANT: You MUST return a valid JSON object that includes ALL required fields
         try:
             # Call the raw AI generation (subclasses implement this)
             raw_response = await self._generate_content(effective_system_prompt, full_user_prompt)
+            self.last_raw_response = raw_response
 
             logger.debug(f"[generate_structured] Raw response length: {len(raw_response)}")
 
@@ -101,6 +103,15 @@ IMPORTANT: You MUST return a valid JSON object that includes ALL required fields
                 preferred_format=output_format,
             )
 
+            # Detect if parsing fell back to defaults
+            is_fallback = (parsed == fallback_defaults)
+            if is_fallback and raw_response and raw_response.strip():
+                logger.warning(
+                    f"[generate_structured] Parsing fell back to defaults. "
+                    f"Raw response ({len(raw_response)} chars):\n"
+                    f"{raw_response[:2000]}"
+                )
+
             if schema.expect_array:
                 return parsed  # List[dict]
             else:
@@ -111,6 +122,7 @@ IMPORTANT: You MUST return a valid JSON object that includes ALL required fields
 
         except Exception as e:
             logger.error(f"[generate_structured] Generation failed: {e}", exc_info=True)
+            self.last_raw_response = None
             if schema.expect_array:
                 return fallback_defaults
             return fallback_defaults[0] if fallback_defaults else {}

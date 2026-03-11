@@ -491,16 +491,46 @@ Write an opening scene that:
 - Ends with two meaningful choices for the player"""
         
         from app.models.story_segment import _SCENE_SCHEMA, _SCENE_FALLBACK, _parse_text_blocks
+        import asyncio as _asyncio
         
-        scene_data = await generator.generate_structured(
-            system_prompt="""You are a master storyteller creating immersive opening scenes.
+        MAX_CLI_RETRIES = 3
+        scene_data = None
+        
+        for attempt in range(1, MAX_CLI_RETRIES + 1):
+            scene_data = await generator.generate_structured(
+                system_prompt="""You are a master storyteller creating immersive opening scenes.
 Write with vivid sensory details that make the reader feel present in this living world.
 Your opening scenes hook readers immediately and establish mood, setting, and possibility.
 Always provide two compelling, distinct choices for the player at the end.""",
-            user_prompt=opening_prompt,
-            schema=_SCENE_SCHEMA,
-            fallback_defaults=[_SCENE_FALLBACK],
-        )
+                user_prompt=opening_prompt,
+                schema=_SCENE_SCHEMA,
+                fallback_defaults=[_SCENE_FALLBACK],
+            )
+            
+            # Detect fallback
+            is_fallback = (
+                scene_data.get("short_description") == _SCENE_FALLBACK["short_description"]
+                or scene_data.get("text_blocks") == _SCENE_FALLBACK["text_blocks"]
+            )
+            
+            text_blocks_raw = scene_data.get("text_blocks", [])
+            has_real_content = False
+            if isinstance(text_blocks_raw, list):
+                for tb in text_blocks_raw:
+                    content = tb.get("content", "") if isinstance(tb, dict) else str(tb)
+                    if content and content not in ("The story continues...", "The story begins...", "The scene continues"):
+                        has_real_content = True
+                        break
+            
+            if not is_fallback and has_real_content:
+                break
+            
+            raw = getattr(generator, 'last_raw_response', None) or ''
+            console.print(f"[yellow]⚠️  Attempt {attempt}/{MAX_CLI_RETRIES} returned empty scene, retrying...[/yellow]")
+            if raw:
+                console.print(f"[dim]Raw AI response ({len(raw)} chars): {raw[:500]}...[/dim]")
+            if attempt < MAX_CLI_RETRIES:
+                await _asyncio.sleep(1.0)
         
         console.print("[green]✅ Opening scene generated![/green]")
         
