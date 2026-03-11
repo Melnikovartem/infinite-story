@@ -35,7 +35,6 @@ echo "  create-story-step [id]        Create story step-by-step (can skip/retry 
 echo "  list-stories                  List all available stories"
 echo "  delete-story <story_id>       Delete a story"
 echo "  clear-state <story_id>        Reset story to beginning"
-echo "  test-generation <story_id>    Test AI generation on a story"
     echo ""
     echo "Options for run-story:"
     echo "  --resume                      Resume from previous session"
@@ -156,13 +155,10 @@ else
             print_message "Clearing state for story '${REMAINING_ARGS[0]}'..."
             python -u -m app.cli clear-state "${REMAINING_ARGS[@]}"
             ;;
-        test-generation)
-            if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
-                print_error "Please specify a story ID to test"
-                exit 1
-            fi
-            print_message "Testing generation for story '${REMAINING_ARGS[0]}'..."
-            python -u -m app.cli test-generation "${REMAINING_ARGS[@]}"
+        *)
+            print_error "Unknown command: $COMMAND"
+            print_message "Run './run.sh --help' for available commands"
+            exit 1
             ;;
     esac
 fi

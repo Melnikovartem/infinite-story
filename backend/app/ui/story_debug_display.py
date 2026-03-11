@@ -103,7 +103,8 @@ def _format_block(block) -> Text:
 
 def display_segment(segment) -> None:
     """Display the current segment: header + text blocks."""
-    console.clear()
+    console.print()
+    console.rule(style="dim")
 
     # ── Compact header ──
     ep = getattr(segment, 'episode_number', '?')
@@ -112,7 +113,7 @@ def display_segment(segment) -> None:
     storyline = getattr(segment, 'storyline_type', None)
     desc = getattr(segment, 'short_description', '')
 
-    header_parts = [f"[cyan]Ep {ep}[/cyan] [dim]|[/dim] [cyan]Seg {seg_in_ep}/20[/cyan]"]
+    header_parts = [f"[cyan]Ep {ep}[/cyan] [dim]|[/dim] [cyan]Seg {seg_in_ep}[/cyan]"]
     if arc:
         header_parts.append(f"[dim]|[/dim] [green]{arc}[/green]")
     if storyline:
@@ -189,10 +190,9 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
     # ── Menu bar ──
     log_label = "[green]ON[/green]" if _logs_enabled else "[dim]OFF[/dim]"
     console.print()
-    console.print(f"  [bold yellow]L[/bold yellow] Logs {log_label}    [bold yellow]I[/bold yellow] Info    [bold yellow]P[/bold yellow] Prompt")
+    console.print(f"  [bold yellow]L[/bold yellow] Logs {log_label}    [bold yellow]I[/bold yellow] Info    [bold yellow]P[/bold yellow] Prompt    [bold yellow]J[/bold yellow] Raw JSON")
 
     # ── Input ──
-    valid = [str(i) for i in range(1, len(choices) + 1)] + ["l", "i", "p"]
     while True:
         raw = Prompt.ask("[bold]>").strip().lower()
         if raw == "l":
@@ -201,10 +201,12 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
             return "CMD_INFO"
         if raw == "p":
             return "CMD_PROMPT"
+        if raw == "j":
+            return "CMD_JSON"
         if raw in [str(i) for i in range(1, len(choices) + 1)]:
             selected = choices[int(raw) - 1]
             return selected.id if hasattr(selected, 'id') else str(selected)
-        console.print(f"[red]Enter 1-{len(choices)}, L, I, or P[/red]")
+        console.print(f"[red]Enter 1-{len(choices)}, L, I, P, or J[/red]")
 
 
 # ============================================================================
@@ -297,7 +299,7 @@ def _build_info_lines(segment, context: Optional[Dict[str, Any]] = None) -> List
     end_prox = getattr(segment, 'end_condition_proximity', 0)
 
     lines.append(f"  Episode:       {ep}")
-    lines.append(f"  Segment:       {seg_num}/20")
+    lines.append(f"  Segment:       {seg_num}")
     lines.append(f"  Pacing:        {_pacing_bar(pacing)}")
     lines.append(f"  End proximity: {_pacing_bar(end_prox)}")
 
@@ -513,6 +515,25 @@ def show_prompt(context: Optional[Dict[str, Any]] = None) -> None:
         console.print(f"[red]Could not format prompt: {e}[/red]")
         console.print(f"[dim]Context keys: {', '.join(context.keys())}[/dim]")
 
+    Prompt.ask("[dim]Press Enter to go back[/dim]", default="")
+
+
+# ============================================================================
+# RAW JSON VIEW
+# ============================================================================
+
+def show_raw_json(segment) -> None:
+    """Dump the current segment as raw JSON, then wait for Enter."""
+    try:
+        data = segment.model_dump() if hasattr(segment, 'model_dump') else segment.dict()
+        console.print(Panel(
+            json.dumps(data, indent=2, default=str),
+            title=f"Raw JSON — {segment.id}",
+            border_style="yellow",
+            padding=(1, 2),
+        ))
+    except Exception as e:
+        console.print(f"[red]Could not serialize segment: {e}[/red]")
     Prompt.ask("[dim]Press Enter to go back[/dim]", default="")
 
 
