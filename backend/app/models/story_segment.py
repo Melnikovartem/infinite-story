@@ -954,26 +954,46 @@ class StorySegment(StoryBlock):
         if not isinstance(raw_rel_changes, dict):
             raw_rel_changes = {}
         if raw_rel_changes:
-            logger.debug(f"Processing {len(raw_rel_changes)} relationship changes")
+            logger.debug(f"Processing {len(raw_rel_changes)} relationship changes: {list(raw_rel_changes.keys())}")
             all_characters = self.story.get_all_characters()
-            # Build name->character lookup
-            char_by_name = {}
+            # Build name->character lookup (full name, id, first name)
+            char_by_name: dict[str, Any] = {}
             for c in all_characters:
                 char_by_name[c.name.lower()] = c
                 char_by_name[c.id.lower()] = c
+                # Add first-name lookup for names with multiple words
+                first_name = c.name.split()[0].lower() if c.name else ""
+                if first_name and len(first_name) > 2 and first_name not in char_by_name:
+                    char_by_name[first_name] = c
+            
+            # Also build faction name->id lookup for relationship targets
+            all_factions = self.story.get_all_factions()
+            faction_by_name: dict[str, str] = {}
+            for fac in all_factions:
+                faction_by_name[fac.name.lower()] = fac.id
+            
+            def _resolve_target(name: str) -> str:
+                """Resolve a relationship target name to a stable ID."""
+                name_lower = name.lower()
+                char = char_by_name.get(name_lower)
+                if char:
+                    return char.id
+                fac_id = faction_by_name.get(name_lower)
+                if fac_id:
+                    return fac_id
+                return name  # fallback to raw name
             
             for source_name, rel_info in raw_rel_changes.items():
                 # rel_info can be a dict like {"Lyra": "growing trust after shared danger"}
                 # or a string like "trust with Lyra deepened"
                 source_char = char_by_name.get(source_name.lower())
                 if not source_char:
-                    logger.debug(f"  Relationship source '{source_name}' not found, skipping")
+                    logger.debug(f"  Relationship source '{source_name}' not found in {list(char_by_name.keys())[:10]}..., skipping")
                     continue
                 
                 if isinstance(rel_info, dict):
                     for target_name, rel_desc in rel_info.items():
-                        target_char = char_by_name.get(target_name.lower())
-                        target_id = target_char.id if target_char else target_name
+                        target_id = _resolve_target(target_name)
                         old_rel = source_char.relationships.get(target_id, source_char.relationships.get(target_name, ""))
                         
                         # Create EntityChange for relationship shift
@@ -987,15 +1007,16 @@ class StorySegment(StoryBlock):
                             description=f"{source_char.name}'s relationship with {target_name}: {rel_desc}",
                         ))
                         
-                        # Update the character's relationships dict and persist
+                        # Update the character's relationships dict
                         source_char.relationships[target_id] = str(rel_desc)
-                        logger.debug(f"  Relationship: {source_char.name} -> {target_name}: {rel_desc}")
+                        logger.debug(f"  Relationship: {source_char.name} -> {target_name} (id={target_id}): {rel_desc}")
                     
                     # Save character with updated relationships
                     try:
                         source_char.save()
+                        logger.debug(f"  Saved {source_char.name} with {len(source_char.relationships)} relationships")
                     except Exception as e:
-                        logger.debug(f"  Failed to save relationship update for {source_char.name}: {e}")
+                        logger.warning(f"  Failed to save relationship update for {source_char.name}: {e}")
                 
                 elif isinstance(rel_info, str):
                     # Flat string: treat as a general relationship note
@@ -1008,6 +1029,13 @@ class StorySegment(StoryBlock):
                         to_value=rel_info,
                         description=f"{source_char.name}: {rel_info}",
                     ))
+                    # Store as a general note under source character's relationships
+                    source_char.relationships[f"_note_{new_segment.id}"] = rel_info
+                    try:
+                        source_char.save()
+                        logger.debug(f"  Saved {source_char.name} with relationship note: {rel_info[:80]}")
+                    except Exception as e:
+                        logger.warning(f"  Failed to save relationship note for {source_char.name}: {e}")
         
         # Extract inventory/health EntityChanges from change_notes
         raw_change_notes = scene_data.get("change_notes") or []
