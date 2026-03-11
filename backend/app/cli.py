@@ -31,21 +31,6 @@ app = typer.Typer()
 console = Console(force_terminal=True, legacy_windows=False)
 logger = logging.getLogger("infinite_story.cli")
 
-# Configure logging to show debug messages
-def _setup_logging():
-    """Configure logging to display debug messages during generation."""
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler()  # Writes to stderr, which shows through
-        ]
-    )
-    # Reduce noise from verbose libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("h11").setLevel(logging.WARNING)
-
 def setup_logging(log_level: str):
     """Configure logging level for the app."""
     level_map = {
@@ -797,6 +782,7 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
         toggle_logs,
         show_segment_info,
         show_prompt,
+        show_raw_json,
         display_generation_result,
         show_segment_info_noninteractive,
         show_prompt_noninteractive,
@@ -836,7 +822,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
                 choices[0].text if choices else "unknown"
             )
         except Exception as e:
-            logger.debug(f"Could not build context: {e}")
+            logger.warning(f"Could not build context: {e}")
+            console.print(f"[red]Context build failed: {e}[/red]", file=sys.stderr)
             context = {}
 
         # Dump full context as JSON
@@ -875,7 +862,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
                 choices[0].text if choices else "unknown"
             )
         except Exception as e:
-            logger.debug(f"Could not build context: {e}")
+            logger.warning(f"Could not build context: {e}")
+            console.print(f"[red]Context build failed: {e}[/red]", file=sys.stderr)
 
         # Print requested dump
         dump_lower = dump.lower()
@@ -903,7 +891,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
                     choices[0].text if choices else "unknown"
                 )
             except Exception as e:
-                logger.debug(f"Could not build context: {e}")
+                logger.warning(f"Could not build context: {e}")
+                console.print(f"[dim red]Context build failed: {e}[/dim red]")
 
             # Display the segment
             display_segment(runner.current_segment)
@@ -915,7 +904,15 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
             # Auto-pick path
             if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
                 choice_id = choices[0].id
-                console.print(f"[bold magenta][AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'}] {choices[0].text[:60]}[/bold magenta]")
+                seg = runner.current_segment
+                ep = getattr(seg, 'episode_number', '?')
+                seg_num = getattr(seg, 'segment_number_in_episode', '?')
+                desc = getattr(seg, 'short_description', '') or ''
+                preview = f"[dim]Ep {ep} Seg {seg_num}[/dim]"
+                if desc:
+                    preview += f" [dim italic]{desc[:80]}[/dim italic]"
+                console.print(preview)
+                console.print(f"[bold magenta]  [AUTO-PICK {auto_remaining if auto_remaining > 0 else '∞'}] {choices[0].text[:80]}[/bold magenta]")
                 if auto_remaining > 0:
                     auto_remaining -= 1
                     if auto_remaining == 0:
@@ -934,6 +931,10 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
                         continue
                     if result == "CMD_PROMPT":
                         show_prompt(context)
+                        display_segment(runner.current_segment)
+                        continue
+                    if result == "CMD_JSON":
+                        show_raw_json(runner.current_segment)
                         display_segment(runner.current_segment)
                         continue
                     # Otherwise it's a choice id
@@ -979,17 +980,21 @@ async def _execute_choice(runner: StoryRunner, choice_id: str, generator):
         logger.debug(f"Navigated to segment: {runner.current_segment.id}")
     else:
         console.print("[bold yellow]Generating next scene...[/bold yellow]")
+        import time as _time
+        t0 = _time.monotonic()
         try:
             new_segment = await runner.current_segment.generate_next_scene(choice, generator)
+            elapsed = _time.monotonic() - t0
             runner.current_segment = new_segment
             runner.visited_segments.add(new_segment.id)
-            console.print("[green]Scene generated.[/green]")
+            console.print(f"[green]Scene generated in {elapsed:.1f}s[/green]")
         except Exception as e:
-            logger.error(f"Generation failed: {str(e)}", exc_info=True)
-            console.print(f"[red]Generation failed: {str(e)}[/red]")
+            elapsed = _time.monotonic() - t0
+            logger.error(f"Generation failed after {elapsed:.1f}s: {str(e)}", exc_info=True)
+            console.print(f"[red]Generation failed after {elapsed:.1f}s: {str(e)}[/red]")
             raise
 
-async def run_story_async(story_name: str = None, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None, dump: Optional[str] = None, dump_context: bool = False):
+async def run_story_async(story_name: str = None, resume: bool = False, log_level: str = "error", auto_pick: Optional[int] = None, dump: Optional[str] = None, dump_context: bool = False, start_from: Optional[str] = None, deterministic: bool = False, no_color: bool = False):
     """Run a story in the unified interactive mode.
     
     Args:
@@ -999,15 +1004,16 @@ async def run_story_async(story_name: str = None, resume: bool = False, log_leve
         auto_pick: If set, auto-select choice 1 for N turns (0 = unlimited)
         dump: If set, non-interactive mode. "info", "prompt", or "all"
         dump_context: If True, dump full context dict as JSON and exit
+        start_from: If set, jump directly to this segment ID instead of start/resume
+        deterministic: If True, don't shuffle choices (stable order for reproducible runs)
+        no_color: If True, disable Rich color/markup for piped output
     """
 
-    # In dump mode, suppress all noise — only show the dump output
-    if dump:
-        logging.disable(logging.CRITICAL)
-    elif log_level:
-        setup_logging(log_level)
-    
-    # Load configuration
+    if no_color:
+        global console
+        console = Console(force_terminal=False, no_color=True, highlight=False)
+
+    # Load configuration (this calls Config.setup_logging() internally)
     try:
         config = Config.load()
     except ValueError as e:
@@ -1017,6 +1023,12 @@ async def run_story_async(story_name: str = None, resume: bool = False, log_leve
         console.print(f"[red]Error: {message}[/red]")
         console.print(f"\n[yellow]Suggestion:[/yellow]\n{suggestion}")
         return
+
+    # Apply CLI log level AFTER Config.load() so --log-level takes precedence over .env
+    if dump:
+        logging.disable(logging.CRITICAL)
+    elif log_level:
+        setup_logging(log_level)
 
     # Initialize generator (only needed if dump will auto-pick through generated scenes)
     generator = None
@@ -1067,12 +1079,20 @@ async def run_story_async(story_name: str = None, resume: bool = False, log_leve
         console.print("[red]Failed to load story![/red]")
         return
 
-    runner = StoryRunner(story)
+    runner = StoryRunner(story, deterministic=deterministic)
     
     try:
         runner.load_all_components(story)
         
-        if resume and runner.load_state():
+        if start_from:
+            try:
+                runner.start_from_segment(start_from)
+                if not dump:
+                    console.print(f"[yellow]Jumped to segment: {runner.current_segment.short_description}[/yellow]")
+            except ValueError as e:
+                console.print(f"[red]Error: {e}[/red]")
+                return
+        elif resume and runner.load_state():
             if not dump:
                 console.print(f"[yellow]Resumed at: {runner.current_segment.short_description}[/yellow]")
         else:
@@ -1117,6 +1137,21 @@ def run_story(
         "--dump-context",
         help="Non-interactive: auto-pick N scenes then dump full context dict as JSON and exit"
     ),
+    start_from: Optional[str] = typer.Option(
+        None,
+        "--start-from",
+        help="Jump directly to a specific segment ID (skips start/resume)"
+    ),
+    deterministic: bool = typer.Option(
+        False,
+        "--deterministic",
+        help="Don't shuffle choices — stable order for reproducible auto-pick runs"
+    ),
+    no_color: bool = typer.Option(
+        False,
+        "--no-color",
+        help="Disable colors/markup — clean output for piping to files"
+    ),
 ):
     """Run a story in the interactive view.
     
@@ -1132,12 +1167,13 @@ def run_story(
     Examples:
       python -m app.cli run-story my_story
       python -m app.cli run-story my_story --resume
+      python -m app.cli run-story my_story --start-from seg_abc123
       python -m app.cli run-story my_story --auto-pick 5 --dump info
       python -m app.cli run-story my_story --auto-pick 0 --dump prompt
       python -m app.cli run-story my_story --dump all
       python -m app.cli run-story my_story --auto-pick 2 --dump-context    # dump context dict
     """
-    asyncio.run(run_story_async(story_name=story, resume=resume, log_level=log_level, auto_pick=auto_pick, dump=dump, dump_context=dump_context))
+    asyncio.run(run_story_async(story_name=story, resume=resume, log_level=log_level, auto_pick=auto_pick, dump=dump, dump_context=dump_context, start_from=start_from, deterministic=deterministic, no_color=no_color))
 
 @app.command()
 def list_models(
@@ -1660,6 +1696,12 @@ def inspect_story(
             console.print(f"[yellow]Valid types: {', '.join(set(component_map.keys()))}[/yellow]")
             return
         items = _load_all(cls)
+        # Sort segments/episodes by narrative order
+        if cls in (StorySegment, StoryEpisode):
+            items.sort(key=lambda x: (
+                getattr(x, 'episode_number', 0) if not isinstance(x, dict) else 0,
+                getattr(x, 'segment_number_in_episode', 0) if not isinstance(x, dict) else 0,
+            ))
         console.print(Panel(f"[bold]{cls.__name__}s ({len(items)})[/bold]", border_style="cyan"))
         for item in items:
             if json_output:

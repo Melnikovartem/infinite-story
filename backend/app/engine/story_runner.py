@@ -16,11 +16,12 @@ logger = logging.getLogger("infinite_story.engine.story_runner")
 class StoryRunner:
     """Manages the runtime state of a story and handles the game loop."""
 
-    def __init__(self, story: Story, generator=None):
+    def __init__(self, story: Story, generator=None, deterministic: bool = False):
         self.story = story
         self.current_segment: Optional[StorySegment] = None
         self.visited_segments: Set[str] = set()  # Set of segment IDs we've visited
         self.generator = generator  # Optional TextGenerator for AI-based generation
+        self.deterministic = deterministic  # If True, don't shuffle choices (stable order for debugging)
     
     @property
     def is_running(self) -> bool:
@@ -58,8 +59,8 @@ class StoryRunner:
             x.click_count if hasattr(x, 'click_count') else 0
         ), reverse=True)
         
-        # If all choices have same counts, randomize order
-        if all(
+        # If all choices have same counts, randomize order (unless deterministic mode)
+        if not self.deterministic and all(
             getattr(x, 'logged_clicks', 0) == getattr(choices[0], 'logged_clicks', 0) and
             getattr(x, 'click_count', 0) == getattr(choices[0], 'click_count', 0)
             for x in choices
