@@ -576,7 +576,7 @@ class StorySegment(StoryBlock):
         # with text_blocks, character_emotions, relationship_changes etc. routinely
         # exceeds 2000 completion tokens, causing truncated JSON that fails parsing.
         original_max_tokens = generator.max_tokens
-        SCENE_MIN_TOKENS = 4000
+        SCENE_MIN_TOKENS = 8000
         if generator.max_tokens < SCENE_MIN_TOKENS:
             generator.max_tokens = SCENE_MIN_TOKENS
             logger.debug(f"Scene generation max_tokens override: {original_max_tokens} -> {SCENE_MIN_TOKENS}")
