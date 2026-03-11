@@ -572,6 +572,15 @@ class StorySegment(StoryBlock):
             generator.temperature = storyteller.temperature
             logger.debug(f"Storyteller temperature override: {original_temperature} -> {generator.temperature}")
 
+        # Scene generation needs more tokens than default (2000) — the rich JSON
+        # with text_blocks, character_emotions, relationship_changes etc. routinely
+        # exceeds 2000 completion tokens, causing truncated JSON that fails parsing.
+        original_max_tokens = generator.max_tokens
+        SCENE_MIN_TOKENS = 4000
+        if generator.max_tokens < SCENE_MIN_TOKENS:
+            generator.max_tokens = SCENE_MIN_TOKENS
+            logger.debug(f"Scene generation max_tokens override: {original_max_tokens} -> {SCENE_MIN_TOKENS}")
+
         # Retry loop: detect fallback responses and retry up to MAX_RETRIES times
         MAX_SCENE_RETRIES = 3
         scene_data = None
@@ -632,8 +641,9 @@ class StorySegment(StoryBlock):
                 f"Using last response as-is."
             )
         
-        # Restore original temperature
+        # Restore original temperature and max_tokens
         generator.temperature = original_temperature
+        generator.max_tokens = original_max_tokens
         gen_api_duration = time.time() - gen_api_start
         logger.debug(f"[GEN_SCENE_GEN_RESPONSE] Generator returned response in {gen_api_duration:.2f}s")
         

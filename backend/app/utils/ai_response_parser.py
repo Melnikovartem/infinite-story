@@ -295,7 +295,8 @@ class AIResponseParser:
     def _extract_json_repaired(text: str) -> Optional[Union[dict, list]]:
         """Try to repair common JSON problems and re-parse.
 
-        Fixes: trailing commas, single quotes, unquoted keys, // comments.
+        Fixes: trailing commas, single quotes, unquoted keys, // comments,
+        and TRUNCATED JSON (response cut off by token limit).
         """
         # Get content from code block or whole text
         code_block = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?\s*```', text)
@@ -325,7 +326,107 @@ class AIResponseParser:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
+            pass
+
+        # Truncated JSON recovery: close unclosed strings, arrays, objects
+        repaired = AIResponseParser._repair_truncated_json(raw)
+        if repaired is not None:
+            return repaired
+
+        return None
+
+    @staticmethod
+    def _repair_truncated_json(raw: str) -> Optional[Union[dict, list]]:
+        """Attempt to repair JSON that was truncated mid-response (token limit).
+
+        Walks the string tracking open brackets/braces/strings, then appends
+        the necessary closing characters. Strips the last incomplete
+        key-value pair or array element to avoid partial data.
+        """
+        if not raw or raw[0] not in ('{', '['):
             return None
+
+        # First: close any unclosed string by finding if we're inside quotes
+        in_str = False
+        esc = False
+        last_quote_pos = -1
+        for i, c in enumerate(raw):
+            if esc:
+                esc = False
+                continue
+            if c == '\\' and in_str:
+                esc = True
+                continue
+            if c == '"':
+                in_str = not in_str
+                if in_str:
+                    last_quote_pos = i
+
+        # If we ended inside a string, close it
+        if in_str:
+            raw = raw + '"'
+
+        # Remove trailing incomplete element: strip back to last complete
+        # value boundary (comma, opening bracket, or colon+value)
+        # Try progressively: remove last partial key:value, last partial array element
+        attempts = [raw]
+
+        # Strip trailing partial after last comma
+        last_comma = raw.rfind(',')
+        if last_comma > 0:
+            attempts.append(raw[:last_comma])
+
+        # Strip trailing partial after last complete object/array close
+        for closer in ('}', ']'):
+            pos = raw.rfind(closer)
+            if pos > 0:
+                attempts.append(raw[:pos + 1])
+
+        for attempt in attempts:
+            # Count open brackets/braces
+            stack = []
+            in_s = False
+            esc2 = False
+            for c in attempt:
+                if esc2:
+                    esc2 = False
+                    continue
+                if c == '\\' and in_s:
+                    esc2 = True
+                    continue
+                if c == '"':
+                    in_s = not in_s
+                    continue
+                if in_s:
+                    continue
+                if c in ('{', '['):
+                    stack.append(c)
+                elif c == '}':
+                    if stack and stack[-1] == '{':
+                        stack.pop()
+                elif c == ']':
+                    if stack and stack[-1] == '[':
+                        stack.pop()
+
+            # Build closing sequence
+            closing = ''
+            for opener in reversed(stack):
+                closing += ']' if opener == '[' else '}'
+
+            # Clean trailing comma before closing
+            candidate = re.sub(r',\s*$', '', attempt) + closing
+
+            try:
+                result = json.loads(candidate)
+                logger.info(
+                    f"Truncated JSON recovery succeeded: "
+                    f"closed {len(stack)} brackets, trimmed {len(raw) - len(attempt)} chars"
+                )
+                return result
+            except json.JSONDecodeError:
+                continue
+
+        return None
 
     @classmethod
     def _json_to_items(cls, parsed: Union[dict, list], schema: ResponseSchema) -> List[dict]:
