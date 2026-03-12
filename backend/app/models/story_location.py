@@ -1,7 +1,7 @@
 from typing import List
 from .story_block import StoryBlock
 from typing import Dict, Any
-from pydantic import Field
+from pydantic import Field, field_validator
 
 class StoryLocation(StoryBlock):
     """A location in a story.
@@ -24,6 +24,16 @@ class StoryLocation(StoryBlock):
         description="Current state during episode: {stability, accessibility, corruption, ownership, inhabitants, etc.}"
     )
     
+    @field_validator('current_state', mode='before')
+    @classmethod
+    def coerce_current_state(cls, v):
+        """Coerce non-dict values into a dict (AI sometimes generates a plain string)."""
+        if isinstance(v, str):
+            return {"description": v} if v else {}
+        if v is None:
+            return {}
+        return v
+
     # Faction association
     associated_factions: List[str] = Field(default_factory=list)  # Faction IDs associated with this location
     importance: str = "minor"  # "major" or "minor"
