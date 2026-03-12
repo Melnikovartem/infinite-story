@@ -13,6 +13,9 @@ export interface StoryCharacter {
   avatar_color: string;
   background: string;
   running_status: CharacterState[];
+  visual_description?: string;
+  has_sprites?: boolean;
+  sprites_priority?: boolean;
 }
 
 export interface CharacterState {
@@ -51,6 +54,7 @@ export interface StorySegment {
   weather?: string;
   characters_present?: string[];
   locations_present?: string[];
+  has_visuals?: boolean;
 }
 
 export interface StoryChoice {
@@ -84,6 +88,8 @@ export interface StoryLocation {
     segment_id: string;
     atmosphere: string;
   }>;
+  visual_description?: string;
+  has_background?: boolean;
 }
 
 export interface Story {
@@ -218,5 +224,65 @@ export interface CreationSummary {
     choices: number;
     has_protagonist: boolean;
     has_magic_system: boolean;
+    sprites_generated?: number;
+    backgrounds_generated?: number;
   };
+}
+
+// ── Visual System Types ──
+
+export type SpriteEmotion = 'neutral' | 'happy' | 'sad' | 'angry' | 'surprised' | 'fearful' | 'thoughtful';
+export type SpriteStatus = 'pending' | 'generating' | 'completed' | 'failed';
+
+export interface SpriteEntry {
+  emotion: SpriteEmotion;
+  status: SpriteStatus;
+  filename: string | null;
+  path: string | null;
+}
+
+export interface SpriteManifest {
+  character_id: string;
+  is_priority: boolean;
+  visual_description: string;
+  sprites: SpriteEntry[];
+  completed_count: number;
+  total_count: number;
+}
+
+export interface LocationManifest {
+  location_id: string;
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  visual_description: string;
+  filename: string | null;
+  path: string | null;
+}
+
+export interface CharacterVisual {
+  character_id: string;
+  name?: string;
+  emotion: string;
+  sprite_path: string | null;
+  has_sprite: boolean;
+}
+
+export interface SegmentVisuals {
+  background: string | null;
+  characters: CharacterVisual[];
+  scene_description: string;
+}
+
+export interface SegmentResponseWithVisuals {
+  segment: StorySegment;
+  choices: ChoicesResponse;
+  episode?: EpisodeInfo;
+  visuals?: SegmentVisuals;
+}
+
+export interface StoryVisualSummary {
+  story_id: string;
+  has_visuals: boolean;
+  characters_with_sprites: number;
+  locations_with_backgrounds: number;
+  segments_with_visuals: number;
 }

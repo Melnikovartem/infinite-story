@@ -1,7 +1,7 @@
-from typing import List
-from .story_block import StoryBlock
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from pydantic import Field
+from .story_block import StoryBlock
+from .visuals import LocationVisual
 
 class StoryLocation(StoryBlock):
     """A location in a story.
@@ -27,6 +27,13 @@ class StoryLocation(StoryBlock):
     # Faction association
     associated_factions: List[str] = Field(default_factory=list)  # Faction IDs associated with this location
     importance: str = "minor"  # "major" or "minor"
+    
+    # ── Visual system ────────────────────────────────────────────────────
+    visual_description: str = Field(
+        default="",
+        description="Detailed visual description for background generation (architecture, landscape, lighting, colors, atmosphere)"
+    )
+    has_background: bool = Field(default=False, description="Whether a background image exists for this location")
 
     def __init__(self, **data):
         """Initialize a StoryLocation instance.
@@ -37,6 +44,17 @@ class StoryLocation(StoryBlock):
         """
         super().__init__(**data)
         self.story.add_location(self)
+
+    def get_location_visual(self) -> Optional[LocationVisual]:
+        """Load the location visual manifest."""
+        return LocationVisual.load(self.story_id, self.id)
+
+    def get_background_path(self) -> Optional[str]:
+        """Get the relative path to the background image, or None."""
+        visual = self.get_location_visual()
+        if not visual or visual.status.value != "completed":
+            return None
+        return visual.get_relative_path()
 
     def to_context_short(self) -> str:
         """Short context: name and description."""

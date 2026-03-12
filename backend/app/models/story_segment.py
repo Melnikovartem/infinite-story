@@ -323,6 +323,16 @@ class StorySegment(StoryBlock):
         description="The AI model used to generate this segment"
     )
     
+    # -- Visual System --
+    scene_visual_description: Optional[str] = Field(
+        None,
+        description="AI-generated visual description of the scene for compositing/rendering"
+    )
+    has_visuals: bool = Field(
+        False,
+        description="Whether a SegmentVisual manifest has been created for this segment"
+    )
+    
     # Non-Stored Information
     # Pointers to choices
     incoming_choices: Dict[str, StoryChoice] = Field(default_factory=dict, exclude=True)  # Choices that lead to this segment
@@ -1154,6 +1164,18 @@ class StorySegment(StoryBlock):
         logger.debug(f"[GEN_SCENE_SAVE_DONE] All entities saved in {save_duration:.2f}s")
         logger.info(f"[GEN_SCENE_COMPLETE] Scene generation completed successfully. New segment: {new_segment.id}")
         connecting_choice.save()
+        
+        # Create visual manifest for the new segment (non-blocking, best-effort)
+        try:
+            from app.engine.visual_generators.scene_visual_generator import SceneVisualGeneratorService
+            scene_visual_gen = SceneVisualGeneratorService()
+            all_chars = list(self.story._characters.values()) if hasattr(self.story, '_characters') else []
+            all_locs = list(self.story._locations.values()) if hasattr(self.story, '_locations') else []
+            scene_visual_gen.create_segment_visual(new_segment, characters=all_chars, locations=all_locs)
+            new_segment.save()
+            logger.debug(f"[GEN_SCENE_VISUAL] Created visual manifest for {new_segment.id}")
+        except Exception as e:
+            logger.debug(f"[GEN_SCENE_VISUAL] Visual manifest creation skipped: {e}")
         
         total_gen_duration = time.time() - gen_start_time
         logger.info(f"⏱️  Total generation time: {total_gen_duration:.2f}s (Prompt: {prompt_duration:.2f}s + API: {gen_api_duration:.2f}s + Save: {save_duration:.2f}s)")

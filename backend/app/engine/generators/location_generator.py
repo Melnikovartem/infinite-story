@@ -17,6 +17,7 @@ LOCATION_SCHEMA = ResponseSchema(
         FieldSpec("name", type="str", required=True, aliases=["location_name", "title", "place"]),
         FieldSpec("description", type="str", required=True, aliases=["short", "short_description", "summary", "desc"]),
         FieldSpec("full_description", type="str", required=True, aliases=["full", "detailed", "details", "long_description"]),
+        FieldSpec("visual_description", type="str", aliases=["visual", "scene_description", "appearance"]),
     ],
     expect_array=True,
     min_items=5,
@@ -30,6 +31,7 @@ LOCATION_EXAMPLE = {
     "name": "The Sunken Bazaar",
     "description": "A sprawling underground market built in flooded catacombs beneath the capital",
     "full_description": "Beneath the cobblestone streets of the capital lies the Sunken Bazaar, a vast network of flooded catacombs converted into a thriving black market. Merchants pole flat-bottomed boats between pillars draped in bioluminescent moss, hawking contraband, rare artifacts, and forbidden knowledge. The air is thick with incense meant to mask the smell of canal water. Guards rarely venture below — the Bazaar is governed by its own code, enforced by the masked Tide Wardens.",
+    "visual_description": "Underground flooded catacombs with stone pillars and arched ceilings, shallow green water reflecting bioluminescent moss light, wooden flat-bottomed boats, hanging lanterns and incense smoke, market stalls on raised stone platforms, dim atmospheric lighting with blue-green tones",
 }
 
 # Fallback defaults when parsing fails completely
@@ -110,6 +112,7 @@ Generate as many locations as needed (5-15) to fully flesh out this world.""",
                     name=name,
                     description=short_desc,
                     full_description=full_desc,
+                    visual_description=raw.get('visual_description', ''),
                 )
                 locations.append(location)
                 logger.debug(f"Created location: {location.name}")
@@ -154,6 +157,7 @@ For EACH location, provide:
 - name: Location name
 - description: One sentence (used in scene prompts)
 - full_description: 3-5 sentences with rich details (used for deep context — include atmosphere, inhabitants, dangers, connections to other locations)
+- visual_description: Detailed VISUAL description for background image generation - architecture, landscape, lighting, color palette, weather, notable visual elements (1-2 sentences, VISUAL details only, no characters)
 
 Make locations diverse:
 - Some major/important, some minor/hidden

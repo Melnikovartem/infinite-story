@@ -18,6 +18,7 @@ CHARACTER_SCHEMA = ResponseSchema(
     fields=[
         FieldSpec("name", type="str", required=True, aliases=["character_name", "full_name"]),
         FieldSpec("description", type="str", required=True, aliases=["appearance", "physical", "desc"]),
+        FieldSpec("visual_description", type="str", aliases=["visual", "physical_appearance", "appearance_detail"]),
         FieldSpec("background", type="str", required=True, aliases=["backstory", "history", "life_story"]),
         FieldSpec("personality_traits", type="list", aliases=["personality", "traits", "key_traits"]),
         FieldSpec("goals", type="str", aliases=["goal", "motivation", "desire", "wants"]),
@@ -35,6 +36,7 @@ CHARACTER_SCHEMA = ResponseSchema(
 CHARACTER_EXAMPLE = {
     "name": "Kael Ashford",
     "description": "A lean, sharp-eyed woman in her thirties with burn scars trailing up her left arm and silver-streaked hair pulled into a tight braid",
+    "visual_description": "Lean woman in her early 30s, sharp amber eyes, silver-streaked black hair in a tight braid, burn scars trailing up left arm, tanned weathered skin, wearing a worn leather vest over a dark tunic, practical boots, carries a surveyor's satchel",
     "background": "Former blacksmith's apprentice who discovered she could sense metal through touch. Fled her village after accidentally collapsing a mine shaft. Now works as a freelance surveyor, mapping underground resources for whoever pays.",
     "personality_traits": ["pragmatic", "self-reliant", "quietly compassionate", "distrustful of authority"],
     "goals": "Find a way to control her ability without destroying what she touches",
@@ -194,6 +196,7 @@ Create characters that will drive the story forward and create interesting confl
                     story_id=self.story.id,
                     name=raw.get('name', CHARACTER_FALLBACK['name']),
                     description=raw.get('description', CHARACTER_FALLBACK['description']),
+                    visual_description=raw.get('visual_description', ''),
                     background=raw.get('background', CHARACTER_FALLBACK['background']),
                     personality=raw.get('personality_traits', []),
                     goals=raw.get('goals', ''),
@@ -241,6 +244,7 @@ Story Description: {self.story.description}
 For EACH character, provide:
 - name: A memorable, fitting name
 - description: Physical appearance and immediate impression (2-3 sentences)
+- visual_description: Detailed physical/visual traits for image generation - hair color/style, eye color, skin tone, build, clothing, distinguishing features (1-2 sentences, focus on VISUAL details only)
 - background: Life story and how they got here (2-3 sentences)
 - personality_traits: 3-4 key traits (e.g., cautious, ambitious, compassionate)
 - goals: What do they want? (primary motivation)
@@ -302,6 +306,7 @@ These characters should:
 For EACH character, provide:
 - name: A fitting name
 - description: Physical appearance and impression (1-2 sentences)
+- visual_description: Detailed physical/visual traits for image generation - hair color/style, eye color, skin tone, build, clothing, distinguishing features (1-2 sentences, VISUAL details only)
 - background: How they came to this faction (1-2 sentences)
 - personality_traits: 3-4 key traits
 - goals: Their personal motivation within the faction
@@ -331,6 +336,7 @@ For EACH character, provide:
                 story_id=self.story.id,
                 name=raw.get('name', CHARACTER_FALLBACK['name']),
                 description=raw.get('description', CHARACTER_FALLBACK['description']),
+                visual_description=raw.get('visual_description', ''),
                 background=raw.get('background', CHARACTER_FALLBACK['background']),
                 personality=raw.get('personality_traits', []),
                 goals=raw.get('goals', ''),

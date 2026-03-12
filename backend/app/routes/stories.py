@@ -101,6 +101,20 @@ def _build_segment_response(segment, choices: list, story=None) -> Dict[str, Any
         for c in choices
     ]
     
+    # Build visual data if available
+    visuals_data = None
+    if getattr(segment, "has_visuals", False):
+        try:
+            from app.engine.visual_generators.scene_visual_generator import SceneVisualGeneratorService
+            scene_visual_gen = SceneVisualGeneratorService()
+            all_chars = list(story._characters.values()) if story and hasattr(story, '_characters') else []
+            all_locs = list(story._locations.values()) if story and hasattr(story, '_locations') else []
+            visuals_data = scene_visual_gen.get_segment_visual_data(
+                segment, characters=all_chars, locations=all_locs
+            )
+        except Exception:
+            visuals_data = None
+    
     result = {
         "segment": {
             "id": segment.id,
@@ -120,6 +134,7 @@ def _build_segment_response(segment, choices: list, story=None) -> Dict[str, Any
             "locations_present": segment.locations_present,
             "storyteller_id": getattr(segment, "storyteller_id", None),
             "model_used": getattr(segment, "model_used", None),
+            "has_visuals": getattr(segment, "has_visuals", False),
         },
         "choices": {
             "top": choice_responses[:2],
@@ -133,6 +148,9 @@ def _build_segment_response(segment, choices: list, story=None) -> Dict[str, Any
             "triggers_transition": segment.triggers_episode_transition,
         },
     }
+    
+    if visuals_data:
+        result["visuals"] = visuals_data
     
     # Add arc info if available
     if story and segment.arc_id:

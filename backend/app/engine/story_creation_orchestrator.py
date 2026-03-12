@@ -15,6 +15,7 @@ from app.models.story_segment import StorySegment, _SCENE_SCHEMA, _SCENE_FALLBAC
 from app.models.story_choice import StoryChoice
 from app.models.text_types import TextBlock
 from app.engine.generator import TextGenerator
+from app.engine.image_generator import ImageGenerator, create_image_generator
 from app.engine.step_generation_manager import StepGenerationManager
 
 logger = logging.getLogger("infinite_story.engine.story_creation_orchestrator")
@@ -38,7 +39,7 @@ class CreationResult:
     story: Optional[Story] = None
     error: Optional[str] = None
     steps_completed: int = 0
-    steps_total: int = 10
+    steps_total: int = 11
     artifacts: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,9 +58,13 @@ class StoryCreationOrchestrator:
         self,
         generator: TextGenerator,
         progress_callback: Optional[ProgressCallback] = None,
+        image_generator: Optional[ImageGenerator] = None,
+        generate_visuals: bool = True,
     ):
         self.generator = generator
         self.progress_callback = progress_callback or (lambda p: None)
+        self.image_generator = image_generator
+        self.generate_visuals = generate_visuals
     
     def _emit(self, step: int, name: str, status: str, message: str = "", detail: Optional[Dict[str, Any]] = None):
         """Emit a progress update."""
@@ -455,6 +460,17 @@ Write an opening scene that:
             for choice in choices_list:
                 choice.save()
             
+            # ── Step 10: Visual Generation (sprites + backgrounds) ──
+            await self._generate_visuals(
+                step=10,
+                characters=characters,
+                locations=locations,
+                protagonist=protagonist,
+                opening_segment=opening_segment,
+                result=result,
+            )
+            result.steps_completed = 11
+            
             result.success = True
             logger.info(f"Story '{story_id}' created successfully with {result.steps_completed} steps")
             return result
@@ -464,6 +480,91 @@ Write an opening scene that:
             result.error = str(e)
             return result
     
+    async def _generate_visuals(
+        self,
+        step: int,
+        characters: List[Any],
+        locations: List[Any],
+        protagonist: Any,
+        opening_segment: Any,
+        result: "CreationResult",
+    ) -> None:
+        """Generate visual assets (character sprites + location backgrounds).
+        
+        This is a best-effort step -- visual generation failures don't
+        prevent story creation from succeeding.
+        """
+        # Resolve image generator
+        img_gen = self.image_generator
+        if img_gen is None and self.generate_visuals:
+            img_gen = create_image_generator()
+        
+        if img_gen is None:
+            self._emit(step, "Visual Generation", "skipped",
+                       "No image generator available (OPENAI_API_KEY not set)")
+            return
+        
+        self._emit(step, "Visual Generation", "running")
+        
+        sprites_generated = 0
+        backgrounds_generated = 0
+        
+        try:
+            from app.engine.visual_generators import (
+                SpriteGeneratorService,
+                BackgroundGeneratorService,
+                SceneVisualGeneratorService,
+            )
+            
+            sprite_gen = SpriteGeneratorService(img_gen)
+            bg_gen = BackgroundGeneratorService(img_gen)
+            scene_gen = SceneVisualGeneratorService()
+            
+            # Generate sprites for priority characters (protagonist + top 3)
+            if characters:
+                try:
+                    sheets = await sprite_gen.generate_priority_characters(
+                        characters, max_priority=4
+                    )
+                    sprites_generated = sum(
+                        len(s.get_completed_sprites()) for s in sheets
+                    )
+                except Exception as e:
+                    logger.warning(f"Sprite generation failed: {e}")
+            
+            # Generate backgrounds for locations (up to 6)
+            if locations:
+                try:
+                    visuals = await bg_gen.generate_all_backgrounds(
+                        locations, max_locations=6
+                    )
+                    backgrounds_generated = sum(
+                        1 for v in visuals if v.status.value == "completed"
+                    )
+                except Exception as e:
+                    logger.warning(f"Background generation failed: {e}")
+            
+            # Create visual manifest for the opening segment
+            try:
+                scene_gen.create_segment_visual(
+                    opening_segment,
+                    characters=characters,
+                    locations=locations,
+                )
+                opening_segment.save()
+            except Exception as e:
+                logger.warning(f"Opening scene visual creation failed: {e}")
+            
+            self._emit(step, "Visual Generation", "completed",
+                       f"{sprites_generated} sprites, {backgrounds_generated} backgrounds")
+            
+            result.artifacts["sprites_generated"] = sprites_generated
+            result.artifacts["backgrounds_generated"] = backgrounds_generated
+            
+        except Exception as e:
+            self._emit(step, "Visual Generation", "failed", str(e)[:100])
+            logger.error(f"Visual generation step failed: {e}", exc_info=True)
+
     def get_creation_summary(self, result: CreationResult) -> Dict[str, Any]:
         """Build a summary dict from a CreationResult."""
         artifacts = result.artifacts
@@ -481,5 +582,7 @@ Write an opening scene that:
                 "choices": len(artifacts.get("choices") or []),
                 "has_protagonist": artifacts.get("protagonist") is not None,
                 "has_magic_system": artifacts.get("magic_system") is not None,
+                "sprites_generated": artifacts.get("sprites_generated", 0),
+                "backgrounds_generated": artifacts.get("backgrounds_generated", 0),
             },
         }

@@ -2,6 +2,7 @@ from typing import Any, Optional, List, Dict
 from enum import Enum
 from pydantic import Field, field_validator
 from .story_block import StoryBlock
+from .visuals import SpriteSheet, SpriteEmotion
 
 
 class AvatarShape(str, Enum):
@@ -84,6 +85,18 @@ class StoryCharacter(StoryBlock):
     
     # Recap (updated as story progresses)
     recap: Optional[str] = Field(None, description="Current recap of this character (updated during story)")
+    
+    # ── Visual system ────────────────────────────────────────────────────
+    # Visual description used as the base prompt for sprite generation.
+    # More detailed than `description` -- focused on visual/physical traits.
+    visual_description: str = Field(
+        default="",
+        description="Detailed visual/physical description for image generation (hair, eyes, clothing, build, distinguishing features)"
+    )
+    # Whether sprites have been generated for this character
+    has_sprites: bool = Field(default=False, description="Whether sprite images exist for this character")
+    # Whether this character should get priority sprite generation (protagonist, antagonist, major allies)
+    sprites_priority: bool = Field(default=False, description="Whether to generate full sprite set during story creation")
 
     def __init__(self, **data: Any):
         """Initialize a StoryCharacter instance.
@@ -178,6 +191,24 @@ class StoryCharacter(StoryBlock):
             List of states in order they appear
         """
         return self.running_status.copy()
+    
+    def get_sprite_sheet(self) -> Optional[SpriteSheet]:
+        """Load the sprite sheet manifest for this character."""
+        return SpriteSheet.load(self.story_id, self.id)
+    
+    def get_sprite_path(self, emotion: str = "neutral") -> Optional[str]:
+        """Get the relative path to a sprite image for a given emotion.
+        
+        Falls back through: exact match -> mapped emotion -> neutral -> any available.
+        Returns None if no sprites exist.
+        """
+        sheet = self.get_sprite_sheet()
+        if not sheet:
+            return None
+        entry = sheet.get_best_sprite(emotion)
+        if not entry or not entry.filename:
+            return None
+        return sheet.get_relative_path(SpriteEmotion(entry.emotion))
     
     def to_context_short(self) -> str:
         """Short context: description + recap if available."""

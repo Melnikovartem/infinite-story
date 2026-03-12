@@ -72,7 +72,7 @@ class TestCreationResult:
         assert r.story is None
         assert r.error is None
         assert r.steps_completed == 0
-        assert r.steps_total == 10
+        assert r.steps_total == 11
         assert r.artifacts == {}
 
 
