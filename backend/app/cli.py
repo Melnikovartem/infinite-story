@@ -767,9 +767,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
 
     Displays the segment text, then presents a menu:
       [1-N] Pick a choice
-      [L]   Toggle logs
-      [I]   View segment info
-      [P]   View AI prompt
+      [L]   Toggle logs     [I] View segment info    [P] View AI prompt    [J] Raw JSON
+      [U]   Go up (parent)  [D] Go down (child)      [T] Story tree view
 
     If dump is set ("info", "prompt", or "all"), auto-picks through scenes
     then prints the requested debug output and exits (no interaction).
@@ -783,6 +782,8 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
         show_segment_info,
         show_prompt,
         show_raw_json,
+        show_tree,
+        prompt_down_choice,
         display_generation_result,
         show_segment_info_noninteractive,
         show_prompt_noninteractive,
@@ -877,9 +878,7 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
 
     # ── Normal interactive mode ──
     try:
-        while runner.is_running:
-            if not runner.current_segment:
-                break
+        while runner.current_segment is not None:
 
             # Build context (used by Info and Prompt views)
             context = None
@@ -898,10 +897,39 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
             display_segment(runner.current_segment)
 
             if not choices:
-                console.print("[yellow]No more choices. The story has ended.[/yellow]")
-                break
+                # Dead end — but user can still navigate up/view tree
+                has_parent = bool(runner.current_segment.parent_segment_id or runner.current_segment.incoming_choices)
+                if not has_parent:
+                    console.print("[yellow]No choices and no parent. Story ended.[/yellow]")
+                    break
+                console.print("[yellow]No choices here (leaf node). Use [bold]U[/bold] to go up or [bold]T[/bold] for tree.[/yellow]")
+                while True:
+                    raw = Prompt.ask("[bold]>").strip().lower()
+                    if raw == "u":
+                        prev = runner.navigate_up()
+                        if prev:
+                            runner.save_state()
+                            break
+                        else:
+                            console.print("[yellow]No parent segment.[/yellow]")
+                    elif raw == "t":
+                        from app.ui.story_debug_display import show_tree
+                        show_tree(runner)
+                        display_segment(runner.current_segment)
+                    elif raw == "j":
+                        show_raw_json(runner.current_segment)
+                        display_segment(runner.current_segment)
+                    elif raw == "i":
+                        show_segment_info(runner.current_segment, context)
+                        display_segment(runner.current_segment)
+                    else:
+                        console.print("[red]Enter U (up), T (tree), I (info), or J (json)[/red]")
+                continue
 
             # Auto-pick path
+            choice_id = None
+            navigated = False
+            
             if auto_remaining is not None and (auto_remaining == 0 or auto_remaining > 0):
                 choice_id = choices[0].id
                 seg = runner.current_segment
@@ -920,7 +948,7 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
             else:
                 # Interactive menu loop
                 while True:
-                    result = prompt_menu(runner.current_segment, choices, context, story=runner.story)
+                    result = prompt_menu(runner.current_segment, choices, context, story=runner.story, runner=runner)
 
                     if result == "CMD_LOGS":
                         toggle_logs()
@@ -937,9 +965,35 @@ async def _run_story(runner: StoryRunner, generator, auto_pick: Optional[int] = 
                         show_raw_json(runner.current_segment)
                         display_segment(runner.current_segment)
                         continue
+                    if result == "CMD_UP":
+                        prev = runner.navigate_up()
+                        if prev:
+                            runner.save_state()
+                            navigated = True
+                            break
+                        else:
+                            console.print("[yellow]Already at root — no parent segment.[/yellow]")
+                            continue
+                    if result == "CMD_DOWN":
+                        idx = prompt_down_choice(runner)
+                        if idx is not None:
+                            runner.navigate_down(idx)
+                            runner.save_state()
+                            navigated = True
+                            break
+                        display_segment(runner.current_segment)
+                        continue
+                    if result == "CMD_TREE":
+                        show_tree(runner)
+                        display_segment(runner.current_segment)
+                        continue
                     # Otherwise it's a choice id
                     choice_id = result
                     break
+
+            # If we navigated up/down, skip choice execution and loop back
+            if navigated:
+                continue
 
             # Execute the choice
             try:
@@ -1157,6 +1211,7 @@ def run_story(
     
     Shows the story text with an interactive menu:
       [1-N] Pick a choice     [L] Toggle logs     [I] Segment info     [P] View prompt
+      [U] Go up (parent)      [D] Go down (child) [T] Story tree        [J] Raw JSON
     
     Non-interactive dump (for scripting/debugging):
       --dump info           Print segment info after N auto-picks, then exit
