@@ -2,6 +2,7 @@
 
 Shows the story text with a compact menu:
   [1-N] Pick a choice     [L] Toggle logs     [I] Segment info     [P] View prompt
+  [U] Go up (parent)      [D] Go down (child) [T] Tree view        [J] Raw JSON
 """
 
 from typing import List, Optional, Dict, Any
@@ -144,13 +145,17 @@ def display_segment(segment) -> None:
 # INTERACTIVE MENU
 # ============================================================================
 
-def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None, story=None) -> str:
+def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None, story=None, runner=None) -> str:
     """Show choices + debug menu. Returns a choice ID or a command string.
 
     Commands returned:
       "CMD_LOGS"   - toggle logs
       "CMD_INFO"   - show segment info
       "CMD_PROMPT" - show AI prompt
+      "CMD_JSON"   - raw JSON dump
+      "CMD_UP"     - navigate to parent segment
+      "CMD_DOWN"   - navigate to child segment
+      "CMD_TREE"   - show local story tree
       choice.id    - user picked a story choice
       
     Args:
@@ -158,6 +163,7 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
       choices: Available choices
       context: Optional context dict
       story: Optional Story object to look up target segments
+      runner: Optional StoryRunner for navigation features
     """
     # ── Show choices ──
     console.print("[bold]Choices:[/bold]")
@@ -172,7 +178,7 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
             target_info = ""
             if story:
                 try:
-                    target_seg = story.get_segment(to_seg)
+                    target_seg = story.get_segment(to_seg, include_archived=True)
                     if target_seg:
                         ep = getattr(target_seg, 'episode_number', '?')
                         seg_num = getattr(target_seg, 'segment_number_in_episode', '?')
@@ -189,8 +195,31 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
 
     # ── Menu bar ──
     log_label = "[green]ON[/green]" if _logs_enabled else "[dim]OFF[/dim]"
+    has_parent = bool(getattr(segment, 'parent_segment_id', None) or getattr(segment, 'incoming_choices', {}))
+    has_children = False
+    if runner:
+        has_children = bool(runner.get_children())
+    
     console.print()
-    console.print(f"  [bold yellow]L[/bold yellow] Logs {log_label}    [bold yellow]I[/bold yellow] Info    [bold yellow]P[/bold yellow] Prompt    [bold yellow]J[/bold yellow] Raw JSON")
+    menu_parts = [
+        f"[bold yellow]L[/bold yellow] Logs {log_label}",
+        f"[bold yellow]I[/bold yellow] Info",
+        f"[bold yellow]P[/bold yellow] Prompt",
+        f"[bold yellow]J[/bold yellow] Raw JSON",
+    ]
+    nav_parts = []
+    if has_parent:
+        nav_parts.append(f"[bold green]U[/bold green] Up")
+    else:
+        nav_parts.append(f"[dim]U Up[/dim]")
+    if has_children:
+        nav_parts.append(f"[bold green]D[/bold green] Down")
+    else:
+        nav_parts.append(f"[dim]D Down[/dim]")
+    nav_parts.append(f"[bold yellow]T[/bold yellow] Tree")
+    
+    console.print(f"  {'    '.join(menu_parts)}")
+    console.print(f"  {'    '.join(nav_parts)}")
 
     # ── Input ──
     while True:
@@ -203,10 +232,16 @@ def prompt_menu(segment, choices: List, context: Optional[Dict[str, Any]] = None
             return "CMD_PROMPT"
         if raw == "j":
             return "CMD_JSON"
+        if raw == "u":
+            return "CMD_UP"
+        if raw == "d":
+            return "CMD_DOWN"
+        if raw == "t":
+            return "CMD_TREE"
         if raw in [str(i) for i in range(1, len(choices) + 1)]:
             selected = choices[int(raw) - 1]
             return selected.id if hasattr(selected, 'id') else str(selected)
-        console.print(f"[red]Enter 1-{len(choices)}, L, I, P, or J[/red]")
+        console.print(f"[red]Enter 1-{len(choices)}, L, I, P, J, U, D, or T[/red]")
 
 
 # ============================================================================
@@ -535,6 +570,136 @@ def show_raw_json(segment) -> None:
     except Exception as e:
         console.print(f"[red]Could not serialize segment: {e}[/red]")
     Prompt.ask("[dim]Press Enter to go back[/dim]", default="")
+
+
+# ============================================================================
+# TREE VIEW
+# ============================================================================
+
+def show_tree(runner) -> None:
+    """Show a local tree view around the current segment, then wait for Enter."""
+    tree_data = runner.get_local_tree(depth_up=3, depth_down=2)
+    lines = []
+    
+    current_id = tree_data['current'].id if tree_data['current'] else None
+    
+    def _seg_label(seg, is_current=False):
+        """Format a segment as a compact label."""
+        ep = getattr(seg, 'episode_number', '?')
+        seg_num = getattr(seg, 'segment_number_in_episode', '?')
+        desc = getattr(seg, 'short_description', '') or ''
+        desc = desc[:50] + '...' if len(desc) > 50 else desc
+        status = getattr(seg, 'status', None)
+        status_tag = ""
+        if status and str(status).lower() == 'archived':
+            status_tag = " [dim red](archived)[/dim red]"
+        
+        if is_current:
+            return f"[bold white on blue] Ep {ep} Seg {seg_num} [/bold white on blue] {desc}{status_tag} [dim]({seg.id})[/dim]"
+        return f"[cyan]Ep {ep} Seg {seg_num}[/cyan] {desc}{status_tag} [dim]({seg.id})[/dim]"
+    
+    # Ancestors
+    for i, (ancestor, choice_text) in enumerate(tree_data['ancestors']):
+        indent = "  " * i
+        lines.append(f"{indent}{_seg_label(ancestor)}")
+        if choice_text:
+            lines.append(f"{indent}  [dim yellow]'{choice_text[:60]}'[/dim yellow]")
+        lines.append(f"{indent}  [dim]|[/dim]")
+    
+    # Current segment
+    current_indent = "  " * len(tree_data['ancestors'])
+    lines.append(f"{current_indent}{_seg_label(tree_data['current'], is_current=True)}")
+    
+    # Children (recursive)
+    def _render_children(children, base_indent, depth=0):
+        for j, node in enumerate(children):
+            choice = node['choice']
+            seg = node['segment']
+            choice_text = getattr(choice, 'text', '?') or '?'
+            is_last = (j == len(children) - 1)
+            connector = "'-" if is_last else "|-"
+            
+            lines.append(f"{base_indent}  [dim]{connector}[/dim] [dim yellow]'{choice_text[:55]}'[/dim yellow]")
+            
+            if seg:
+                branch = "  " if is_last else "| "
+                lines.append(f"{base_indent}  [dim]{branch}[/dim]  {_seg_label(seg)}")
+                if node['children']:
+                    _render_children(node['children'], base_indent + f"  [dim]{branch}[/dim]  ", depth + 1)
+            else:
+                branch = "  " if is_last else "| "
+                lines.append(f"{base_indent}  [dim]{branch}[/dim]  [dim italic](not yet generated)[/dim italic]")
+    
+    _render_children(tree_data['children'], current_indent)
+    
+    # Sibling branches (children of parent that are NOT the current segment)
+    if tree_data['ancestors']:
+        parent_seg, _ = tree_data['ancestors'][-1]
+        sibling_choices = sorted(
+            parent_seg.outgoing_choices.values(),
+            key=lambda c: getattr(c, 'text', '') or ''
+        )
+        siblings = []
+        for sc in sibling_choices:
+            if sc.to_segment_id and sc.to_segment_id != current_id:
+                sib_seg = runner.story.get_segment(sc.to_segment_id, include_archived=True)
+                if sib_seg:
+                    siblings.append((sc, sib_seg))
+        
+        if siblings:
+            lines.append("")
+            lines.append(f"[bold cyan]Sibling branches (from parent):[/bold cyan]")
+            for sc, sib_seg in siblings:
+                choice_text = getattr(sc, 'text', '?') or '?'
+                lines.append(f"  [dim yellow]'{choice_text[:55]}'[/dim yellow]")
+                lines.append(f"    {_seg_label(sib_seg)}")
+    
+    console.print(Panel(
+        "\n".join(lines),
+        title="Story Tree",
+        border_style="green",
+        padding=(1, 2),
+    ))
+    Prompt.ask("[dim]Press Enter to go back[/dim]", default="")
+
+
+def prompt_down_choice(runner) -> Optional[int]:
+    """Show generated children and let user pick which branch to go down.
+    
+    Returns:
+        Index of the chosen child, or None if cancelled
+    """
+    children = runner.get_children()
+    if not children:
+        console.print("[yellow]No generated child segments to navigate to.[/yellow]")
+        return None
+    
+    if len(children) == 1:
+        # Only one child, go directly
+        choice, seg = children[0]
+        ep = getattr(seg, 'episode_number', '?')
+        seg_num = getattr(seg, 'segment_number_in_episode', '?')
+        desc = getattr(seg, 'short_description', '') or ''
+        console.print(f"[green]Down ->[/green] Ep {ep} Seg {seg_num} {desc[:60]}")
+        return 0
+    
+    console.print("[bold]Pick a branch to go down:[/bold]")
+    for i, (choice, seg) in enumerate(children, 1):
+        ep = getattr(seg, 'episode_number', '?')
+        seg_num = getattr(seg, 'segment_number_in_episode', '?')
+        desc = getattr(seg, 'short_description', '') or ''
+        choice_text = getattr(choice, 'text', '?') or '?'
+        console.print(f"  [bold cyan]{i}[/bold cyan]  [dim yellow]'{choice_text[:50]}'[/dim yellow]")
+        console.print(f"     [dim]-> Ep {ep} Seg {seg_num}[/dim] {desc[:50]}")
+    console.print(f"  [dim]0  Cancel[/dim]")
+    
+    while True:
+        raw = Prompt.ask("[bold]down>").strip()
+        if raw == "0":
+            return None
+        if raw in [str(i) for i in range(1, len(children) + 1)]:
+            return int(raw) - 1
+        console.print(f"[red]Enter 1-{len(children)} or 0 to cancel[/red]")
 
 
 # ============================================================================

@@ -73,6 +73,16 @@ class StoryCharacter(StoryBlock):
         description="Current state during episode: {mood, status, location, loyalty, relationships, goals}"
     )
     
+    @field_validator('current_state', mode='before')
+    @classmethod
+    def coerce_current_state(cls, v):
+        """Coerce non-dict values into a dict (AI sometimes generates a plain string)."""
+        if isinstance(v, str):
+            return {"description": v} if v else {}
+        if v is None:
+            return {}
+        return v
+
     # Faction and location association
     faction_id: Optional[str] = Field(default=None, description="ID of the faction this character belongs to")
     associated_locations: List[str] = Field(default_factory=list)  # Location IDs where character appears

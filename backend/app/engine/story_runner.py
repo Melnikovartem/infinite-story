@@ -44,29 +44,22 @@ class StoryRunner:
         self.visited_segments.add(self.story.start_segment_id)
         
     def get_available_choices(self) -> List[StoryChoice]:
-        """Get the choices available in the current segment, sorted by logged clicks then click count."""
+        """Get the choices available in the current segment, sorted by logged clicks then click count.
+        
+        Tiebreaker: alphabetical by choice text (stable, reproducible).
+        No random shuffling — auto-pick always gets the same first choice.
+        """
         if not self.current_segment:
             return []
             
-        # Get choices and sort by logged clicks first, then click count
         choices = list(self.current_segment.outgoing_choices.values())
-        # Limit to top 100 choices by click count
         
-        # Runtime sort is not a great idea, but here we are
-        # Sort by logged clicks first if available
+        # Primary sort: logged clicks desc, anonymous clicks desc, then text asc as stable tiebreaker
         choices.sort(key=lambda x: (
-            x.logged_clicks if hasattr(x, 'logged_clicks') else 0,
-            x.click_count if hasattr(x, 'click_count') else 0
-        ), reverse=True)
-        
-        # If all choices have same counts, randomize order (unless deterministic mode)
-        if not self.deterministic and all(
-            getattr(x, 'logged_clicks', 0) == getattr(choices[0], 'logged_clicks', 0) and
-            getattr(x, 'click_count', 0) == getattr(choices[0], 'click_count', 0)
-            for x in choices
-        ):
-            from random import shuffle
-            shuffle(choices)
+            -(getattr(x, 'clicks_logged', 0) or 0),
+            -(getattr(x, 'clicks_anonymous', 0) or 0),
+            getattr(x, 'text', '') or '',
+        ))
             
         return choices[:100]
         
@@ -361,6 +354,150 @@ class StoryRunner:
         state_file = self.get_state_file_path()
         if state_file.exists():
             state_file.unlink()
+
+    def navigate_up(self) -> Optional[StorySegment]:
+        """Navigate to the parent segment (go back one step in the story tree).
+        
+        Returns:
+            The parent segment, or None if already at root
+        """
+        if not self.current_segment:
+            return None
+        
+        parent_id = self.current_segment.parent_segment_id
+        if not parent_id:
+            # Try incoming choices as fallback
+            if self.current_segment.incoming_choices:
+                first_choice = next(iter(self.current_segment.incoming_choices.values()))
+                parent_id = first_choice.from_segment_id
+        
+        if not parent_id:
+            return None
+        
+        parent = self.story.get_segment(parent_id, include_archived=True)
+        if not parent:
+            return None
+        
+        self.current_segment = parent
+        self.visited_segments.add(parent_id)
+        return parent
+
+    def navigate_down(self, child_index: int = 0) -> Optional[StorySegment]:
+        """Navigate to a child segment (go forward to an already-generated branch).
+        
+        Only navigates to segments that already exist (to_segment_id is not None).
+        
+        Args:
+            child_index: Which child to navigate to (0-indexed among generated children)
+            
+        Returns:
+            The child segment, or None if no generated children exist
+        """
+        if not self.current_segment:
+            return None
+        
+        # Get outgoing choices that have generated targets
+        generated = [
+            c for c in self.current_segment.outgoing_choices.values()
+            if c.to_segment_id and self.story.get_segment(c.to_segment_id, include_archived=True)
+        ]
+        # Sort alphabetically by text for stable ordering
+        generated.sort(key=lambda c: getattr(c, 'text', '') or '')
+        
+        if not generated or child_index >= len(generated):
+            return None
+        
+        choice = generated[child_index]
+        child = self.story.get_segment(choice.to_segment_id, include_archived=True)
+        if not child:
+            return None
+        
+        self.current_segment = child
+        self.visited_segments.add(child.id)
+        return child
+
+    def get_children(self) -> list:
+        """Get generated child segments of the current segment.
+        
+        Returns:
+            List of (choice, segment) tuples for children that exist, sorted by choice text
+        """
+        if not self.current_segment:
+            return []
+        
+        children = []
+        for choice in self.current_segment.outgoing_choices.values():
+            if choice.to_segment_id:
+                seg = self.story.get_segment(choice.to_segment_id, include_archived=True)
+                if seg:
+                    children.append((choice, seg))
+        
+        children.sort(key=lambda x: getattr(x[0], 'text', '') or '')
+        return children
+
+    def get_local_tree(self, depth_up: int = 2, depth_down: int = 2) -> dict:
+        """Build a local tree view around the current segment.
+        
+        Returns a dict describing the tree:
+        {
+            'ancestors': [(segment, connecting_choice_text), ...],  # root-first
+            'current': segment,
+            'children': [{'choice': choice, 'segment': segment, 'children': [...]}, ...]
+        }
+        """
+        if not self.current_segment:
+            return {'ancestors': [], 'current': None, 'children': []}
+        
+        # Walk up
+        ancestors = []
+        seg = self.current_segment
+        for _ in range(depth_up):
+            parent_id = seg.parent_segment_id
+            if not parent_id:
+                if seg.incoming_choices:
+                    first_choice = next(iter(seg.incoming_choices.values()))
+                    parent_id = first_choice.from_segment_id
+            if not parent_id:
+                break
+            parent = self.story.get_segment(parent_id, include_archived=True)
+            if not parent:
+                break
+            # Find which choice connected parent -> seg
+            choice_text = None
+            for c in parent.outgoing_choices.values():
+                if c.to_segment_id == seg.id:
+                    choice_text = c.text
+                    break
+            ancestors.append((parent, choice_text))
+            seg = parent
+        ancestors.reverse()  # root-first order
+        
+        # Walk down recursively
+        def _build_children(segment, remaining_depth):
+            if remaining_depth <= 0:
+                return []
+            result = []
+            choices = sorted(
+                segment.outgoing_choices.values(),
+                key=lambda c: getattr(c, 'text', '') or ''
+            )
+            for choice in choices:
+                child_seg = None
+                if choice.to_segment_id:
+                    child_seg = self.story.get_segment(choice.to_segment_id, include_archived=True)
+                node = {
+                    'choice': choice,
+                    'segment': child_seg,
+                    'children': _build_children(child_seg, remaining_depth - 1) if child_seg else [],
+                }
+                result.append(node)
+            return result
+        
+        return {
+            'ancestors': ancestors,
+            'current': self.current_segment,
+            'children': _build_children(self.current_segment, depth_down),
+        }
 
     def start_from_segment(self, segment_id: str) -> None:
         """Start the story from a specific segment.
